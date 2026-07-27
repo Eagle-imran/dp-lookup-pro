@@ -1,11 +1,11 @@
 ---
-name: cts-dplookup-pro
+name: dp-lookup-pro
 description: >-
   Enterprise Pro Level 3 DP Plot Lookup & GIS Exporter for Mumbai (MCGM SDP 2014-34).
   Queries Zoning, Land Reservations, DP Modification Orders, CRZ Coastal Restrictions, Metro Rail Buffers, Road Widths, and Adjoining Plot Clusters.
   Generates 2-Page PDF Remark Dockets, Retina HD DP Maps, Esri Satellite Views, AutoCAD GeoJSON, and Google Earth 3D KML exports.
 version: 3.5.0
-command: /cts-dplookup-pro
+command: /dp-lookup-pro
 parameters:
   type: object
   properties:
@@ -21,7 +21,7 @@ parameters:
   required: ["village", "cts_number"]
 ---
 
-# `cts-dplookup-pro` Skill & Command (Enterprise Level)
+# `dp-lookup-pro` Skill & Command (Enterprise Level)
 
 ## Pro Capabilities
 
@@ -42,10 +42,10 @@ parameters:
 
 ### 1. Slash Command (Agent Chat)
 ```text
-/cts-dplookup-pro <VILLAGE_NAME> <CTS_NUMBER>
+/dp-lookup-pro <VILLAGE_NAME> <CTS_NUMBER>
 ```
 
 ### 2. Terminal CLI Command
 ```bash
-./cts-dplookup-pro "<VILLAGE_NAME>" "<CTS_NUMBER>"
+./dp-lookup-pro "<VILLAGE_NAME>" "<CTS_NUMBER>"
 ```

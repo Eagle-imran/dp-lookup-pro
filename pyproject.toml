@@ -1,8 +1,8 @@
 [project]
-name = "cts-dp-lookup-pro"
+name = "dp-lookup-pro"
 version = "3.5.0"
-description = "Enhanced MCGM SDP 2014-34 DP Lookup Tool with PDF Reports, HD Maps, Satellite Aerial Views, and High-Speed Async Batching"
-readme = "SKILL.md"
+description = "Enhanced MCGM SDP 2014-34 DP Lookup Tool with PDF Reports, HD Maps, Satellite Aerial Views, GIS CAD Exports, and High-Speed Async Batching"
+readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "httpx[http2]>=0.28.0",

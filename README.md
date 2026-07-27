@@ -1,8 +1,8 @@
-# 🏛️ MCGM DP 2034 Spatial Lookup Pro (`cts-dplookup-pro`)
+# 🏛️ MCGM DP 2034 Spatial Lookup Pro (`dp-lookup-pro`)
 
 > **Automated Real Estate Spatial Query, GIS CAD Exporter & DP Remark Docket Generator for Mumbai Land Parcels (MCGM SDP 2014-34)**
 
-`cts-dplookup-pro` is an enterprise-grade AI agent skill and standalone CLI tool that queries the official **MCGM Development Plan (DP) 2034 MapServer** to instantly retrieve zoning, land reservations, modification orders, CRZ restrictions, Metro rail buffers, road access widths, and adjoining plot clusters for any City Survey (CTS/CS) land parcel in Mumbai.
+`dp-lookup-pro` is an enterprise-grade AI agent skill and standalone CLI tool that queries the official **MCGM Development Plan (DP) 2034 MapServer** to instantly retrieve zoning, land reservations, modification orders, CRZ restrictions, Metro rail buffers, road access widths, and adjoining plot clusters for any City Survey (CTS/CS) land parcel in Mumbai.
 
 It automatically generates a complete export bundle containing a **2-Page PDF DP Remark Docket**, **Retina HD DP Maps**, **Tile-Stitched Satellite Aerial Views**, **AutoCAD/QGIS GeoJSON**, and **Google Earth 3D KML** files.
 
@@ -29,7 +29,7 @@ It automatically generates a complete export bundle containing a **2-Page PDF DP
 
 ## 📋 Prerequisites
 
-Before running `cts-dplookup-pro`, ensure your environment meets the following requirements:
+Before running `dp-lookup-pro`, ensure your environment meets the following requirements:
 
 ### 1. System Requirements
 * **Operating System**: macOS, Linux, or Windows (WSL / PowerShell)
@@ -47,13 +47,13 @@ Before running `cts-dplookup-pro`, ensure your environment meets the following r
 
 ### Step 1: Clone the Repository
 ```bash
-git clone https://github.com/Eagle-imran/skillfromgemini_pro.git
-cd skillfromgemini_pro
+git clone https://github.com/Eagle-imran/dp-lookup-pro.git
+cd dp-lookup-pro
 ```
 
 ### Step 2: Make the Wrapper Script Executable
 ```bash
-chmod +x cts-dplookup-pro
+chmod +x dp-lookup-pro
 ```
 
 ### Step 3: Install Dependencies
@@ -80,10 +80,10 @@ If you are using Google Antigravity AI assistant:
 * **Option A (Workspace Skill)**: Keep this folder inside your active workspace. Antigravity will automatically detect `SKILL.md`.
 * **Option B (Global Skill)**: Copy the repository into your global skills directory:
   ```bash
-  cp -r . ~/.gemini/antigravity-cli/skills/cts-dplookup-pro
+  cp -r . ~/.gemini/antigravity-cli/skills/dp-lookup-pro
   ```
 * **Invocation**:
-  * Type slash command: `/cts-dplookup-pro BANDRA 100`
+  * Type slash command: `/dp-lookup-pro BANDRA 100`
   * Or ask naturally: *"Check DP Remarks and generate PDF report for Bandra CTS 100"*
 
 ---
@@ -98,7 +98,7 @@ If you are using Claude Code in your terminal:
 3. Ask Claude to execute the skill:
    > *"Run the DP lookup tool for Worli CTS 748A"*
 
-   Claude Code will automatically run `./cts-dplookup-pro WORLI 748A` using shell execution and present the generated PDF docket and GeoJSON file paths!
+   Claude Code will automatically run `./dp-lookup-pro WORLI 748A` using shell execution and present the generated PDF docket and GeoJSON file paths!
 
 ---
 
@@ -134,7 +134,7 @@ If you are building a custom Python agent with OpenAI Codex or Function Calling:
 ### 4. 🟣 Cursor / Windsurf / Roo Code / VS Code AI Extensions
 If you are pair-programming in Cursor or Windsurf:
 * Simply open your AI Chat panel (`Cmd+L` or `Ctrl+L`) and type:
-  > *"Run `./cts-dplookup-pro 'MALABAR HILL' '16/738'` and give me the summary"*
+  > *"Run `./dp-lookup-pro 'MALABAR HILL' '16/738'` and give me the summary"*
 
 ---
 
@@ -144,19 +144,19 @@ You can also run the tool directly from any shell prompt without an AI agent:
 
 ### Syntax:
 ```bash
-./cts-dplookup-pro "<VILLAGE_NAME>" "<CTS_NUMBER>" [OUTPUT_DIR]
+./dp-lookup-pro "<VILLAGE_NAME>" "<CTS_NUMBER>" [OUTPUT_DIR]
 ```
 
 ### Examples:
 ```bash
 # Example 1: Query Bandra plot
-./cts-dplookup-pro BANDRA 100
+./dp-lookup-pro BANDRA 100
 
 # Example 2: Query Worli plot
-./cts-dplookup-pro WORLI 748A
+./dp-lookup-pro WORLI 748A
 
 # Example 3: Query Malabar Hill plot with custom output folder
-./cts-dplookup-pro "MALABAR HILL" "16/738" ./my_reports
+./dp-lookup-pro "MALABAR HILL" "16/738" ./my_reports
 ```
 
 ---
