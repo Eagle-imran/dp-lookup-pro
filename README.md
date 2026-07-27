@@ -43,29 +43,63 @@ Before running `dp-lookup-pro`, ensure your environment meets the following requ
 
 ---
 
-## 📦 Installation & Setup
+## 🚀 Step-by-Step Walkthrough: From Setup to Final Output
+
+Follow these 5 simple steps to set up, run, and inspect your DP Spatial Remark package:
 
 ### Step 1: Clone the Repository
+Open your terminal and clone the repository:
 ```bash
 git clone https://github.com/Eagle-imran/dp-lookup-pro.git
 cd dp-lookup-pro
 ```
 
-### Step 2: Make the Wrapper Script Executable
+### Step 2: Make the Script Executable
+Give execution permissions to the main CLI wrapper:
 ```bash
 chmod +x dp-lookup-pro
 ```
 
 ### Step 3: Install Dependencies
-Using `uv` (Automatic environment & dependency resolution):
+Automatic installation using `uv`:
 ```bash
 uv sync
 ```
-
 *(Alternatively, using standard Python `pip`):*
 ```bash
 pip install "httpx[http2]>=0.28.0" pillow openpyxl reportlab qrcode
 ```
+
+### Step 4: Execute a Plot Lookup Query
+Run the command by passing the **Village Name** and **CTS Number**:
+```bash
+./dp-lookup-pro WORLI 748A
+```
+*(The CLI will display progress and output a clean 6-section JSON response in under 1 second!)*
+
+### Step 5: Inspect the Generated Output Bundle
+Navigate to the newly created subfolder `./output/worli_cts_748A/` to access all generated assets:
+
+* 📄 **PDF Docket**: Open `dp_report_G-S_748A_worli.pdf` to view the 2-page print-ready DP Remark docket.
+* 📸 **Satellite View**: View `plot_G-S_748A_worli_satellite.png` to inspect building coverage & boundaries.
+* 🗺️ **Retina HD DP Map**: View `plot_G-S_748A_worli_hd.png` to check zoning & road widths.
+* 🌍 **Google Earth 3D**: Double-click `plot_G-S_748A_worli.kml` to launch interactive 3D mapping in Google Earth.
+* 📐 **AutoCAD / QGIS**: Import `plot_G-S_748A_worli.geojson` into CAD/GIS software for architectural design.
+* 📊 **Excel Register**: Open `output/dp-lookups.xlsx` to review the master query log.
+
+---
+
+## 🔐 Security, Permissions & System Requests
+
+When invoking `dp-lookup-pro` inside AI Agent environments (e.g. Google Antigravity CLI, Claude Code, Cursor, Windsurf), the AI assistant will request explicit user approval for specific actions:
+
+| Action / Permission | Why it is Requested | Target Resource / Scope |
+| :--- | :--- | :--- |
+| **1. File Read & Write (`write_file` / `read_file`)** | Creating `./output/<query_folder>/` to write PDFs, PNG maps, GeoJSON, KML, and Excel logs. | Local directory `./output/*` |
+| **2. Terminal Execution (`command`)** | Executing Python CLI wrapper script `./dp-lookup-pro` or `uv run python`. | Local terminal `./dp-lookup-pro` |
+| **3. Web Requests (`read_url` / HTTP GET & POST)** | Fetching plot boundaries, CRZ layers, & satellite tiles from official GIS servers. | `https://agsmaps.mcgm.gov.in/*`<br>`https://server.arcgisonline.com/*` |
+
+> **Note on Security & Privacy**: `dp-lookup-pro` **only** makes outbound HTTP requests to official government MapServers (`mcgm.gov.in`) and Esri basemaps (`arcgisonline.com`). It does **not** upload or transmit any local data or credentials.
 
 ---
 
