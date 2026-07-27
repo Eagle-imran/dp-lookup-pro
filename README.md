@@ -27,13 +27,13 @@ It automatically generates a complete export bundle containing a **2-Page PDF DP
 
 ---
 
-## 📋 Prerequisites
+## 📋 Prerequisites & Compatibility
 
 Before running `dp-lookup-pro`, ensure your environment meets the following requirements:
 
 ### 1. System Requirements
 * **Operating System**: macOS, Linux, or Windows (WSL / PowerShell)
-* **Python**: Python `3.9` or higher installed
+* **Python**: Python `3.9` up to `3.14+` *(Tested & verified on Python 3.14)*
 
 ### 2. Recommended Package Manager
 * [uv](https://github.com/astral-sh/uv) (Fastest Python package manager, recommended):
