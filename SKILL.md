@@ -3,8 +3,8 @@ name: dp-lookup-pro
 description: >-
   Enterprise Pro Level 3 DP Plot Lookup & GIS Exporter for Mumbai (MCGM SDP 2014-34).
   Queries Zoning, Land Reservations, DP Modification Orders, CRZ Coastal Restrictions, Metro Rail Buffers, Road Widths, and Adjoining Plot Clusters.
-  Generates 2-Page PDF Remark Dockets, Retina HD DP Maps, Esri Satellite Views, AutoCAD GeoJSON, and Google Earth 3D KML exports.
-version: 3.5.0
+  Generates 2-Page PDF Remark Dockets, Retina HD DP Maps, Esri Satellite Views, AutoCAD DXF Drawing Files, GeoJSON, and Google Earth 3D KML exports.
+version: 3.6.0
 command: /dp-lookup-pro
 parameters:
   type: object
@@ -28,10 +28,11 @@ parameters:
 1. **🏷️ Planning Status Badges**: Classifies land parcels (`🟢 CLEAR`, `🟡 MODIFIED`, `🔴 RESERVED`).
 2. **🌊 Precise CRZ & Infrastructure Detection**: Queries plot-specific Coastal Regulation Zone (CRZ-I/II/III/IV) restriction boundaries & Layer 1550 Metro Rail Influence buffers.
 3. **📸 Dual High-Definition Visuals**: Generates Retina HD DP 2034 Map Overlay with North Arrow ($N \uparrow$) and scale legend, alongside Tile-Stitched Esri World Imagery Satellite Aerial Views.
-4. **🌍 GIS CAD & Google Earth Exports**: Generates scale-accurate `.geojson` (AutoCAD/QGIS) and `.kml` (Google Earth 3D) files in WGS84 (`EPSG:4326`).
-5. **📄 Auto-Generated 2-Page PDF Docket**: Generates a 2-page downloadable **DP Remark PDF Report** complete with formatted data tables, status banners, maps, adjoining parcel cluster tables, and a scannable interactive map **QR Code**.
-6. **📁 Dedicated Query Export Subfolders**: Isolates all query assets inside clean bundle subfolders (`output/<village_name>_cts_<cts_no>/`).
-7. **⚡ High-Speed Concurrency & Persistent Disk Cache**: Sub-second HTTP/2 async pipelining with persistent disk caching (~12 ms for repeat lookups).
+4. **📐 Direct AutoCAD DXF & GeoJSON Exports**: Generates native AutoCAD `.dxf` drawing files (compatible with AutoCAD LT, Civil 3D, and standard CAD) and scale-accurate `.geojson` (QGIS/ArcGIS).
+5. **🌍 Google Earth 3D Exports**: Generates interactive 3D `.kml` files with metadata popups for Google Earth.
+6. **📄 Auto-Generated 2-Page PDF Docket**: Generates a 2-page downloadable **DP Remark PDF Report** complete with formatted data tables, status banners, maps, adjoining parcel cluster tables, and a scannable interactive map **QR Code**.
+7. **📁 Dedicated Query Export Subfolders**: Isolates all query assets inside clean bundle subfolders (`output/<village_name>_cts_<cts_no>/`).
+8. **⚡ High-Speed Concurrency & Persistent Disk Cache**: Sub-second HTTP/2 async pipelining with persistent disk caching (~12 ms for repeat lookups).
 
 ## Tooling Standards
 

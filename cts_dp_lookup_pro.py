@@ -10,6 +10,7 @@ import httpx
 from PIL import Image, ImageDraw
 from openpyxl import Workbook, load_workbook
 import qrcode
+import ezdxf
 
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, PageBreak
@@ -91,6 +92,40 @@ def export_geojson(wgs_rings: list, properties: dict, output_path: str):
     }
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(geojson_data, f, indent=2)
+
+def export_dxf(wgs_rings: list, properties: dict, output_path: str):
+    """
+    Generates a scale-accurate AutoCAD DXF drawing file (.dxf)
+    with layer styling and text annotations.
+    """
+    doc = ezdxf.new('R2010')
+    msp = doc.modelspace()
+    
+    doc.layers.add(name='PLOT_BOUNDARY', color=1)  # Red
+    doc.layers.add(name='ANNOTATION', color=4)     # Cyan
+    
+    for ring in wgs_rings:
+        pts = [(p[0], p[1]) for p in ring]
+        poly = msp.add_lwpolyline(pts, dxfattribs={'layer': 'PLOT_BOUNDARY', 'closed': True})
+        poly.dxf.const_width = 0.00002
+
+    r0 = wgs_rings[0]
+    cx = sum(p[0] for p in r0) / len(r0)
+    cy = sum(p[1] for p in r0) / len(r0)
+    
+    lbl_text = (
+        f"CTS NO: {properties.get('cts_no')}\n"
+        f"VILLAGE: {properties.get('village')}\n"
+        f"AREA: {properties.get('area_sqm')} sq m\n"
+        f"ZONE: {properties.get('zone')}\n"
+        f"STATUS: {properties.get('status_badge')}\n"
+        f"ROAD: {properties.get('abutting_road')} ({properties.get('road_width')})"
+    )
+    
+    mtext = msp.add_mtext(lbl_text, dxfattribs={'layer': 'ANNOTATION', 'char_height': 0.00008})
+    mtext.set_location((cx, cy))
+    
+    doc.saveas(output_path)
 
 def export_kml(wgs_rings: list, properties: dict, output_path: str):
     ring0 = wgs_rings[0]
@@ -239,7 +274,7 @@ def build_pdf_doc(pdf_path, status_badge, status_summary, village, attrs, cts_nu
 
 async def lookup_plot_pro(village: str, cts_number: str, output_dir: str = "./output") -> Dict[str, Any]:
     """
-    Ultra-Fast Enterprise DP Plot Lookup Pro Tool (Sub-Second Network Concurrency + Persistent Disk Cache).
+    Ultra-Fast Enterprise DP Plot Lookup Pro Tool (AutoCAD DXF + GeoJSON + KML Exports).
     """
     cache_key = f"{village.upper()}:{cts_number}"
     if cache_key in _LOOKUP_CACHE:
@@ -528,7 +563,6 @@ async def lookup_plot_pro(village: str, cts_number: str, output_dir: str = "./ou
         sat_snapshot_fname = f"plot_{ward_clean}_{cts_clean}_{village_clean}_satellite.png"
         sat_snapshot_path = os.path.join(query_dir, sat_snapshot_fname)
 
-        # Thread offloaded image saving
         def save_images():
             final_dp_img.convert("RGB").save(dp_snapshot_path, "PNG", compress_level=1)
             final_sat.convert("RGB").save(sat_snapshot_path, "PNG", compress_level=1)
@@ -543,6 +577,9 @@ async def lookup_plot_pro(village: str, cts_number: str, output_dir: str = "./ou
 
         geojson_fname = f"plot_{ward_clean}_{cts_clean}_{village_clean}.geojson"
         geojson_path = os.path.join(query_dir, geojson_fname)
+        
+        dxf_fname = f"plot_{ward_clean}_{cts_clean}_{village_clean}.dxf"
+        dxf_path = os.path.join(query_dir, dxf_fname)
         
         kml_fname = f"plot_{ward_clean}_{cts_clean}_{village_clean}.kml"
         kml_path = os.path.join(query_dir, kml_fname)
@@ -568,6 +605,7 @@ async def lookup_plot_pro(village: str, cts_number: str, output_dir: str = "./ou
         }
 
         export_geojson(wgs_rings, export_props, geojson_path)
+        export_dxf(wgs_rings, export_props, dxf_path)
         export_kml(wgs_rings, export_props, kml_path)
 
         pdf_fname = f"dp_report_{ward_clean}_{cts_clean}_{village_clean}.pdf"
@@ -581,7 +619,6 @@ async def lookup_plot_pro(village: str, cts_number: str, output_dir: str = "./ou
         qr_img.save(qr_bytes, format="PNG")
         qr_bytes.seek(0)
         
-        # Offload PDF Building to background thread
         await asyncio.to_thread(
             build_pdf_doc,
             pdf_path, status_badge, status_summary, village, attrs, cts_number, zone, des_desc, des_code, mod_approval, mod_label, crz_buffer_flag, metro_buffer_flag, road_name, road_width, dp_snapshot_path, qr_bytes, map_link, sat_snapshot_path, neighbors
@@ -589,21 +626,20 @@ async def lookup_plot_pro(village: str, cts_number: str, output_dir: str = "./ou
 
         now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Master Excel Log
         headers = [
             "lookup_datetime", "source", "ward", "village", "cts_no", "type",
             "area_sqm", "zone", "status_badge", "reservation_code", "reservation_type",
             "designation_code", "designation_desc", "modification_approval",
             "modification_label", "modification_doc", "crz_buffer", "metro_buffer",
             "abutting_road", "road_width", "adjoining_plots_count", "hd_snapshot_file",
-            "satellite_snapshot_file", "pdf_report_file", "geojson_file", "kml_file", "map_link"
+            "satellite_snapshot_file", "pdf_report_file", "dxf_file", "geojson_file", "kml_file", "map_link"
         ]
         row = [
             now_str, "MCGM SDP 2014-34", attrs["WARD"], village, cts_number, attrs["TYPE"],
             attrs["AREA_APP_SQ_MTRS"], zone, status_badge, res_code, res_type,
             des_code, des_desc, mod_approval, mod_label, mod_doc, crz_buffer_flag, metro_buffer_flag,
             road_name, road_width, len(neighbors), dp_snapshot_fname, sat_snapshot_fname, pdf_fname,
-            geojson_fname, kml_fname, map_link
+            dxf_fname, geojson_fname, kml_fname, map_link
         ]
 
         wb = load_workbook(register_path) if os.path.exists(register_path) else Workbook()
@@ -663,6 +699,7 @@ async def lookup_plot_pro(village: str, cts_number: str, output_dir: str = "./ou
                 "pdf_report": pdf_path,
                 "hd_dp_map": dp_snapshot_path,
                 "satellite_view": sat_snapshot_path,
+                "autocad_dxf": dxf_path,
                 "autocad_geojson": geojson_path,
                 "google_earth_kml": kml_path,
                 "master_excel_register": register_path

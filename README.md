@@ -4,7 +4,7 @@
 
 `dp-lookup-pro` is an enterprise-grade AI agent skill and standalone CLI tool that queries the official **MCGM Development Plan (DP) 2034 MapServer** to instantly retrieve zoning, land reservations, modification orders, CRZ restrictions, Metro rail buffers, road access widths, and adjoining plot clusters for any City Survey (CTS/CS) land parcel in Mumbai.
 
-It automatically generates a complete export bundle containing a **2-Page PDF DP Remark Docket**, **Retina HD DP Maps**, **Tile-Stitched Satellite Aerial Views**, **AutoCAD/QGIS GeoJSON**, and **Google Earth 3D KML** files.
+It automatically generates a complete export bundle containing a **2-Page PDF DP Remark Docket**, **Retina HD DP Maps**, **Tile-Stitched Satellite Aerial Views**, **AutoCAD DXF Drawing Files**, **QGIS GeoJSON**, and **Google Earth 3D KML** files.
 
 ---
 
@@ -16,8 +16,9 @@ It automatically generates a complete export bundle containing a **2-Page PDF DP
   * **Retina HD DP 2034 Map**: High-resolution zoning map complete with North Arrow ($N \uparrow$) and scale legend.
   * **Tile-Stitched Satellite Aerial View**: Pixel-aligned Esri World Imagery satellite view showing actual building structures and ground coverage.
 * **🏘️ Adjoining CTS Plot Cluster Identification**: Identifies neighboring land parcels and their areas for site amalgamation and layout analysis.
-* **🌍 GIS CAD & Google Earth Exports**:
-  * **`.geojson`**: Scale-accurate WGS84 (`EPSG:4326`) polygon ready for AutoCAD, QGIS, and ArcGIS.
+* **📐 Native AutoCAD CAD & Google Earth Exports**:
+  * **`.dxf`**: Native AutoCAD Drawing file ready to double-click and open instantly in **AutoCAD, AutoCAD LT, Civil 3D, and TurboCAD**! Includes layer styling & text annotations.
+  * **`.geojson`**: Scale-accurate WGS84 (`EPSG:4326`) polygon for QGIS and ArcGIS.
   * **`.kml`**: Interactive 3D polygon with metadata popups for Google Earth.
 * **📄 2-Page Executive PDF Report Docket**: Professional PDF containing metadata tables, status banners, maps, adjoining parcel lists, and a scannable QR Code linking directly to the live MCGM Web Map.
 * **📊 Centralized Excel Register**: Automatically appends query results to `output/dp-lookups.xlsx`.
@@ -67,7 +68,7 @@ uv sync
 ```
 *(Alternatively, using standard Python `pip`):*
 ```bash
-pip install "httpx[http2]>=0.28.0" pillow openpyxl reportlab qrcode
+pip install "httpx[http2]>=0.28.0" pillow openpyxl reportlab qrcode ezdxf
 ```
 
 ### Step 4: Execute a Plot Lookup Query
@@ -80,11 +81,12 @@ Run the command by passing the **Village Name** and **CTS Number**:
 ### Step 5: Inspect the Generated Output Bundle
 Navigate to the newly created subfolder `./output/worli_cts_748A/` to access all generated assets:
 
+* 📐 **AutoCAD DXF**: Double-click `plot_G-S_748A_worli.dxf` to open directly in **AutoCAD / AutoCAD LT**!
 * 📄 **PDF Docket**: Open `dp_report_G-S_748A_worli.pdf` to view the 2-page print-ready DP Remark docket.
 * 📸 **Satellite View**: View `plot_G-S_748A_worli_satellite.png` to inspect building coverage & boundaries.
 * 🗺️ **Retina HD DP Map**: View `plot_G-S_748A_worli_hd.png` to check zoning & road widths.
 * 🌍 **Google Earth 3D**: Double-click `plot_G-S_748A_worli.kml` to launch interactive 3D mapping in Google Earth.
-* 📐 **AutoCAD / QGIS**: Import `plot_G-S_748A_worli.geojson` into CAD/GIS software for architectural design.
+* 🌐 **QGIS / ArcGIS**: Import `plot_G-S_748A_worli.geojson` into GIS software for spatial analysis.
 * 📊 **Excel Register**: Open `output/dp-lookups.xlsx` to review the master query log.
 
 ---
@@ -95,7 +97,7 @@ When invoking `dp-lookup-pro` inside AI Agent environments (e.g. Google Antigrav
 
 | Action / Permission | Why it is Requested | Target Resource / Scope |
 | :--- | :--- | :--- |
-| **1. File Read & Write (`write_file` / `read_file`)** | Creating `./output/<query_folder>/` to write PDFs, PNG maps, GeoJSON, KML, and Excel logs. | Local directory `./output/*` |
+| **1. File Read & Write (`write_file` / `read_file`)** | Creating `./output/<query_folder>/` to write PDFs, PNG maps, DXF drawings, GeoJSON, KML, and Excel logs. | Local directory `./output/*` |
 | **2. Terminal Execution (`command`)** | Executing Python CLI wrapper script `./dp-lookup-pro` or `uv run python`. | Local terminal `./dp-lookup-pro` |
 | **3. Web Requests (`read_url` / HTTP GET & POST)** | Fetching plot boundaries, CRZ layers, & satellite tiles from official GIS servers. | `https://agsmaps.mcgm.gov.in/*`<br>`https://server.arcgisonline.com/*` |
 
@@ -132,7 +134,7 @@ If you are using Claude Code in your terminal:
 3. Ask Claude to execute the skill:
    > *"Run the DP lookup tool for Worli CTS 748A"*
 
-   Claude Code will automatically run `./dp-lookup-pro WORLI 748A` using shell execution and present the generated PDF docket and GeoJSON file paths!
+   Claude Code will automatically run `./dp-lookup-pro WORLI 748A` using shell execution and present the generated PDF docket and DXF file paths!
 
 ---
 
@@ -147,9 +149,9 @@ If you are building a custom Python agent with OpenAI Codex or Function Calling:
        # Call tool programmatically
        result = await lookup_plot_pro(village="BANDRA", cts_number="100")
        
-       # Print PDF report & GeoJSON file path
+       # Print PDF report & DXF file path
        print("PDF Report generated at:", result["export_files"]["pdf_report"])
-       print("GeoJSON file generated at:", result["export_files"]["autocad_geojson"])
+       print("AutoCAD DXF generated at:", result["export_files"]["autocad_dxf"])
 
    asyncio.run(main())
    ```
@@ -159,7 +161,7 @@ If you are building a custom Python agent with OpenAI Codex or Function Calling:
 
    @tool
    async def run_mumbai_dp_lookup(village: str, cts_number: str) -> dict:
-       """Queries MCGM DP 2034 zoning, reservations, CRZ status, and generates PDF/CAD exports."""
+       """Queries MCGM DP 2034 zoning, reservations, CRZ status, and generates PDF/DXF/GeoJSON exports."""
        return await lookup_plot_pro(village, cts_number)
    ```
 
@@ -206,7 +208,8 @@ output/
     ├── dp_report_<ward>_<cts_no>_<village>.pdf # 2-Page Executive PDF Remark Docket
     ├── plot_<ward>_<cts_no>_<village>_hd.png   # Retina HD DP 2034 Zoning Map Snapshot
     ├── plot_<ward>_<cts_no>_<village>_sat.png  # High-Res Tile-Stitched Satellite View
-    ├── plot_<ward>_<cts_no>_<village>.geojson  # AutoCAD / QGIS Spatial Polygon File
+    ├── plot_<ward>_<cts_no>_<village>.dxf      # Native AutoCAD Drawing File (.dxf)
+    ├── plot_<ward>_<cts_no>_<village>.geojson  # QGIS / ArcGIS Spatial Polygon File
     └── plot_<ward>_<cts_no>_<village>.kml      # Google Earth 3D Interactive File
 ```
 
@@ -261,13 +264,14 @@ The tool outputs a structured, intuitive JSON object containing 6 logical sectio
     "pdf_report": "./output/<village_name>_cts_<cts_no>/dp_report_<cts>.pdf",
     "hd_dp_map": "./output/<village_name>_cts_<cts_no>/plot_<cts>_hd.png",
     "satellite_view": "./output/<village_name>_cts_<cts_no>/plot_<cts>_satellite.png",
+    "autocad_dxf": "./output/<village_name>_cts_<cts_no>/plot_<cts>.dxf",
     "autocad_geojson": "./output/<village_name>_cts_<cts_no>/plot_<cts>.geojson",
     "google_earth_kml": "./output/<village_name>_cts_<cts_no>/plot_<cts>.kml",
     "master_excel_register": "./output/dp-lookups.xlsx"
   },
   "metadata": {
     "source": "MCGM SDP 2014-34",
-    "lookup_datetime": "2026-07-27 12:00:00",
+    "lookup_datetime": "2026-07-28 12:00:00",
     "execution_time_ms": 12.0,
     "cached_result": true,
     "interactive_web_map": "https://mcgm.maps.arcgis.com/..."
