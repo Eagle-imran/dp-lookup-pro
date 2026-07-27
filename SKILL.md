@@ -11,10 +11,10 @@ parameters:
   properties:
     village:
       type: string
-      description: "Name of the Mumbai village (e.g., 'BYCULLA', 'WORLI', 'MALABAR HILL')"
+      description: "Name of the Mumbai village (e.g., 'BANDRA', 'WORLI', 'MALABAR HILL')"
     cts_number:
       type: string
-      description: "CTS or CS plot number (e.g., '16/738', '1605', '748A')"
+      description: "CTS or CS plot number (e.g., '100', '748A', '16/738')"
     output_dir:
       type: string
       description: "Optional destination directory for export bundle subfolders and Excel logs (default: './output')"
@@ -30,7 +30,7 @@ parameters:
 3. **📸 Dual High-Definition Visuals**: Generates Retina HD DP 2034 Map Overlay with North Arrow ($N \uparrow$) and scale legend, alongside Tile-Stitched Esri World Imagery Satellite Aerial Views.
 4. **🌍 GIS CAD & Google Earth Exports**: Generates scale-accurate `.geojson` (AutoCAD/QGIS) and `.kml` (Google Earth 3D) files in WGS84 (`EPSG:4326`).
 5. **📄 Auto-Generated 2-Page PDF Docket**: Generates a 2-page downloadable **DP Remark PDF Report** complete with formatted data tables, status banners, maps, adjoining parcel cluster tables, and a scannable interactive map **QR Code**.
-6. **📁 Dedicated Query Export Subfolders**: Isolates all query assets inside clean bundle subfolders (`output/<village>_cts_<cts_no>/`).
+6. **📁 Dedicated Query Export Subfolders**: Isolates all query assets inside clean bundle subfolders (`output/<village_name>_cts_<cts_no>/`).
 7. **⚡ High-Speed Concurrency & Persistent Disk Cache**: Sub-second HTTP/2 async pipelining with persistent disk caching (~12 ms for repeat lookups).
 
 ## Tooling Standards
@@ -42,10 +42,10 @@ parameters:
 
 ### 1. Slash Command (Agent Chat)
 ```text
-/cts-dplookup-pro MALABAR HILL 16/738
+/cts-dplookup-pro <VILLAGE_NAME> <CTS_NUMBER>
 ```
 
 ### 2. Terminal CLI Command
 ```bash
-./cts-dplookup-pro "MALABAR HILL" "16/738"
+./cts-dplookup-pro "<VILLAGE_NAME>" "<CTS_NUMBER>"
 ```

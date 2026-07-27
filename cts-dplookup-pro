@@ -5,8 +5,8 @@ import json
 from cts_dp_lookup_pro import lookup_plot_pro
 
 def print_usage():
-    print("Usage: cts-dplookup-pro <VILLAGE> <CTS_NUMBER> [OUTPUT_DIR]")
-    print("Example: cts-dplookup-pro BYCULLA 1605")
+    print("Usage: cts-dplookup-pro <VILLAGE_NAME> <CTS_NUMBER> [OUTPUT_DIR]")
+    print("Example: cts-dplookup-pro BANDRA 100")
     sys.exit(1)
 
 async def main():

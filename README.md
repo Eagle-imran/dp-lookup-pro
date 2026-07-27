@@ -80,13 +80,13 @@ Run a spatial DP lookup by providing the **Village Name** and **CTS Number**:
 
 ### Examples:
 ```bash
-# Query Byculla CTS 1605
-./cts-dplookup-pro BYCULLA 1605
+# Example 1: Query Bandra plot
+./cts-dplookup-pro BANDRA 100
 
-# Query Worli CTS 748A
+# Example 2: Query Worli plot
 ./cts-dplookup-pro WORLI 748A
 
-# Query Malabar Hill CTS 16/738
+# Example 3: Query Malabar Hill plot
 ./cts-dplookup-pro "MALABAR HILL" "16/738"
 ```
 
@@ -94,17 +94,17 @@ Run a spatial DP lookup by providing the **Village Name** and **CTS Number**:
 
 ## 📁 Output Folder & Bundle Structure
 
-Each query creates a dedicated, self-contained bundle directory inside `./output/<village>_cts_<cts_no>/`:
+Each query creates a dedicated, self-contained bundle directory inside `./output/<village_name>_cts_<cts_no>/`:
 
 ```text
 output/
-├── dp-lookups.xlsx                     # Master Excel log register
-└── byculla_cts_1605/                   # Dedicated query export bundle
-    ├── dp_report_E_1605_byculla.pdf    # 2-Page Executive PDF Remark Docket
-    ├── plot_E_1605_byculla_hd.png      # Retina HD DP 2034 Zoning Map Snapshot
-    ├── plot_E_1605_byculla_satellite.png# High-Res Tile-Stitched Satellite Aerial View
-    ├── plot_E_1605_byculla.geojson     # AutoCAD / QGIS Spatial Polygon File
-    └── plot_E_1605_byculla.kml         # Google Earth 3D Interactive File
+├── dp-lookups.xlsx                             # Master Excel log register
+└── <village_name>_cts_<cts_no>/                # Dedicated query export bundle
+    ├── dp_report_<ward>_<cts_no>_<village>.pdf # 2-Page Executive PDF Remark Docket
+    ├── plot_<ward>_<cts_no>_<village>_hd.png   # Retina HD DP 2034 Zoning Map Snapshot
+    ├── plot_<ward>_<cts_no>_<village>_sat.png  # High-Res Tile-Stitched Satellite View
+    ├── plot_<ward>_<cts_no>_<village>.geojson  # AutoCAD / QGIS Spatial Polygon File
+    └── plot_<ward>_<cts_no>_<village>.kml      # Google Earth 3D Interactive File
 ```
 
 ---
@@ -116,55 +116,55 @@ The tool outputs a structured, intuitive JSON object containing 6 logical sectio
 ```json
 {
   "plot_identity": {
-    "village": "BYCULLA",
-    "cts_no": "1605",
-    "ward": "E",
+    "village": "<VILLAGE_NAME>",
+    "cts_no": "<CTS_NUMBER>",
+    "ward": "<WARD_LETTER>",
     "type": "CTS",
-    "area_sqm": 1877.87,
+    "area_sqm": 1250.0,
     "coordinates_wgs84": {
-      "latitude": 18.972385,
-      "longitude": 72.82255
+      "latitude": 19.000000,
+      "longitude": 72.800000
     }
   },
   "planning_remarks": {
-    "status_badge": "🟡 MODIFIED (DP Notification Order)",
-    "status_summary": "Modified via MCP/7526 dtd.22.08.2024",
+    "status_badge": "🟢 CLEAR (No Reservation)",
+    "status_summary": "Unreserved Land Parcel",
     "zone": "R",
     "reservation": { "code": "None", "type": "None" },
-    "designation": { "code": "EH1.2", "description": "Municipal Hospital" },
+    "designation": { "code": "None", "description": "None" },
     "dp_modification": {
-      "approval_no": "MCP/7526 dtd.22.08.2024",
-      "details": "Existing Amenity of Municipal Hospital (EH1.2) shown on plot bearing CS no 1605 of Byculla Division is deleted...",
-      "document_link": "https://dpremarks.mcgm.gov.in/dp2034/reports/aprDocs/MCP.7526.dtd.22.08.2024.pdf"
+      "approval_no": "None",
+      "details": "None",
+      "document_link": "None"
     }
   },
   "regulatory_and_infrastructure": {
     "crz_status": "NO (Outside CRZ Buffer)",
-    "metro_buffer": "YES (Metro Buffer Zone)",
+    "metro_buffer": "NO",
     "abutting_road": {
-      "name": "DR ANANDRAO L NAIR RD",
-      "width": "45.72 M"
+      "name": "MAIN ROAD",
+      "width": "18.30 M"
     }
   },
   "spatial_cluster": {
     "adjoining_plots_count": 3,
     "adjoining_cts_plots": [
-      { "cts_no": "1604", "village": "BYCULLA", "area_sqm": "888.98" },
-      { "cts_no": "1634", "village": "BYCULLA", "area_sqm": "1047.51" }
+      { "cts_no": "101", "village": "<VILLAGE_NAME>", "area_sqm": "850.00" },
+      { "cts_no": "102", "village": "<VILLAGE_NAME>", "area_sqm": "920.00" }
     ]
   },
   "export_files": {
-    "bundle_folder": "./output/byculla_cts_1605",
-    "pdf_report": "./output/byculla_cts_1605/dp_report_E_1605_byculla.pdf",
-    "hd_dp_map": "./output/byculla_cts_1605/plot_E_1605_byculla_hd.png",
-    "satellite_view": "./output/byculla_cts_1605/plot_E_1605_byculla_satellite.png",
-    "autocad_geojson": "./output/byculla_cts_1605/plot_E_1605_byculla.geojson",
-    "google_earth_kml": "./output/byculla_cts_1605/plot_E_1605_byculla.kml",
+    "bundle_folder": "./output/<village_name>_cts_<cts_no>",
+    "pdf_report": "./output/<village_name>_cts_<cts_no>/dp_report_<cts>.pdf",
+    "hd_dp_map": "./output/<village_name>_cts_<cts_no>/plot_<cts>_hd.png",
+    "satellite_view": "./output/<village_name>_cts_<cts_no>/plot_<cts>_satellite.png",
+    "autocad_geojson": "./output/<village_name>_cts_<cts_no>/plot_<cts>.geojson",
+    "google_earth_kml": "./output/<village_name>_cts_<cts_no>/plot_<cts>.kml",
     "master_excel_register": "./output/dp-lookups.xlsx"
   },
   "metadata": {
     "source": "MCGM SDP 2014-34",
-    "lookup_datetime": "2026-07-27 22:46:44",
+    "lookup_datetime": "2026-07-27 12:00:00",
     "execution_time_ms": 12.0,
     "cached_result": true,
     "interactive_web_map": "https://mcgm.maps.arcgis.com/..."
@@ -180,7 +180,7 @@ This repository conforms strictly to the **Agent Skill Specification (`SKILL.md`
 
 | Agent Harness | Invocation Syntax / Mode |
 | :--- | :--- |
-| **Google Antigravity CLI / IDE** | `/cts-dplookup-pro <VILLAGE> <CTS>` or CLI execution |
+| **Google Antigravity CLI / IDE** | `/cts-dplookup-pro <VILLAGE_NAME> <CTS_NUMBER>` or CLI execution |
 | **Claude Code (Anthropic CLI)** | Executable tool invocation via shell command |
 | **Cursor / Windsurf / Roo Code** | Terminal execution or agent tool call |
 | **LangChain / LlamaIndex / Custom AI Agents** | Import `from cts_dp_lookup_pro import lookup_plot_pro` |
