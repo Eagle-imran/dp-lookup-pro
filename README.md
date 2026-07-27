@@ -69,13 +69,82 @@ pip install "httpx[http2]>=0.28.0" pillow openpyxl reportlab qrcode
 
 ---
 
-## 🚀 Quick Start & Usage
+## 🤖 Beginner-Friendly Guide: How to Use this Skill Across AI Harnesses
 
-Run a spatial DP lookup by providing the **Village Name** and **CTS Number**:
+This repository conforms strictly to the **Agent Skill Specification (`SKILL.md`)** and can be loaded into any AI assistant or agent framework.
+
+---
+
+### 1. 🟢 Google Antigravity CLI / IDE
+If you are using Google Antigravity AI assistant:
+* **Option A (Workspace Skill)**: Keep this folder inside your active workspace. Antigravity will automatically detect `SKILL.md`.
+* **Option B (Global Skill)**: Copy the repository into your global skills directory:
+  ```bash
+  cp -r . ~/.gemini/antigravity-cli/skills/cts-dplookup-pro
+  ```
+* **Invocation**:
+  * Type slash command: `/cts-dplookup-pro BANDRA 100`
+  * Or ask naturally: *"Check DP Remarks and generate PDF report for Bandra CTS 100"*
+
+---
+
+### 2. 🟠 Claude Code (Anthropic CLI)
+If you are using Claude Code in your terminal:
+1. Clone or link the repository into your project directory.
+2. Open Claude Code in your terminal:
+   ```bash
+   claude
+   ```
+3. Ask Claude to execute the skill:
+   > *"Run the DP lookup tool for Worli CTS 748A"*
+
+   Claude Code will automatically run `./cts-dplookup-pro WORLI 748A` using shell execution and present the generated PDF docket and GeoJSON file paths!
+
+---
+
+### 3. 🔵 OpenAI Codex / Custom Python AI Agents (LangChain, LlamaIndex, AutoGen)
+If you are building a custom Python agent with OpenAI Codex or Function Calling:
+1. Import `lookup_plot_pro` directly in your Python code:
+   ```python
+   from cts_dp_lookup_pro import lookup_plot_pro
+   import asyncio
+
+   async def main():
+       # Call tool programmatically
+       result = await lookup_plot_pro(village="BANDRA", cts_number="100")
+       
+       # Print PDF report & GeoJSON file path
+       print("PDF Report generated at:", result["export_files"]["pdf_report"])
+       print("GeoJSON file generated at:", result["export_files"]["autocad_geojson"])
+
+   asyncio.run(main())
+   ```
+2. Or register it as an Agent Tool:
+   ```python
+   from langchain.tools import tool
+
+   @tool
+   async def run_mumbai_dp_lookup(village: str, cts_number: str) -> dict:
+       """Queries MCGM DP 2034 zoning, reservations, CRZ status, and generates PDF/CAD exports."""
+       return await lookup_plot_pro(village, cts_number)
+   ```
+
+---
+
+### 4. 🟣 Cursor / Windsurf / Roo Code / VS Code AI Extensions
+If you are pair-programming in Cursor or Windsurf:
+* Simply open your AI Chat panel (`Cmd+L` or `Ctrl+L`) and type:
+  > *"Run `./cts-dplookup-pro 'MALABAR HILL' '16/738'` and give me the summary"*
+
+---
+
+## 💻 Manual CLI Usage
+
+You can also run the tool directly from any shell prompt without an AI agent:
 
 ### Syntax:
 ```bash
-./cts-dplookup-pro "<VILLAGE_NAME>" "<CTS_NUMBER>"
+./cts-dplookup-pro "<VILLAGE_NAME>" "<CTS_NUMBER>" [OUTPUT_DIR]
 ```
 
 ### Examples:
@@ -86,8 +155,8 @@ Run a spatial DP lookup by providing the **Village Name** and **CTS Number**:
 # Example 2: Query Worli plot
 ./cts-dplookup-pro WORLI 748A
 
-# Example 3: Query Malabar Hill plot
-./cts-dplookup-pro "MALABAR HILL" "16/738"
+# Example 3: Query Malabar Hill plot with custom output folder
+./cts-dplookup-pro "MALABAR HILL" "16/738" ./my_reports
 ```
 
 ---
@@ -171,19 +240,6 @@ The tool outputs a structured, intuitive JSON object containing 6 logical sectio
   }
 }
 ```
-
----
-
-## 🤖 Universal AI Agent Skill Integration
-
-This repository conforms strictly to the **Agent Skill Specification (`SKILL.md`)** and can be loaded seamlessly by any AI coding assistant or autonomous agent framework:
-
-| Agent Harness | Invocation Syntax / Mode |
-| :--- | :--- |
-| **Google Antigravity CLI / IDE** | `/cts-dplookup-pro <VILLAGE_NAME> <CTS_NUMBER>` or CLI execution |
-| **Claude Code (Anthropic CLI)** | Executable tool invocation via shell command |
-| **Cursor / Windsurf / Roo Code** | Terminal execution or agent tool call |
-| **LangChain / LlamaIndex / Custom AI Agents** | Import `from cts_dp_lookup_pro import lookup_plot_pro` |
 
 ---
 
