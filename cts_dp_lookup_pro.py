@@ -1079,6 +1079,106 @@ def derive_status(mod_item, des_item, rv_item, des_desc, des_code,
             "summary": "Unreserved Land Parcel"}
 
 
+# --- ArcGIS request construction ---------------------------------------------
+# Layer sets and payload builders, lifted out of lookup_plot_pro so the exact
+# parameters are visible, testable, and no longer 300-character single lines.
+# Values here mirror the live-validated requests exactly - do not "tidy" them
+# without re-verifying against the server.
+
+PLANNING_LAYER_IDS = [0, 46, 47, 192, 1550]      # zone, reservation, designation, DP mod, metro
+ROAD_LAYERS = "visible:193,194,44,45,2224"
+NEIGHBOUR_LAYERS = "visible:13"
+
+# Probe offsets outward from each boundary edge, in Web Mercator units. Three
+# distances because a single nudge missed frontage on plots set back from the
+# carriageway.
+ROAD_EDGE_NUDGES = (6.0, 15.0, 25.0)
+ROAD_EDGE_PROBE_LIMIT = 12
+
+
+def identify_payload(x: float, y: float, layers: str, mcx: float, mcy: float, d: float,
+                     tolerance: int, return_geometry: bool) -> Dict[str, str]:
+    """One ArcGIS /identify POST body. mapExtent + imageDisplay set the pixel
+    scale that `tolerance` is measured in, so they travel together."""
+    return {
+        "geometry": f"{x},{y}",
+        "geometryType": "esriGeometryPoint",
+        "sr": "102100",
+        "layers": layers,
+        "tolerance": str(tolerance),
+        "mapExtent": f"{mcx - d},{mcy - d},{mcx + d},{mcy + d}",
+        "imageDisplay": "1000,1000,96",
+        "returnGeometry": "true" if return_geometry else "false",
+        "f": "json",
+    }
+
+
+def planning_layers(crz_layer_ids: list) -> str:
+    ids = ",".join(str(i) for i in PLANNING_LAYER_IDS + list(crz_layer_ids))
+    return f"visible:{ids}"
+
+
+def map_export_params(x0: float, y0: float, x1: float, y1: float,
+                      width: int = 1000, height: int = 1000, dpi: int = 144) -> Dict[str, str]:
+    """The /export call. Consistently the slowest request in a lookup."""
+    return {
+        "bbox": f"{x0},{y0},{x1},{y1}",
+        "bboxSR": "102100",
+        "imageSR": "102100",
+        "size": f"{width},{height}",
+        "format": "png",
+        "transparent": "false",
+        "dpi": str(dpi),
+        "f": "image",
+    }
+
+
+def road_probe_points(outer_ring: list, mcx: float, mcy: float,
+                      xs: list, ys: list) -> List[tuple]:
+    """
+    Where to look for the abutting road.
+
+    Two earlier versions were wrong. Polygon /query against layers 193/194 never
+    worked - those layers reject spatial queries and answer HTTP 200 with an
+    error body that read as "no roads found". Probing only the centroid and two
+    bounding-box corners missed frontage entirely, because on an irregular
+    parcel those corners fall outside the polygon.
+
+    Now: centroid and both corners (kept - on some parcels a corner lands nearer
+    the frontage than any edge midpoint, and dropping them regressed WORLI 947),
+    plus the midpoints of the longest edges pushed outward at three distances.
+    Additive by design; road_map de-duplicates.
+    """
+    edge_probes = []
+    for i in range(len(outer_ring)):
+        p1 = outer_ring[i]
+        p2 = outer_ring[(i + 1) % len(outer_ring)]
+        ex, ey = p2[0] - p1[0], p2[1] - p1[1]
+        seg_len = math.hypot(ex, ey)
+        if seg_len <= 0.01:
+            continue
+        emx, emy = (p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0
+        enx, eny = -ey / seg_len, ex / seg_len
+        # flip the normal so it points away from the parcel centre
+        if (emx + enx - mcx) ** 2 + (emy + eny - mcy) ** 2 < (emx - mcx) ** 2 + (emy - mcy) ** 2:
+            enx, eny = -enx, -eny
+        for nudge in ROAD_EDGE_NUDGES:
+            edge_probes.append((seg_len, (emx + enx * nudge, emy + eny * nudge)))
+
+    edge_probes.sort(key=lambda e: e[0], reverse=True)
+    return [
+        (mcx, mcy),
+        (min(xs), min(ys)),
+        (max(xs), max(ys)),
+    ] + [pt for _, pt in edge_probes[:ROAD_EDGE_PROBE_LIMIT]]
+
+
+def neighbour_probe_points(mcx: float, mcy: float, d: float) -> List[tuple]:
+    """Four cardinal offsets around the parcel."""
+    off = max(15.0, d * 0.7)
+    return [(mcx + off, mcy), (mcx - off, mcy), (mcx, mcy + off), (mcx, mcy - off)]
+
+
 async def lookup_plot_pro(
     village: str,
     cts_number: str,
@@ -1226,17 +1326,8 @@ async def lookup_plot_pro(
 
         ident_task = client.post(
             f"{SERVER_URL}/identify",
-            data={
-                "geometry": f"{cx},{cy}",
-                "geometryType": "esriGeometryPoint",
-                "sr": "102100",
-                "layers": "visible:0,46,47,192,1550," + ",".join(map(str, crz_restriction_layer_ids)),
-                "tolerance": "30",
-                "mapExtent": f"{mcx-d},{mcy-d},{mcx+d},{mcy+d}",
-                "imageDisplay": "1000,1000,96",
-                "returnGeometry": "false",
-                "f": "json",
-            }
+            data=identify_payload(cx, cy, planning_layers(crz_restriction_layer_ids),
+                                  mcx, mcy, d, tolerance=30, return_geometry=False),
         )
 
         half = max(70, max(max(xs) - min(xs), max(ys) - min(ys)) * 0.9)
@@ -1246,76 +1337,22 @@ async def lookup_plot_pro(
 
         dp_snap_task = client.get(
             f"{SERVER_URL}/export",
-            params={
-                "bbox": f"{x0},{y0},{x1},{y1}",
-                "bboxSR": "102100",
-                "imageSR": "102100",
-                "size": f"{W},{H}",
-                "format": "png",
-                "transparent": "false",
-                "dpi": "144",
-                "f": "image",
-            }
+            params=map_export_params(x0, y0, x1, y1, W, H),
         )
 
-        # Road sampling: probe just OUTSIDE each boundary edge, where roads actually run.
-        #
-        # Two things were wrong here before:
-        #  1) Two /query calls against layers 193 & 194 sent a polygon geometry. Those
-        #     layers have spatial querying disabled server-side and answer HTTP 200 with
-        #     an {"error": {"code": 400}} body for EVERY geometry type, so they never
-        #     returned a road. The parser reads .get("features", []) and saw an empty
-        #     list, silently reporting "no road". Both calls are removed.
-        #  2) The remaining probes were the centroid and two BOUNDING-BOX corners. On an
-        #     irregular parcel those corners sit outside the polygon entirely, and the
-        #     centroid can be far from any frontage, so abutting roads were missed.
-        #
-        # Now: the centroid plus the midpoints of the longest boundary edges, each nudged
-        # ~6 units outward along the edge normal. Longest edges first, since frontage is
-        # normally the long side of a plot.
-        outer_ring = rings[0]
-        edge_probes = []
-        for i in range(len(outer_ring)):
-            p1 = outer_ring[i]
-            p2 = outer_ring[(i + 1) % len(outer_ring)]
-            ex, ey = p2[0] - p1[0], p2[1] - p1[1]
-            seg_len = math.hypot(ex, ey)
-            if seg_len <= 0.01:
-                continue
-            emx, emy = (p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0
-            enx, eny = -ey / seg_len, ex / seg_len
-            # flip the normal so it points away from the parcel centre
-            if (emx + enx - mcx) ** 2 + (emy + eny - mcy) ** 2 < (emx - mcx) ** 2 + (emy - mcy) ** 2:
-                enx, eny = -enx, -eny
-            for nudge in [6.0, 15.0, 25.0]:
-                edge_probes.append((seg_len, (emx + enx * nudge, emy + eny * nudge)))
-
-        edge_probes.sort(key=lambda e: e[0], reverse=True)
-        # Keep the original centroid + bounding-box corner probes as well. They are
-        # coarse, but on some parcels a corner lands nearer the frontage than any edge
-        # midpoint does, so dropping them regressed named-road detection. Additive:
-        # more probes can only widen coverage, and road_map de-duplicates the results.
-        road_sample_pts = [
-            (mcx, mcy),
-            (min(xs), min(ys)),
-            (max(xs), max(ys)),
-        ] + [pt for _, pt in edge_probes[:12]]
-
+        road_sample_pts = road_probe_points(rings[0], mcx, mcy, xs, ys)
         road_tasks = [
-            client.post(f"{SERVER_URL}/identify", data={"geometry": f"{px},{py}", "geometryType": "esriGeometryPoint", "sr": "102100", "layers": "visible:193,194,44,45,2224", "tolerance": "50", "mapExtent": f"{mcx-d},{mcy-d},{mcx+d},{mcy+d}", "imageDisplay": "1000,1000,96", "returnGeometry": "true", "f": "json"})
+            client.post(f"{SERVER_URL}/identify",
+                        data=identify_payload(px, py, ROAD_LAYERS, mcx, mcy, d,
+                                              tolerance=50, return_geometry=True))
             for px, py in road_sample_pts
         ]
 
-        # Optimize neighbor query sample points to 4 cardinal offset points around parcel
-        off_d = max(15.0, d * 0.7)
-        neighbor_sample_pts = [
-            (mcx + off_d, mcy),
-            (mcx - off_d, mcy),
-            (mcx, mcy + off_d),
-            (mcx, mcy - off_d)
-        ]
+        neighbor_sample_pts = neighbour_probe_points(mcx, mcy, d)
         neighbor_tasks = [
-            client.post(f"{SERVER_URL}/identify", data={"geometry": f"{px},{py}", "geometryType": "esriGeometryPoint", "sr": "102100", "layers": "visible:13", "tolerance": "30", "mapExtent": f"{mcx-d},{mcy-d},{mcx+d},{mcy+d}", "imageDisplay": "1000,1000,96", "returnGeometry": "true", "f": "json"})
+            client.post(f"{SERVER_URL}/identify",
+                        data=identify_payload(px, py, NEIGHBOUR_LAYERS, mcx, mcy, d,
+                                              tolerance=30, return_geometry=True))
             for px, py in neighbor_sample_pts
         ]
 

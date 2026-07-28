@@ -48,10 +48,10 @@ exclude = [".venv", "output", "docs"]
 #   S110   - try/except/pass. Several are deliberate (optional ezdxf linetypes);
 #            reviewed by hand rather than gated in CI.
 select = ["E", "F", "I", "B", "RUF"]
-# E501 is deferred, not dismissed: 13 long lines are ArcGIS request payloads whose
-# exact params are validated against the live server. Hand-wrapping them now risks
-# a typo in a working request for no behaviour gain; they get restructured when
-# lookup_plot_pro (730 lines) is split.
+# E501: the ArcGIS request payloads that originally caused these are now wrapped
+# (see identify_payload / map_export_params). The 34 that remain are inside
+# build_pdf_doc and export_dxf, which have not been split yet. Re-enable when
+# they are - the count should drop to zero rather than needing exclusions.
 ignore = ["E501"]
 
 [tool.pytest.ini_options]

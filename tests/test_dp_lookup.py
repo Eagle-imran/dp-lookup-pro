@@ -704,3 +704,91 @@ def test_a_plot_with_nothing_against_it_is_clear():
     got = dp.derive_status(None, None, None, "None", "None", "None", "None", "None")
     assert "CLEAR" in got["badge"]
     assert got["summary"] == "Unreserved Land Parcel"
+
+
+# --------------------------------------------------------------------------
+# ArcGIS request payloads. These mirror requests validated against the live
+# server; the tests exist so a future tidy-up cannot silently change them.
+# --------------------------------------------------------------------------
+
+def test_planning_layer_string_is_exact():
+    assert dp.planning_layers([14, 1264, 1548]) == "visible:0,46,47,192,1550,14,1264,1548"
+
+
+def test_road_layers_include_the_polygon_road_layers():
+    """193/194 return `paths`, 44/45 return `rings`. Both are needed."""
+    for layer in ("193", "194", "44", "45"):
+        assert layer in dp.ROAD_LAYERS
+
+
+def test_identify_payload_shape():
+    got = dp.identify_payload(100.0, 200.0, "visible:13", 10.0, 20.0, 50.0,
+                              tolerance=30, return_geometry=True)
+    assert got["geometry"] == "100.0,200.0"
+    assert got["geometryType"] == "esriGeometryPoint"
+    assert got["sr"] == "102100"
+    assert got["tolerance"] == "30"
+    assert got["returnGeometry"] == "true"
+    assert got["imageDisplay"] == "1000,1000,96"
+    assert got["mapExtent"] == "-40.0,-30.0,60.0,70.0"
+    assert got["f"] == "json"
+
+
+def test_identify_payload_returns_geometry_as_a_string_not_a_bool():
+    """ArcGIS wants the literal strings; a Python bool would be sent as True."""
+    assert dp.identify_payload(0, 0, "x", 0, 0, 1, 30, False)["returnGeometry"] == "false"
+
+
+def test_map_export_params_shape():
+    got = dp.map_export_params(1.0, 2.0, 3.0, 4.0)
+    assert got["bbox"] == "1.0,2.0,3.0,4.0"
+    assert got["size"] == "1000,1000"
+    assert got["f"] == "image"
+    assert got["dpi"] == "144"
+
+
+# ---- probe geometry ----
+
+SQ_RING = [[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]]
+
+
+def test_road_probes_keep_the_centroid_and_both_corners():
+    """Dropping these regressed WORLI 947's named road; they are deliberate."""
+    pts = dp.road_probe_points(SQ_RING, 50.0, 50.0, [0.0, 100.0], [0.0, 100.0])
+    assert pts[0] == (50.0, 50.0)
+    assert pts[1] == (0.0, 0.0)
+    assert pts[2] == (100.0, 100.0)
+
+
+def test_road_probes_are_capped_and_pushed_outside_the_plot():
+    pts = dp.road_probe_points(SQ_RING, 50.0, 50.0, [0.0, 100.0], [0.0, 100.0])
+    assert len(pts) == 3 + dp.ROAD_EDGE_PROBE_LIMIT
+    # every edge probe must sit outside the square, never inside it
+    for x, y in pts[3:]:
+        assert not (0.0 < x < 100.0 and 0.0 < y < 100.0), f"probe ({x},{y}) is inside the plot"
+
+
+def test_road_probes_use_three_distances_per_edge():
+    assert len(dp.ROAD_EDGE_NUDGES) == 3
+    pts = dp.road_probe_points(SQ_RING, 50.0, 50.0, [0.0, 100.0], [0.0, 100.0])
+    # the four edges of a square are equal length, so all three nudges appear
+    dists = {round(max(abs(x - 50.0), abs(y - 50.0)), 1) for x, y in pts[3:]}
+    assert len(dists) >= 3
+
+
+def test_road_probes_survive_a_degenerate_ring():
+    """A zero-length segment must not divide by zero."""
+    ring = [[0.0, 0.0], [0.0, 0.0], [10.0, 0.0], [10.0, 10.0]]
+    assert dp.road_probe_points(ring, 5.0, 5.0, [0.0, 10.0], [0.0, 10.0])
+
+
+def test_neighbour_probes_are_four_cardinal_offsets():
+    pts = dp.neighbour_probe_points(0.0, 0.0, 100.0)
+    assert len(pts) == 4
+    assert set(pts) == {(70.0, 0.0), (-70.0, 0.0), (0.0, 70.0), (0.0, -70.0)}
+
+
+def test_neighbour_probe_offset_has_a_floor():
+    """A tiny plot still needs to reach far enough to find a neighbour."""
+    assert dp.neighbour_probe_points(0.0, 0.0, 1.0) == [
+        (15.0, 0.0), (-15.0, 0.0), (0.0, 15.0), (0.0, -15.0)]
