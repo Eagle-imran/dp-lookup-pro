@@ -1,42 +1,48 @@
 # ⏪ ROLLBACK — How to go back if something breaks
 
-> **Short version:** your old working version is saved and untouched.
-> To go back to it, run **`git checkout main`**. Nothing is lost either way.
+> **Short version:** the update is now on `main` (merged 2026-07-29).
+> To undo it, run **`git revert -m 1 9bc0f2e`**. Nothing is lost either way.
 
 ---
 
 ## 🗂️ The two versions you have
 
-| Name | Commit | What it is |
+| Reference | Commit | What it is |
 | :--- | :--- | :--- |
-| **`main`** | `cb6df26` | Your previous working version. Untouched. |
-| **`v3.7.0-hardening`** | `13125de` | The 2026-07-28 update (CRZ, roads, areas, caching, tests). |
+| **`main`** | `9bc0f2e` | **Current.** v3.10.0 — all fixes. Pushed to GitHub. |
+| the merge | `9bc0f2e` | One commit containing the whole update — revert this to undo it all |
+| pre-update `main` | `cb6df26` | The old version, still in history |
+| **`v3.7.0-hardening`** | `55777f3` | The branch, kept as a safety net (local + GitHub) |
 
-Both live on your Mac. Switching between them changes the files in the folder —
-it does not delete anything.
+Nothing was deleted. Every old version is still in git history and can be
+restored.
 
 ---
 
 ## ✅ Scenario 1 — "The new version misbehaves, put it back"
 
-This is the common case, and it is one command:
+The whole update went in as one merge, so one command undoes all of it:
 
 ```bash
 cd ~/Developer/dp-lookup-pro-IP
-git checkout main
-```
-
-Then clear the cache, because the two versions store it differently:
-
-```bash
+git revert -m 1 9bc0f2e
 rm -f output/.cache_store.json
 ```
 
-You are now running exactly what you had before. To return to the new version
-later:
+This creates a NEW commit that undoes the update. Nothing is erased and the
+history stays honest — the right choice now that `main` is on GitHub.
+
+If you also want GitHub back to the old behaviour:
 
 ```bash
-git checkout v3.7.0-hardening
+git push origin main
+```
+
+To look at the old version without changing anything:
+
+```bash
+git checkout cb6df26      # detached view of the pre-update code
+git checkout main         # back to current
 ```
 
 > ⚠️ **Expect the first lookup after switching to be slow** (5–13 seconds
@@ -45,25 +51,17 @@ git checkout v3.7.0-hardening
 
 ---
 
-## ✅ Scenario 2 — "I already merged it into `main` and want it undone"
-
-If the update has been merged and you want to reverse it while keeping a record:
-
-```bash
-git revert 13125de
-```
-
-This creates a **new** commit that undoes the changes. Nothing is erased, and
-the history stays honest — preferred if the code has been shared with anyone.
-
-If it has **not** been shared and you want it gone entirely:
+## ✅ Scenario 2 — "I want it gone from history entirely"
 
 ```bash
 git reset --hard cb6df26
+git push --force origin main
 ```
 
-> ⚠️ `reset --hard` permanently discards work after that commit. Only use it if
-> nobody else has the code.
+> ⚠️ **This is the destructive option.** `reset --hard` discards the work, and
+> the force-push rewrites GitHub's history. The update is already published, so
+> prefer Scenario 1's revert unless you are certain nobody has pulled it.
+> The `v3.7.0-hardening` branch would still hold the work either way.
 
 ---
 
@@ -107,8 +105,8 @@ uv run python dp-lookup-pro WORLI 947
 
 | Output | Version |
 | :--- | :--- |
-| `"crz_status": "NO (Outside CRZ Buffer)"` | **old** (`main`) — this answer is wrong |
-| `"crz_status": "YES (CRZ II)"` | **new** (`v3.7.0-hardening`) — correct |
+| `CRZ  YES (CRZ II)` | **current** (v3.10.0) — correct |
+| `CRZ  NO (Outside CRZ Buffer)` | **old** — this answer is wrong for a coastal plot |
 
 ---
 
