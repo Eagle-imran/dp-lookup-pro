@@ -33,7 +33,7 @@ One request creates a folder containing **six files**:
 | File | Who it's for | What you do with it |
 | :--- | :--- | :--- |
 | 📄 **PDF Report** | Your client | 2-page DP remark docket — email it, print it, attach it to a proposal |
-| 📐 **AutoCAD `.dxf`** | Your architect | Double-click → opens in AutoCAD with the plot drawn to scale |
+| 📐 **AutoCAD `.dxf`** | Your architect | Opens in AutoCAD to scale, with the road, setback lines, neighbouring plots and a layer legend. Send them [DXF-GUIDE.md](DXF-GUIDE.md) with it. |
 | 🗺️ **HD Zoning Map** | You | Zone, reservations and road widths at a glance |
 | 📸 **Satellite View** | You | What's actually built on the ground today |
 | 🌍 **Google Earth `.kml`** | Site visits | Double-click → flies you to the plot in 3D |
