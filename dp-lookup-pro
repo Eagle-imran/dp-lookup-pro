@@ -1,25 +1,20 @@
-#!/usr/bin/env uv run python
+#!/usr/bin/env python3
+"""
+Thin CLI shim. All logic lives in cts_dp_lookup_pro.main().
+
+The previous shebang was '#!/usr/bin/env uv run python'. macOS splits shebang
+arguments, but Linux passes the whole remainder as a single argument, so that
+form failed there with:  env: 'uv run python': No such file or directory
+and could not run on Windows at all.
+
+Portable invocations, in order of preference:
+    uv run python dp-lookup-pro WORLI 947     # works everywhere, no install
+    dp-lookup-pro WORLI 947                   # after: pip install -e .
+    ./dp-lookup-pro WORLI 947                 # needs deps on the system python
+"""
 import sys
-import asyncio
-import json
-from cts_dp_lookup_pro import lookup_plot_pro
 
-def print_usage():
-    print("Usage: dp-lookup-pro <VILLAGE_NAME> <CTS_NUMBER> [OUTPUT_DIR]")
-    print("Example: dp-lookup-pro BANDRA 100")
-    sys.exit(1)
-
-async def main():
-    if len(sys.argv) < 3:
-        print_usage()
-        
-    village = sys.argv[1]
-    cts_number = sys.argv[2]
-    output_dir = sys.argv[3] if len(sys.argv) > 3 else "./output"
-    
-    print(f"🚀 [PRO] Running DP Spatial Lookup & PDF Report Generation for village '{village}', CTS '{cts_number}'...")
-    res = await lookup_plot_pro(village=village, cts_number=cts_number, output_dir=output_dir)
-    print("\n" + json.dumps(res, indent=2))
+from cts_dp_lookup_pro import main
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(main())

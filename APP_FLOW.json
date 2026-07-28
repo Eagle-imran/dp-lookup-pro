@@ -1,0 +1,605 @@
+{
+  "_meta": {
+    "purpose": "Machine-readable architecture map of dp-lookup-pro, written for an AI agent picking up this codebase cold.",
+    "generated": "2026-07-28",
+    "engine_file": "cts_dp_lookup_pro.py",
+    "line_numbers_valid_as_of": "2026-07-28 post issue-register sweep",
+    "line_numbers_caveat": "Line numbers drift with edits. Treat them as hints; confirm with grep before relying on them.",
+    "version": "3.7.0",
+    "related_docs": {
+      "changelog": "CHANGELOG.md",
+      "rollback": "ROLLBACK.md",
+      "user_guide": "START-HERE.md",
+      "visual_map": "APP_FLOW.html"
+    }
+  },
+  "project": {
+    "name": "dp-lookup-pro",
+    "summary": "CLI + importable Python library that queries the MCGM Development Plan 2034 ArcGIS MapServer for a Mumbai CTS/CS land parcel and emits a 6-file deliverable bundle.",
+    "data_source": "https://agsmaps.mcgm.gov.in/server/rest/services/Development_Plan_2034/MapServer",
+    "basemap_source": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile",
+    "language": "Python >=3.9 (verified on 3.14)",
+    "package_manager": "uv",
+    "runtime_dependencies": [
+      "httpx[http2]",
+      "pillow",
+      "openpyxl",
+      "reportlab",
+      "qrcode",
+      "ezdxf"
+    ],
+    "llm_dependency": "NONE. No AI library is imported or required. An LLM is an optional convenience for reading the JSON output aloud; it generates none of the deliverables.",
+    "license": "Proprietary, all rights reserved. Evaluation use only. NOT open source."
+  },
+  "entry_points": [
+    {
+      "kind": "cli",
+      "path": "dp-lookup-pro",
+      "invocation_portable": "uv run python dp-lookup-pro <VILLAGE> <CTS> [OUTPUT_DIR] [--no-cache]",
+      "invocation_mac_only": "./dp-lookup-pro <VILLAGE> <CTS>",
+      "warning": "FIXED 2026-07-28. Shebang is now '#!/usr/bin/env python3' and the wrapper is a thin shim over cts_dp_lookup_pro.main().",
+      "notes": "Arg parsing, --no-cache/--fresh flags and the 'WORLI CTS 947' conversational form all live in main(). Returns exit code 1 on error.",
+      "invocation_installed": "dp-lookup-pro <VILLAGE> <CTS>   (after: uv pip install -e .)"
+    },
+    {
+      "kind": "python_library",
+      "import": "from cts_dp_lookup_pro import lookup_plot_pro",
+      "signature": "async def lookup_plot_pro(village, cts_number, output_dir='./output', use_cache=True, cache_ttl_seconds=86400, timeout_seconds=20.0) -> Dict[str, Any]",
+      "warning": "FIXED 2026-07-28. pyproject.toml now has [build-system] (hatchling) and a dp-lookup-pro console script, so `uv pip install -e .` works and the module imports from any CWD."
+    },
+    {
+      "kind": "agent_skill",
+      "path": "SKILL.md",
+      "notes": "Agent metadata. version/command/parameters keys are non-spec and inert, but harmless."
+    }
+  ],
+  "execution_pipeline": [
+    {
+      "stage": 1,
+      "name": "Cache lookup",
+      "line_hint": 551,
+      "detail": "Key is '<VILLAGE>:<CTS>'. Entries are {cached_at, result} and expire after cache_ttl_seconds (default 30 DAYS - layer 13 carries LAST_EDITED_DATE 2019-01-23 on every parcel, so geometry is a frozen snapshot; zones/reservations/CRZ change only by gazetted order). A hit also verifies every promised export file still exists, and stamps metadata.cached_at / cache_age_days / cache_expires_in_days so staleness is never silent. Legacy untimestamped entries are treated as expired. Bypass with use_cache=False or --no-cache.",
+      "store": "<output_dir>/.cache_store.json",
+      "issues": []
+    },
+    {
+      "stage": 2,
+      "name": "Parcel resolve",
+      "line_hint": 571,
+      "call": "GET {SERVER_URL}/13/query",
+      "params": {
+        "where": "VILLAGE='<VILLAGE>' AND CTS_CS_NO='<CTS>'",
+        "outFields": "WARD,TYPE,VILLAGE,CTS_CS_NO,AREA_APP_SQ_MTRS",
+        "returnGeometry": "true",
+        "outSR": "102100"
+      },
+      "returns": "attributes + geometry.rings in Web Mercator (EPSG:102100)",
+      "on_empty": "returns {'error': \"Plot not found for CTS '<x>' in village '<y>'\"} and stops",
+      "issues": [],
+      "critical_note": "FIXED 2026-07-28. Inputs pass a character whitelist before interpolation, the call is wrapped in try/except httpx.HTTPError, and the body goes through usable_json() so an ArcGIS error payload is not mistaken for an empty result."
+    },
+    {
+      "stage": 3,
+      "name": "Geometry preparation",
+      "line_hint": 581,
+      "detail": "Computes ring centroid (cx,cy), bbox centre (mcx,mcy), half-extent d = max(50, largest_span/2). Converts Web Mercator to WGS84 with R=20037508.342789244. Builds output subfolder ./output/<village_clean>_cts_<cts_clean>/."
+    },
+    {
+      "stage": 4,
+      "name": "Task assembly",
+      "line_hint": 610,
+      "detail": "Builds 5 coroutine groups without awaiting: identify, map export, road probes, neighbour probes, satellite tiles."
+    },
+    {
+      "stage": 5,
+      "name": "Single-batch concurrent fetch",
+      "line_hint": 724,
+      "detail": "One asyncio.gather over all 5 groups, return_exceptions=True, HTTP/2 pool (max_keepalive=30, max_connections=50, timeout=20.0s).",
+      "issues": [],
+      "critical_note": "FIXED 2026-07-28. Failures are now classified: a failed identify aborts the run with an error (no PDF, no Excel row, no cache entry); road/neighbour/tile/map failures become metadata.warnings and suppress caching. metadata.complete reports whether the run was clean. Timeout raised 10s -> 20s."
+    },
+    {
+      "stage": 6,
+      "name": "Response parsing",
+      "line_hint": 737,
+      "detail": "Roads deduped into road_map keyed 'name|width', preferring entries whose name != 'Exisiting Road' and width != 'N/A'. Neighbours deduped by CTS number, excluding self. Identify results picked by layerId via next(). Every response is parsed via usable_json(), which rejects HTTP 200 bodies carrying an ArcGIS 'error' key.",
+      "issues": []
+    },
+    {
+      "stage": 7,
+      "name": "Raster rendering",
+      "line_hint": 800,
+      "detail": "DP map: server PNG + Pillow RGBA overlay (plot polygon, north arrow, legend box). Satellite: 3x3 Esri z18 tiles stitched to 768x768, plot polygon reprojected via tile_to_latlon bounds. Saved off the event loop via asyncio.to_thread."
+    },
+    {
+      "stage": 8,
+      "name": "Vector exports",
+      "detail": "export_geojson (WGS84 CRS84), export_dxf (ezdxf R2010, 11 CAD layers, local metric origin at plot centroid, 1 unit = 1 m, UTM 43N centroid in title block), export_kml (hand-built XML string).",
+      "issues": []
+    },
+    {
+      "stage": 9,
+      "name": "PDF docket",
+      "detail": "ReportLab SimpleDocTemplate, letter, 2 pages. Page 1: status banner, 10-row attribute table, DP map, QR code to the ArcGIS web map. Page 2: satellite view + adjoining parcel table (first 8).",
+      "issues": []
+    },
+    {
+      "stage": 10,
+      "name": "Excel register append",
+      "detail": "Appends a 28-column row to <output_dir>/dp-lookups.xlsx, creating headers if the sheet is empty.",
+      "note": "Append-only. Bad runs are never removed and must be pruned by hand."
+    },
+    {
+      "stage": 11,
+      "name": "Cache write and return",
+      "detail": "Writes {cached_at, result} into the output-dir-scoped store and flushes to disk - but ONLY when metadata.warnings is empty. Returns the 6-section dict."
+    }
+  ],
+  "network_calls": {
+    "total_per_cold_lookup": 25,
+    "sequential": 1,
+    "concurrent_batch": 24,
+    "breakdown": [
+      {
+        "group": "parcel_query",
+        "count": 1,
+        "endpoint": "/13/query",
+        "concurrent": false,
+        "note": "Sequential, wrapped in error handling."
+      },
+      {
+        "group": "identify_planning",
+        "count": 1,
+        "endpoint": "/identify",
+        "layers": [
+          0,
+          46,
+          47,
+          192,
+          1550,
+          14,
+          1264,
+          1548
+        ],
+        "tolerance": 30
+      },
+      {
+        "group": "dp_map_export",
+        "count": 1,
+        "endpoint": "/export",
+        "size": "1000x1000",
+        "dpi": 144
+      },
+      {
+        "group": "road_probes",
+        "count": 9,
+        "endpoint": "/identify",
+        "layers": [
+          193,
+          194,
+          44,
+          45
+        ],
+        "tolerance": 40,
+        "probe_points": "bbox centre + 2 bbox corners + midpoints of the 6 longest boundary edges, each nudged ~6 units outward along the edge normal"
+      },
+      {
+        "group": "neighbour_probes",
+        "count": 4,
+        "endpoint": "/identify",
+        "layers": [
+          13
+        ],
+        "tolerance": 30,
+        "probe_points": "4 cardinal offsets at max(15, d*0.7)"
+      },
+      {
+        "group": "satellite_tiles",
+        "count": 9,
+        "endpoint": "Esri World_Imagery tile",
+        "zoom": 18,
+        "grid": "3x3",
+        "cached": "in-memory _TILE_CACHE only, not persisted"
+      }
+    ],
+    "observed_latency_ms": {
+      "cache_hit": "10-20",
+      "cold_typical": "6900-8000",
+      "cold_observed_max": 12991,
+      "note": "Measured 2026-07-28. README/MEMORY/SKILL latency claims corrected to match."
+    }
+  },
+  "arcgis_layers": {
+    "note": "Layer IDs are stable on this MapServer. Verify with GET {SERVER_URL}?f=json before changing any of them.",
+    "in_use": [
+      {
+        "id": 13,
+        "name": "Global_Property_merge_v7",
+        "role": "CTS parcel polygons - the primary lookup layer"
+      },
+      {
+        "id": 0,
+        "name": "REVISED PLU ZONES",
+        "role": "zone code",
+        "attribute": "Zone_Code2"
+      },
+      {
+        "id": 46,
+        "name": "reservation",
+        "attributes": [
+          "NEW_RES_CODE_31",
+          "NEW_RES_MAINTYPE_31"
+        ]
+      },
+      {
+        "id": 47,
+        "name": "designation",
+        "attributes": [
+          "NEW_DES_CODE_31",
+          "DISCRIPTION"
+        ]
+      },
+      {
+        "id": 192,
+        "name": "DP modification",
+        "attributes": [
+          "LABEL to Display",
+          "APPROVAL_NO",
+          "Approval Documents"
+        ]
+      },
+      {
+        "id": 1550,
+        "name": "Metro_buffer",
+        "role": "metro rail influence zone"
+      },
+      {
+        "id": 14,
+        "name": "CRZ",
+        "role": "CRZ zone polygon",
+        "attribute": "category",
+        "example_value": "II"
+      },
+      {
+        "id": 1264,
+        "name": "CRZ II",
+        "attribute": "CLASS"
+      },
+      {
+        "id": 1548,
+        "name": "CRZ",
+        "attribute": "Category"
+      },
+      {
+        "id": 193,
+        "name": "Traffic RoadLines",
+        "attributes": [
+          "ROAD_NAME",
+          "WIDTH_RL"
+        ],
+        "identify_only": true
+      },
+      {
+        "id": 194,
+        "name": "Survey RoadLines",
+        "identify_only": true
+      },
+      {
+        "id": 44,
+        "name": "EXISITING_ROAD",
+        "identify_only": true
+      },
+      {
+        "id": 45,
+        "name": "PROPOSED_ROAD",
+        "identify_only": true
+      }
+    ],
+    "deliberately_excluded": [
+      {
+        "id": 2238,
+        "name": "Coastal Districts having CRZ",
+        "reason": "District-wide polygon. Covers every plot in Mumbai City and Suburban, so including it marks 100% of parcels as CRZ. This caused the original false-positive bug."
+      }
+    ],
+    "known_traps": [
+      "Layers 193 and 194 have spatial querying DISABLED server-side. Any /query with a geometry - polygon, envelope or point, with or without distance - returns HTTP 200 carrying {'error': {'code': 400}}. Only attribute queries (where=1=1) succeed. Road data must come from /identify, never /query.",
+      "Layers 31, 1118, 2212, 2213, 2214, 2240, 2241, 2242, 2243 are all LINE features (High Tide Line, Low Tide Line, CRZ Lines and Boundaries, Hazard Line, etc). A point-identify can never intersect a line, so using them for CRZ detection silently returns NO for every plot. This was the original false-negative bug.",
+      "LAST_EDITED_DATE on layer 13 is identical (2019-01-23) for every parcel - it is the bulk load date, NOT a per-parcel edit stamp, so it cannot be used as a cache revalidation key. DP modifications also do NOT appear on the parcel record (APPROVAL_NO is null even for plots that have one); they live in layer 192."
+    ]
+  },
+  "outputs": {
+    "bundle_folder": "<output_dir>/<village_lowercase>_cts_<cts>/",
+    "files": [
+      {
+        "key": "pdf_report",
+        "pattern": "dp_report_<WARD>_<CTS>_<VILLAGE>.pdf",
+        "builder": "reportlab",
+        "audience": "client deliverable"
+      },
+      {
+        "key": "hd_dp_map",
+        "pattern": "plot_<WARD>_<CTS>_<VILLAGE>_hd.png",
+        "builder": "pillow",
+        "size": "1000x1000"
+      },
+      {
+        "key": "satellite_view",
+        "pattern": "plot_<WARD>_<CTS>_<VILLAGE>_satellite.png",
+        "builder": "pillow",
+        "size": "768x768"
+      },
+      {
+        "key": "autocad_dxf",
+        "pattern": "plot_<WARD>_<CTS>_<VILLAGE>.dxf",
+        "builder": "ezdxf",
+        "units": "metres, 1 CAD unit = 1 m, origin at plot centroid"
+      },
+      {
+        "key": "autocad_geojson",
+        "pattern": "plot_<WARD>_<CTS>_<VILLAGE>.geojson",
+        "crs": "EPSG:4326 / CRS84"
+      },
+      {
+        "key": "google_earth_kml",
+        "pattern": "plot_<WARD>_<CTS>_<VILLAGE>.kml"
+      },
+      {
+        "key": "master_excel_register",
+        "path": "<output_dir>/dp-lookups.xlsx",
+        "mode": "append-only, 28 columns"
+      }
+    ],
+    "json_response_sections": [
+      "plot_identity",
+      "planning_remarks",
+      "regulatory_and_infrastructure",
+      "spatial_cluster",
+      "export_files",
+      "metadata"
+    ],
+    "metadata_fields": [
+      "source",
+      "lookup_datetime",
+      "execution_time_ms",
+      "cached_result",
+      "complete",
+      "warnings",
+      "interactive_web_map"
+    ]
+  },
+  "dxf_layers": [
+    "0_GRID_AXIS",
+    "C-PLOT-BDY",
+    "C-PROP-HATCH",
+    "C-SETBACK-3M",
+    "C-SETBACK-6M",
+    "C-ADJN-PLOTS",
+    "C-ROAD-ALIGN",
+    "C-RESTRICT-ZONE",
+    "C-ANNO-TEXT",
+    "C-ANNO-DIMS",
+    "C-TITLE-BLOCK"
+  ],
+  "domain_constraints": [
+    {
+      "id": "village-names-exact",
+      "detail": "VILLAGE is matched with exact string equality against 128 valid MCGM revenue village names. These are cadastral survey names, NOT modern locality names.",
+      "traps": [
+        "'BANDRA' is not valid - use BANDRA-A through BANDRA-I, or BANDRA-EAST",
+        "'KURLA' is not valid - use 'KURLA - 1' through 'KURLA - 4' (note the spaces around the hyphen)",
+        "'BHANDUP' is not valid - use BHANDUP-E or BHANDUP-W"
+      ],
+      "full_list_location": "START-HERE.md, collapsible section",
+      "how_to_refetch": "GET {SERVER_URL}/13/query?where=1%3D1&outFields=VILLAGE&returnDistinctValues=true&returnGeometry=false&f=json"
+    },
+    {
+      "id": "cts-number-exact",
+      "detail": "CTS_CS_NO is also exact-matched. '16/738' and '16-738' are different. Suffixes matter: '748A' != '748'."
+    }
+  ],
+  "verified_test_plots": [
+    {
+      "village": "WORLI",
+      "cts": "733",
+      "ward": "G/S",
+      "area_sqm": 1317.74,
+      "area_source": "approved",
+      "zone": "R",
+      "status": "CLEAR",
+      "crz": "YES (CRZ II)",
+      "metro": "NO",
+      "road": "Exisiting Road N/A",
+      "adjoining": 3,
+      "verification": "OWNER-VERIFIED 2026-07-28. Confirmed correct by the project owner against independent knowledge of the plot. This is the strongest single validation of the CRZ fix - a coastal Worli parcel where the pre-3.7.0 code returned NO."
+    },
+    {
+      "village": "WORLI",
+      "cts": "947",
+      "ward": "G/S",
+      "area_sqm": 462.28,
+      "zone": "R",
+      "crz": "YES (CRZ II)",
+      "road": "B G KHER 18.30 M"
+    },
+    {
+      "village": "WORLI",
+      "cts": "886",
+      "ward": "G/S",
+      "area_sqm": 1319.05,
+      "zone": "R",
+      "crz": "YES (CRZ II)",
+      "road": "Exisiting Road N/A (unverified - may be a genuine interior plot)"
+    },
+    {
+      "village": "MOHILI",
+      "cts": "732",
+      "ward": "L",
+      "area_sqm": 2933.0,
+      "zone": "I",
+      "crz": "NO",
+      "road": "Road 21.35"
+    },
+    {
+      "village": "BYCULLA",
+      "cts": "1605",
+      "ward": "E",
+      "area_sqm": 1877.87,
+      "zone": "R",
+      "crz": "NO",
+      "road": "DR ANANDRAO L NAIR RD 45.72 M",
+      "status": "MODIFIED via MCP/7526 dtd.22.08.2024"
+    },
+    {
+      "village": "BANDRA-A",
+      "cts": "409",
+      "ward": "H/W",
+      "area_sqm": 115.58,
+      "zone": "R",
+      "crz": "YES (CRZ II)"
+    },
+    {
+      "village": "TARDEO",
+      "cts": "264",
+      "crz": "NO"
+    }
+  ],
+  "known_issues": [
+    {
+      "id": "silent-degradation-on-timeout",
+      "severity": "critical",
+      "status": "FIXED 2026-07-28",
+      "location": "cts_dp_lookup_pro.py stage 5 + parsing at ~737",
+      "detail": "return_exceptions=True plus a 10s timeout across a 24-request burst means a slow server produces zone='Unknown', road=None, 0 neighbours, crz='NO'. The run still writes a full PDF, still appends to the Excel register, and still caches the result permanently.",
+      "impact": "A transient network hiccup becomes an authoritative-looking report indistinguishable from a real one.",
+      "suggested_fix": "If the identify result set is empty, do not cache, do not write the PDF, and surface a warning in the returned dict."
+    },
+    {
+      "id": "cache-stores-failures",
+      "severity": "critical",
+      "status": "FIXED 2026-07-28",
+      "detail": "Degraded results are cached like successes. Observed on 2026-07-28: WORLI:886 cached as zone=Unknown, road=None."
+    },
+    {
+      "id": "cache-no-expiry",
+      "severity": "high",
+      "status": "FIXED 2026-07-28",
+      "location": "~551",
+      "detail": "No TTL and no invalidation. Once cached, a plot returns the original zoning and reservation status forever. For a tool informing property decisions, stale DP status is a material risk.",
+      "suggested_fix": "Add a TTL and a --no-cache flag."
+    },
+    {
+      "id": "http-200-with-error-body-swallowed",
+      "severity": "high",
+      "status": "FIXED 2026-07-28",
+      "detail": "The parser checks status_code != 200 then reads j.get('features', []). An ArcGIS error body is HTTP 200 with an 'error' key, so it parses as zero features and is reported as 'nothing found'. The two dead road /query calls were removed, but the parser still cannot distinguish an API error from an empty result anywhere else.",
+      "suggested_fix": "Check for an 'error' key in every parsed body before using it."
+    },
+    {
+      "id": "sql-injection-where-clause",
+      "severity": "high",
+      "status": "FIXED 2026-07-28",
+      "location": "~565",
+      "detail": "village and cts_number are interpolated into the ArcGIS WHERE clause unescaped. A single quote breaks out of the string literal.",
+      "suggested_fix": "Whitelist [A-Za-z0-9 /.-] or escape single quotes. Fold this into the village validation work."
+    },
+    {
+      "id": "cache-path-cwd-relative",
+      "severity": "medium",
+      "status": "FIXED 2026-07-28",
+      "location": 26,
+      "detail": "CACHE_STORE_PATH = './output/.cache_store.json' is relative to the process CWD and ignores the output_dir argument entirely.",
+      "impact": "Blocks any global/installed CLI model; scatters output/ folders wherever the user happens to be."
+    },
+    {
+      "id": "shebang-not-portable",
+      "severity": "medium",
+      "status": "FIXED 2026-07-28",
+      "location": "dp-lookup-pro line 1",
+      "detail": "'#!/usr/bin/env uv run python' works on macOS only. Verified failing on Linux semantics.",
+      "workaround_in_docs": "Documentation now uses 'uv run python dp-lookup-pro ...'."
+    },
+    {
+      "id": "kml-no-xml-escaping",
+      "severity": "medium",
+      "status": "FIXED 2026-07-28",
+      "detail": "Village, road and status strings are interpolated into raw KML. An & or < produces a file Google Earth refuses to parse.",
+      "suggested_fix": "xml.sax.saxutils.escape()"
+    },
+    {
+      "id": "reportlab-paragraph-markup-injection",
+      "severity": "medium",
+      "status": "FIXED 2026-07-28",
+      "detail": "Strings go straight into ReportLab Paragraph(), which parses a mini-XML markup language. A stray & or < raises during doc.build(), crashing the run after all network work has succeeded."
+    },
+    {
+      "id": "not-installable",
+      "severity": "medium",
+      "status": "FIXED 2026-07-28",
+      "detail": "pyproject.toml has no [build-system] and no [project.scripts]. pip install, uvx and pipx are all impossible; the module only imports when CWD is the repo root."
+    },
+    {
+      "id": "pillow-floor-too-low",
+      "severity": "low",
+      "status": "FIXED 2026-07-28",
+      "detail": "pyproject declares pillow>=10.0.0, but ImageDraw.text(font_size=...) requires 10.1+. A resolver picking 10.0.x crashes during map rendering."
+    },
+    {
+      "id": "no-tests",
+      "severity": "medium",
+      "status": "FIXED 2026-07-28",
+      "detail": "No test suite anywhere. Geometry, projection and DXF transform logic have no regression protection. lookup_plot_pro is a ~450-line function mixing network IO, geometry, rendering, export and logging."
+    },
+    {
+      "id": "benchmark-claims-stale",
+      "severity": "low",
+      "status": "FIXED 2026-07-28",
+      "detail": "README claims ~800ms fresh; MEMORY.md claims 2200-3000ms cold. Measured 2026-07-28: 6900-12991ms."
+    }
+  ],
+  "recent_fixes": [
+    {
+      "date": "2026-07-28",
+      "id": "crz-false-negative",
+      "summary": "crz_restriction_layer_ids changed from 9 LINE layers to CRZ zone polygons [14, 1264, 1548].",
+      "root_cause": "Every previous ID was a boundary line. A point-identify at a plot centroid can never intersect a line, so CRZ could only ever return NO.",
+      "validation": "WORLI 886, WORLI 947 and BANDRA-A 409 flipped NO -> YES (CRZ II) and were confirmed against ground truth. BYCULLA 1605 and TARDEO 264 correctly stayed NO, proving the old false-positive bug was not reintroduced. Independently confirmed by the project owner on WORLI 733 (2026-07-28)."
+    },
+    {
+      "date": "2026-07-28",
+      "id": "crz-tier-reporting",
+      "summary": "crz_status now reports the sub-tier by reading category / Category / CATEGORY / CLASS / Class, producing 'YES (CRZ II)' instead of a bare 'YES'."
+    },
+    {
+      "date": "2026-07-28",
+      "id": "road-detection",
+      "summary": "Removed the two dead /query calls to layers 193/194 and added boundary-edge probes alongside the original centroid and bbox-corner probes.",
+      "validation": "MOHILI 732 went from road=None to 21.35. WORLI 947 (B G KHER 18.30 M) and BYCULLA 1605 (DR ANANDRAO L NAIR RD 45.72 M) both unchanged.",
+      "caution": "An earlier attempt REPLACED the bbox-corner probes and regressed WORLI 947. The probes are additive on purpose - do not remove the bbox corners."
+    },
+    {
+      "date": "2026-07-28",
+      "id": "issue-register-sweep",
+      "summary": "Cleared the whole issue register: input whitelist + quote doubling, ArcGIS error-body detection via usable_json(), hard failure when the identify call fails, metadata.warnings + complete flag, degraded runs never cached, cache TTL (24h default) + use_cache/--no-cache + output-dir-relative store, XML/markup escaping in KML and ReportLab, hatchling packaging with a dp-lookup-pro console script, portable shebang, pillow>=10.1.0, 41 offline tests, corrected latency claims.",
+      "validation": "41 pytest tests pass offline. All six verified plots re-run live with use_cache=False and returned complete=true with zero warnings: WORLI 947, WORLI 886, MOHILI 732, BYCULLA 1605, BANDRA-A 409, TARDEO 264.",
+      "caution": "Per-request timeout raised 10s -> 20s. The MCGM server throttles sustained bursts; space bulk lookups by ~10s or lookups will legitimately fail with ReadTimeout (which now surfaces as an error rather than a silently degraded report)."
+    },
+    {
+      "date": "2026-07-28",
+      "id": "cache-policy-and-bundle-verification",
+      "summary": "TTL raised 24h -> 30 days to match measured data velocity. Cache hits now verify every promised export file exists (a hit previously returned paths to deleted files and reported success), and report cached_at / cache_age_days / cache_expires_in_days.",
+      "validation": "47 offline tests pass, including a regression that deletes a bundle file and asserts the entry is refused."
+    }
+  ],
+  "guidance_for_next_agent": [
+    "Run `uv run pytest -q` before and after any change - there are now 41 offline tests covering projection maths, validation, escaping, cache TTL and the exporters.",
+    "Before changing anything, read CHANGELOG.md 3.7.0 - it records which behaviours were deliberately corrected. Reverting one of them reintroduces a known bug; ROLLBACK.md documents the safe procedure.",
+    "The engine is cts_dp_lookup_pro.py. lookup_plot_pro is the single entry function and is ~450 lines.",
+    "Any change touching CRZ, roads or layer IDs MUST be regression-tested against verified_test_plots above, in BOTH directions - a coastal plot that should be YES and an inland plot that should be NO.",
+    "Clear ./output/.cache_store.json before any retest. Cached results will silently replay the old behaviour and make a fix look like it failed.",
+    "Never trust an empty result set as 'nothing found' - check for an 'error' key first. Three separate silent-failure paths have already been traced to this pattern.",
+    "Verify layer behaviour against the live server before assuming it: GET {SERVER_URL}?f=json lists every layer id and name.",
+    "The owner's stated priority is a simple install for non-technical users plus eventual commercialisation via a web app with logins. Prefer changes that reduce setup friction. Do not add an LLM dependency.",
+    "This is proprietary software. Do not add an open-source licence or describe it as open source."
+  ]
+}

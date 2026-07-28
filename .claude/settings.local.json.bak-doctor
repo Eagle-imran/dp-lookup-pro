@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/python dp-lookup-pro *)",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(.venv/bin/python -c \"import ast;ast.parse\\(open\\('cts_dp_lookup_pro.py'\\).read\\(\\)\\);print\\('syntax OK'\\)\")",
+      "Bash(.venv/bin/python -c \"import ast;ast.parse\\(open\\('cts_dp_lookup_pro.py'\\).read\\(\\)\\);print\\('engine syntax OK'\\)\")",
+      "Bash(.venv/bin/python -c \"import ast;ast.parse\\(open\\('dp-lookup-pro'\\).read\\(\\)\\);print\\('wrapper syntax OK'\\)\")",
+      "Bash(echo \"exit=$?\")",
+      "Bash(.venv/bin/python)",
+      "Bash(.venv/bin/python -m pytest tests/ -q)",
+      "Bash(uv pip *)",
+      "Bash(git remote *)",
+      "Bash(echo \"remote is $\\(git remote get-url origin\\)\")",
+      "Bash(git push *)",
+      "Bash(.venv/bin/python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('  valid JSON, keys:', list\\(d\\)[:3]\\)\")",
+      "Bash(git commit *)",
+      "Bash(git add *)"
+    ]
+  }
+}
