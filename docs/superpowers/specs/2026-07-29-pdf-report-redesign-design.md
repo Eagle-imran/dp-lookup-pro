@@ -58,6 +58,11 @@ Two consequences that drive the design:
 | Block | Content | Purpose |
 | :--- | :--- | :--- |
 | Header | Optional logo + firm, title, reference, date | Identity slot; renders clean when unbranded |
+| **Verdict band** | Status word + colour band; village, CTS, ward, area | The five-second answer |
+| **Constraint cards** ×3 | Zone · CRZ · Frontage | The three findings that govern development |
+| Detail table | Reservation, designation, DP modification, metro buffer, area source | Supporting detail, deliberately quieter |
+| Map | DP 2034 zoning map, full width | Fills today's blank third |
+| Footer | Indicative-only notice + QR to the live map | Prevents misuse as an official remark |
 
 **Reference format:** first three letters of the village + CTS number, uppercased
 and non-alphanumerics stripped — `WORLI` + `733` → `WOR-733`. Deterministic, so
@@ -65,11 +70,6 @@ the same plot always yields the same reference. It is a human-readable label for
 correspondence, **not** a unique identifier: two villages sharing a three-letter
 prefix (`MALABAR HILL` and `MALAD`, both `MAL`) can collide on the same CTS
 number. The village and CTS appear in full in the verdict band directly below.
-| **Verdict band** | Status word + colour band; village, CTS, ward, area | The five-second answer |
-| **Constraint cards** ×3 | Zone · CRZ · Frontage | The three findings that govern development |
-| Detail table | Reservation, designation, DP modification, metro buffer, area source | Supporting detail, deliberately quieter |
-| Map | DP 2034 zoning map, full width | Fills today's blank third |
-| Footer | Indicative-only notice + QR to the live map | Prevents misuse as an official remark |
 
 ### Page 2 — the evidence page
 
