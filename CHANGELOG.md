@@ -28,6 +28,7 @@ you get `YES (CRZ II)` rather than a bare `YES`.
 | BANDRA-A 409 | NO | **YES (CRZ II)** |
 | BYCULLA 1605 | NO | NO ✓ *(correctly unchanged — inland)* |
 | TARDEO 264 | NO | NO ✓ *(correctly unchanged — inland)* |
+| **WORLI 733** | NO | **YES (CRZ II)** ✅ *(owner-verified against the actual plot)* |
 
 ⚠️ **Any PDF generated before this release understates CRZ status for coastal
 plots.** Re-run anything you have issued to a client.

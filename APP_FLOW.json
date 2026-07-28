@@ -401,6 +401,20 @@
   "verified_test_plots": [
     {
       "village": "WORLI",
+      "cts": "733",
+      "ward": "G/S",
+      "area_sqm": 1317.74,
+      "area_source": "approved",
+      "zone": "R",
+      "status": "CLEAR",
+      "crz": "YES (CRZ II)",
+      "metro": "NO",
+      "road": "Exisiting Road N/A",
+      "adjoining": 3,
+      "verification": "OWNER-VERIFIED 2026-07-28. Confirmed correct by the project owner against independent knowledge of the plot. This is the strongest single validation of the CRZ fix - a coastal Worli parcel where the pre-3.7.0 code returned NO."
+    },
+    {
+      "village": "WORLI",
       "cts": "947",
       "ward": "G/S",
       "area_sqm": 462.28,
@@ -549,7 +563,7 @@
       "id": "crz-false-negative",
       "summary": "crz_restriction_layer_ids changed from 9 LINE layers to CRZ zone polygons [14, 1264, 1548].",
       "root_cause": "Every previous ID was a boundary line. A point-identify at a plot centroid can never intersect a line, so CRZ could only ever return NO.",
-      "validation": "WORLI 886, WORLI 947 and BANDRA-A 409 flipped NO -> YES (CRZ II) and were confirmed against ground truth. BYCULLA 1605 and TARDEO 264 correctly stayed NO, proving the old false-positive bug was not reintroduced."
+      "validation": "WORLI 886, WORLI 947 and BANDRA-A 409 flipped NO -> YES (CRZ II) and were confirmed against ground truth. BYCULLA 1605 and TARDEO 264 correctly stayed NO, proving the old false-positive bug was not reintroduced. Independently confirmed by the project owner on WORLI 733 (2026-07-28)."
     },
     {
       "date": "2026-07-28",
