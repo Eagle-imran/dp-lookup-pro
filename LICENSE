@@ -1,0 +1,60 @@
+Copyright © 2026 Imran Patel. All rights reserved.
+
+dp-lookup-pro — MCGM DP 2034 Spatial Lookup Pro
+PROPRIETARY SOFTWARE — EVALUATION LICENSE
+
+This software and its source code are proprietary and confidential.
+They are NOT open source. Publication of this source code on GitHub or
+any other platform does not place it in the public domain and grants no
+license beyond the limited evaluation permission described below.
+
+1. EVALUATION PERMISSION
+
+   You are permitted to download, install, and run this software for the
+   sole purpose of personal, internal evaluation and testing.
+
+2. RESTRICTIONS
+
+   Without prior written permission from the copyright holder, you may NOT:
+
+   a) use this software, or any output it generates, for commercial
+      purposes, including providing paid services to third parties;
+   b) copy, redistribute, publish, sublicense, sell, rent, or lease this
+      software or any part of it;
+   c) modify, adapt, translate, or create derivative works from it;
+   d) reverse engineer, decompile, or disassemble it, except to the extent
+      such restriction is prohibited by applicable law;
+   e) remove or alter this license or any copyright notice.
+
+3. NO WARRANTY
+
+   THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+   IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES,
+   OR OTHER LIABILITY ARISING FROM, OUT OF, OR IN CONNECTION WITH THIS
+   SOFTWARE OR ITS USE.
+
+4. NOT A SUBSTITUTE FOR OFFICIAL RECORDS
+
+   This software queries publicly available MCGM ArcGIS map services and
+   presents the results in report form. Its output is INDICATIVE ONLY and is
+   not an official Development Plan Remark, not a legal document, and not
+   certified by the Municipal Corporation of Greater Mumbai. Always obtain
+   an official DP Remark from MCGM before making any legal, financial, or
+   development decision. The copyright holder accepts no liability for
+   decisions made on the basis of this software's output.
+
+5. THIRD-PARTY DATA AND COMPONENTS
+
+   Spatial data is retrieved from MCGM ArcGIS REST Services
+   (agsmaps.mcgm.gov.in) and Esri World Imagery (arcgisonline.com), each
+   subject to its own terms of use. This license covers only the software
+   itself, not the underlying data. Third-party Python packages remain under
+   their respective licenses.
+
+6. TERMINATION
+
+   This permission terminates automatically if you breach any term above.
+
+For commercial licensing, please contact the copyright holder.

@@ -2,6 +2,17 @@
 
 > **Automated Real Estate Spatial Query, GIS CAD Exporter & DP Remark Docket Generator for Mumbai Land Parcels (MCGM SDP 2014-34)**
 
+### 👉 New here? Read **[START-HERE.md](START-HERE.md)** instead.
+
+**[START-HERE.md](START-HERE.md)** is the plain-English guide — what this does, what
+you get, and a 5-minute setup. No technical background needed.
+The rest of this README is the technical reference for developers.
+
+> ⚖️ **Proprietary software** — © 2026 Imran Patel. All rights reserved. Not open-source.
+> Free for personal evaluation; commercial use requires a licence. See [LICENSE](LICENSE).
+
+---
+
 `dp-lookup-pro` is an enterprise-grade AI agent skill and standalone CLI tool that queries the official **MCGM Development Plan (DP) 2034 MapServer** to instantly retrieve zoning, land reservations, modification orders, CRZ restrictions, Metro rail buffers, road access widths, and adjoining plot clusters for any City Survey (CTS/CS) land parcel in Mumbai.
 
 It automatically generates a complete export bundle containing a **2-Page PDF DP Remark Docket**, **Retina HD DP Maps**, **Tile-Stitched Satellite Aerial Views**, **AutoCAD DXF Drawing Files**, **QGIS GeoJSON**, and **Google Earth 3D KML** files.
@@ -23,8 +34,8 @@ It automatically generates a complete export bundle containing a **2-Page PDF DP
 * **📄 2-Page Executive PDF Report Docket**: Professional PDF containing metadata tables, status banners, maps, adjoining parcel lists, and a scannable QR Code linking directly to the live MCGM Web Map.
 * **📊 Centralized Excel Register**: Automatically appends query results to `output/dp-lookups.xlsx`.
 * **⚡ High-Speed Concurrency & Persistent Disk Cache**:
-  * Single-batch HTTP/2 async request pipelining (~800 ms fresh start).
-  * Persistent disk cache store (`output/.cache_store.json`) executing repeat queries in **~12 ms**.
+  * Single-batch HTTP/2 async request pipelining: **~7-13 seconds** for a cold lookup (25 requests; measured 2026-07-28).
+  * Cached repeat queries return in **~0.4 s** end-to-end (the lookup itself is sub-millisecond; the rest is Python interpreter startup). Entries live **30 days** — matching how slowly DP data actually moves — are invalidated automatically if their files are deleted, and report their age on every hit. Pass `--no-cache` for a same-day fresh check. The cache lives in the output directory and expires after 24 hours by default; pass `--no-cache` to force a fresh fetch.
 
 ---
 
@@ -119,8 +130,8 @@ If you are using Google Antigravity AI assistant:
   cp -r . ~/.gemini/antigravity-cli/skills/dp-lookup-pro
   ```
 * **Invocation**:
-  * Type slash command: `/dp-lookup-pro BANDRA 100`
-  * Or ask naturally: *"Check DP Remarks and generate PDF report for Bandra CTS 100"*
+  * Type slash command: `/dp-lookup-pro BANDRA-A 409`
+  * Or ask naturally: *"Check DP Remarks and generate PDF report for Bandra-A CTS 409"*
 
 ---
 
@@ -147,7 +158,7 @@ If you are building a custom Python agent with OpenAI Codex or Function Calling:
 
    async def main():
        # Call tool programmatically
-       result = await lookup_plot_pro(village="BANDRA", cts_number="100")
+       result = await lookup_plot_pro(village="BANDRA-A", cts_number="409")
        
        # Print PDF report & DXF file path
        print("PDF Report generated at:", result["export_files"]["pdf_report"])
@@ -185,8 +196,8 @@ You can also run the tool directly from any shell prompt without an AI agent:
 
 ### Examples:
 ```bash
-# Example 1: Query Bandra plot
-./dp-lookup-pro BANDRA 100
+# Example 1: Query Bandra plot (note: 'BANDRA' alone is not a valid village)
+./dp-lookup-pro BANDRA-A 409
 
 # Example 2: Query Worli plot
 ./dp-lookup-pro WORLI 748A
@@ -285,4 +296,5 @@ The tool outputs a structured, intuitive JSON object containing 6 logical sectio
 
 * **Data Source**: Official Municipal Corporation of Greater Mumbai (MCGM) Development Plan 2034 ArcGIS REST Services (`agsmaps.mcgm.gov.in`).
 * **Satellite Base Map**: Esri World Imagery (`services.arcgisonline.com`).
-* **License**: MIT License. Open-source for developers, urban planners, and real estate professionals.
+* **License**: **Proprietary — © 2026 Imran Patel. All rights reserved.** This is *not* open-source software. Free for personal evaluation and testing only; commercial use, redistribution and modification require written permission. See [LICENSE](LICENSE).
+* **Disclaimer**: Output is **indicative only** — not an official DP Remark and not certified by MCGM. Always obtain an official DP Remark before making legal, financial or development decisions.

@@ -1,0 +1,519 @@
+<title>dp-lookup-pro — System Flow Map</title>
+<style>
+  :root {
+    --paper:#FBFAF8; --panel:#FFFFFF; --ink:#16181D; --ink-soft:#55575E; --ink-faint:#8A8B92;
+    --rule:#E2DFDA; --rule-soft:#EFEDE9;
+    --accent:#C2185B; --accent-dim:#F7E6EE;
+    --cad:#1B6CA8; --cad-dim:#E8F1F8;
+    --ok:#1E7A4C; --ok-bg:#E7F3EC;
+    --warn:#B4700A; --warn-bg:#FBF1DE;
+    --crit:#C0332B; --crit-bg:#FCE9E7;
+    --wire:#B9B5AE;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:#131418; --panel:#1B1D22; --ink:#ECEAE6; --ink-soft:#A8A6A2; --ink-faint:#75737A;
+      --rule:#2E3037; --rule-soft:#24262C;
+      --accent:#F06292; --accent-dim:#38212B;
+      --cad:#6BA8D8; --cad-dim:#1B2831;
+      --ok:#5FC08B; --ok-bg:#17281F;
+      --warn:#E0A93F; --warn-bg:#2C2416;
+      --crit:#EB7167; --crit-bg:#2F1B19;
+      --wire:#4A4C54;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:#131418; --panel:#1B1D22; --ink:#ECEAE6; --ink-soft:#A8A6A2; --ink-faint:#75737A;
+    --rule:#2E3037; --rule-soft:#24262C;
+    --accent:#F06292; --accent-dim:#38212B;
+    --cad:#6BA8D8; --cad-dim:#1B2831;
+    --ok:#5FC08B; --ok-bg:#17281F;
+    --warn:#E0A93F; --warn-bg:#2C2416;
+    --crit:#EB7167; --crit-bg:#2F1B19;
+    --wire:#4A4C54;
+  }
+  :root[data-theme="light"] {
+    --paper:#FBFAF8; --panel:#FFFFFF; --ink:#16181D; --ink-soft:#55575E; --ink-faint:#8A8B92;
+    --rule:#E2DFDA; --rule-soft:#EFEDE9;
+    --accent:#C2185B; --accent-dim:#F7E6EE;
+    --cad:#1B6CA8; --cad-dim:#E8F1F8;
+    --ok:#1E7A4C; --ok-bg:#E7F3EC;
+    --warn:#B4700A; --warn-bg:#FBF1DE;
+    --crit:#C0332B; --crit-bg:#FCE9E7;
+    --wire:#B9B5AE;
+  }
+
+  body { background:var(--paper); color:var(--ink); font-family:var(--sans); font-size:15px;
+         line-height:1.6; margin:0; padding:0 20px 96px; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1140px; margin:0 auto; }
+
+  .titleblock { border:1.5px solid var(--ink); margin:40px 0 8px; display:grid; grid-template-columns:1fr auto; }
+  .titleblock-main { padding:22px 24px 20px; }
+  .titleblock-meta { border-left:1.5px solid var(--ink); padding:22px 24px; display:grid; gap:10px; align-content:start; min-width:190px; }
+  @media (max-width:700px){ .titleblock{grid-template-columns:1fr;} .titleblock-meta{border-left:0;border-top:1.5px solid var(--ink);} }
+  h1 { font-family:var(--mono); font-size:clamp(1.5rem,4vw,2.1rem); font-weight:600; letter-spacing:-.02em; margin:0 0 6px; text-wrap:balance; }
+  .subtitle { color:var(--ink-soft); margin:0; font-size:.95rem; max-width:56ch; }
+  .eyebrow { font-family:var(--mono); font-size:.66rem; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin:0 0 10px; }
+  .metaline { font-family:var(--mono); font-size:.72rem; line-height:1.5; }
+  .metaline b { display:block; color:var(--ink-faint); font-weight:500; letter-spacing:.08em; text-transform:uppercase; font-size:.62rem; }
+
+  .callout { border:1px solid var(--rule); border-left:3px solid var(--accent); background:var(--panel); padding:14px 18px; margin:24px 0; font-size:.9rem; }
+  .callout b { color:var(--accent); }
+
+  h2 { font-family:var(--mono); font-size:.78rem; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-soft);
+       margin:56px 0 4px; padding-bottom:8px; border-bottom:1px solid var(--rule); }
+  .sectionnote { color:var(--ink-faint); font-size:.86rem; margin:10px 0 22px; max-width:68ch; }
+
+  /* ---------- diagram ---------- */
+  .diagramwrap { overflow-x:auto; border:1px solid var(--rule); background:var(--panel); padding:8px 4px; }
+  svg.flow { display:block; width:100%; min-width:940px; height:auto; }
+
+  .wire { stroke:var(--wire); stroke-width:1.4; fill:none; }
+  .wire-dim { stroke:var(--wire); stroke-width:1.2; fill:none; stroke-dasharray:4 3; }
+
+  .nbox { fill:var(--panel); stroke:var(--rule); stroke-width:1.3; }
+  .nbox-core   { fill:var(--panel);     stroke:var(--ink-faint); stroke-width:1.4; }
+  .nbox-guard  { fill:var(--accent-dim);stroke:var(--accent);    stroke-width:1.6; }
+  .nbox-net    { fill:var(--cad-dim);   stroke:var(--cad);       stroke-width:1.3; }
+  .nbox-out    { fill:var(--ok-bg);     stroke:var(--ok);        stroke-width:1.3; }
+  .nbox-exit   { fill:var(--rule-soft); stroke:var(--ink-faint); stroke-width:1.2; stroke-dasharray:4 3; }
+  .nbox-entry  { fill:var(--panel);     stroke:var(--ink-faint); stroke-width:1.2; stroke-dasharray:4 3; }
+
+  .ntitle { font-family:var(--sans); font-size:13px; font-weight:600; fill:var(--ink); }
+  .nsub   { font-family:var(--mono); font-size:10px; fill:var(--ink-soft); }
+  .nnum   { font-family:var(--mono); font-size:10px; font-weight:700; fill:var(--ink-faint); }
+  .ncount { font-family:var(--mono); font-size:19px; font-weight:700; fill:var(--cad); }
+  .wlabel { font-family:var(--mono); font-size:10px; fill:var(--ink-faint); letter-spacing:.05em; }
+  .bang   { font-family:var(--mono); font-size:12px; font-weight:700; fill:var(--accent); }
+  .bandlabel { font-family:var(--mono); font-size:10px; fill:var(--ink-faint); letter-spacing:.14em; text-transform:uppercase; }
+
+  .legend { display:flex; flex-wrap:wrap; gap:18px; margin-top:14px; font-size:.78rem; color:var(--ink-soft); font-family:var(--mono); }
+  .legend span { display:flex; align-items:center; gap:7px; }
+  .sw { width:15px; height:11px; border-radius:2px; display:inline-block; }
+  .sw-core{background:var(--panel);border:1.4px solid var(--ink-faint);}
+  .sw-guard{background:var(--accent-dim);border:1.6px solid var(--accent);}
+  .sw-net{background:var(--cad-dim);border:1.3px solid var(--cad);}
+  .sw-out{background:var(--ok-bg);border:1.3px solid var(--ok);}
+  .sw-exit{background:var(--rule-soft);border:1.2px dashed var(--ink-faint);}
+
+  .tablewrap { overflow-x:auto; border:1px solid var(--rule); background:var(--panel); }
+  table { border-collapse:collapse; width:100%; font-size:.85rem; min-width:480px; }
+  th { text-align:left; font-family:var(--mono); font-size:.66rem; letter-spacing:.1em; text-transform:uppercase;
+       color:var(--ink-faint); font-weight:500; padding:10px 14px; border-bottom:1px solid var(--rule); white-space:nowrap; }
+  td { padding:9px 14px; border-bottom:1px solid var(--rule-soft); vertical-align:top; }
+  tr:last-child td { border-bottom:0; }
+  td.id { font-family:var(--mono); color:var(--cad); font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  code { font-family:var(--mono); font-size:.86em; background:var(--rule-soft); padding:1px 5px; border-radius:2px; }
+
+  .pill { display:inline-block; font-family:var(--mono); font-size:.63rem; letter-spacing:.08em; text-transform:uppercase;
+          padding:2px 7px; border-radius:2px; white-space:nowrap; font-weight:600; }
+  .pill.crit{background:var(--crit-bg);color:var(--crit);}
+  .pill.warn{background:var(--warn-bg);color:var(--warn);}
+  .pill.low{background:var(--rule-soft);color:var(--ink-soft);}
+  .pill.ok{background:var(--ok-bg);color:var(--ok);}
+
+  .issue { display:grid; grid-template-columns:auto 1fr; gap:14px; border:1px solid var(--rule);
+           border-left:3px solid var(--rule); background:var(--panel); padding:14px 16px; margin-bottom:10px; }
+  .issue.sev-crit{border-left-color:var(--crit);} .issue.sev-warn{border-left-color:var(--warn);}
+  .issue.sev-low{border-left-color:var(--ink-faint);} .issue.sev-fixed{border-left-color:var(--ok);}
+  .issuebody { min-width:0; }
+  .issuetitle { font-weight:600; font-size:.93rem; margin:0 0 4px; }
+  .issuedesc { font-size:.86rem; color:var(--ink-soft); margin:0; }
+  .issueid { font-family:var(--mono); font-size:.72rem; color:var(--ink-faint); }
+
+  .trap { border:1px solid var(--rule); border-left:3px solid var(--warn); background:var(--panel);
+          padding:13px 16px; margin-bottom:9px; font-size:.88rem; }
+  .trap b { font-family:var(--mono); color:var(--warn); }
+
+  footer { margin-top:64px; padding-top:18px; border-top:1px solid var(--rule); font-family:var(--mono);
+           font-size:.72rem; color:var(--ink-faint); line-height:1.7; }
+  a { color:var(--accent); }
+  a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+</style>
+
+<div class="wrap">
+
+  <div class="titleblock">
+    <div class="titleblock-main">
+      <p class="eyebrow">System Flow Map · Internal Reference</p>
+      <h1>dp-lookup-pro</h1>
+      <p class="subtitle">How a village name and a CTS number become six deliverable files. Written for an engineer or AI agent picking up this codebase cold.</p>
+    </div>
+    <div class="titleblock-meta">
+      <div class="metaline"><b>Engine</b>cts_dp_lookup_pro.py</div>
+      <div class="metaline"><b>Entry</b>lookup_plot_pro()</div>
+      <div class="metaline"><b>Drawn</b>2026-07-28</div>
+      <div class="metaline"><b>Status</b>Proprietary</div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <b>No LLM required.</b> This is a standalone Python CLI — no AI library is imported and none is needed. An assistant only reads the JSON back to you; it generates none of the deliverables. Machine-readable twin of this page: <code>APP_FLOW.json</code>.
+  </div>
+
+  <h2>Execution graph</h2>
+  <p class="sectionnote">One cold lookup, end to end. Everything is sequential except the shaded band, where 24 requests fire at once. Magenta nodes are the hardened control points &mdash; each carries explicit failure handling added 2026-07-28, and each is where a silent failure used to originate.</p>
+
+  <div class="diagramwrap">
+  <svg class="flow" viewBox="0 0 1080 1470" role="img" aria-label="Execution flow graph for dp-lookup-pro, from entry points through cache check, parcel resolve, a 24-request concurrent batch, parsing, rendering, exports and return.">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--wire)"/>
+      </marker>
+    </defs>
+
+    <!-- ============ parallel band backdrop ============ -->
+    <rect x="14" y="500" width="1052" height="170" fill="var(--rule-soft)" opacity="0.55" rx="4"/>
+    <text x="28" y="521" class="bandlabel">Concurrent batch · asyncio.gather · 24 requests · HTTP/2 · timeout 20 s</text>
+
+    <!-- ============ ENTRY ROW ============ -->
+    <g>
+      <rect class="nbox-entry" x="245" y="25" width="170" height="48" rx="3"/>
+      <text x="330" y="45" text-anchor="middle" class="ntitle">CLI wrapper</text>
+      <text x="330" y="61" text-anchor="middle" class="nsub">dp-lookup-pro</text>
+    </g>
+    <g>
+      <rect class="nbox-entry" x="455" y="25" width="170" height="48" rx="3"/>
+      <text x="540" y="45" text-anchor="middle" class="ntitle">Python import</text>
+      <text x="540" y="61" text-anchor="middle" class="nsub">lookup_plot_pro</text>
+    </g>
+    <g>
+      <rect class="nbox-entry" x="665" y="25" width="170" height="48" rx="3"/>
+      <text x="750" y="45" text-anchor="middle" class="ntitle">Agent skill</text>
+      <text x="750" y="61" text-anchor="middle" class="nsub">SKILL.md</text>
+    </g>
+
+    <path class="wire" d="M330 73 L330 95 M540 73 L540 95 M750 73 L750 95 M330 95 L750 95"/>
+    <path class="wire" d="M540 95 L540 118" marker-end="url(#ar)"/>
+
+    <!-- ============ 01 async entry ============ -->
+    <g>
+      <rect class="nbox-core" x="390" y="120" width="300" height="50" rx="3"/>
+      <text x="404" y="140" class="nnum">01</text>
+      <text x="540" y="141" text-anchor="middle" class="ntitle">async lookup_plot_pro()</text>
+      <text x="540" y="157" text-anchor="middle" class="nsub">village · cts_number · output_dir</text>
+    </g>
+    <path class="wire" d="M540 170 L540 213" marker-end="url(#ar)"/>
+
+    <!-- ============ 02 cache ============ -->
+    <g>
+      <rect class="nbox-guard" x="410" y="215" width="260" height="56" rx="3"/>
+      <text x="424" y="235" class="nnum">02</text>
+      <text x="656" y="235" text-anchor="end" class="bang">&#10003;</text>
+      <text x="540" y="238" text-anchor="middle" class="ntitle">Cache lookup</text>
+      <text x="540" y="256" text-anchor="middle" class="nsub">30-day TTL · verifies files exist</text>
+    </g>
+    <path class="wire" d="M670 243 L818 243" marker-end="url(#ar)"/>
+    <text x="744" y="236" text-anchor="middle" class="wlabel">HIT</text>
+    <g>
+      <rect class="nbox-exit" x="820" y="219" width="240" height="48" rx="3"/>
+      <text x="940" y="239" text-anchor="middle" class="ntitle">Return cached</text>
+      <text x="940" y="255" text-anchor="middle" class="nsub">stamped 12.0 ms</text>
+    </g>
+
+    <path class="wire" d="M540 271 L540 318" marker-end="url(#ar)"/>
+    <text x="556" y="298" class="wlabel">MISS</text>
+
+    <!-- ============ 03 parcel resolve ============ -->
+    <g>
+      <rect class="nbox-guard" x="390" y="320" width="300" height="56" rx="3"/>
+      <text x="404" y="340" class="nnum">03</text>
+      <text x="676" y="340" text-anchor="end" class="bang">&#10003;</text>
+      <text x="540" y="343" text-anchor="middle" class="ntitle">Parcel resolve</text>
+      <text x="540" y="361" text-anchor="middle" class="nsub">GET /13/query · input whitelisted</text>
+    </g>
+    <path class="wire" d="M690 348 L818 348" marker-end="url(#ar)"/>
+    <text x="754" y="341" text-anchor="middle" class="wlabel">EMPTY</text>
+    <g>
+      <rect class="nbox-exit" x="820" y="324" width="240" height="48" rx="3"/>
+      <text x="940" y="344" text-anchor="middle" class="ntitle">Error exit</text>
+      <text x="940" y="360" text-anchor="middle" class="nsub">plot not found</text>
+    </g>
+
+    <path class="wire" d="M540 376 L540 423" marker-end="url(#ar)"/>
+
+    <!-- ============ 04 geometry ============ -->
+    <g>
+      <rect class="nbox-core" x="390" y="425" width="300" height="50" rx="3"/>
+      <text x="404" y="445" class="nnum">04</text>
+      <text x="540" y="446" text-anchor="middle" class="ntitle">Geometry preparation</text>
+      <text x="540" y="462" text-anchor="middle" class="nsub">centroid · bbox · Mercator → WGS84</text>
+    </g>
+
+    <!-- fan out -->
+    <path class="wire" d="M540 475 L540 540"/>
+    <path class="wire" d="M120 540 L960 540"/>
+    <path class="wire" d="M120 540 L120 563" marker-end="url(#ar)"/>
+    <path class="wire" d="M330 540 L330 563" marker-end="url(#ar)"/>
+    <path class="wire" d="M540 540 L540 563" marker-end="url(#ar)"/>
+    <path class="wire" d="M750 540 L750 563" marker-end="url(#ar)"/>
+    <path class="wire" d="M960 540 L960 563" marker-end="url(#ar)"/>
+
+    <!-- ============ 05 parallel groups ============ -->
+    <g>
+      <rect class="nbox-net" x="27" y="565" width="186" height="88" rx="3"/>
+      <text x="120" y="592" text-anchor="middle" class="ncount">1</text>
+      <text x="120" y="612" text-anchor="middle" class="ntitle">Planning identify</text>
+      <text x="120" y="628" text-anchor="middle" class="nsub">layers 0 · 46 · 47</text>
+      <text x="120" y="642" text-anchor="middle" class="nsub">192 · 1550 · CRZ</text>
+    </g>
+    <g>
+      <rect class="nbox-net" x="237" y="565" width="186" height="88" rx="3"/>
+      <text x="330" y="592" text-anchor="middle" class="ncount">1</text>
+      <text x="330" y="612" text-anchor="middle" class="ntitle">DP map export</text>
+      <text x="330" y="628" text-anchor="middle" class="nsub">1000 × 1000 · dpi 144</text>
+      <text x="330" y="642" text-anchor="middle" class="nsub" fill="var(--accent)">5–12 s · 95% of runtime</text>
+    </g>
+    <g>
+      <rect class="nbox-net" x="447" y="565" width="186" height="88" rx="3"/>
+      <text x="540" y="592" text-anchor="middle" class="ncount">9</text>
+      <text x="540" y="612" text-anchor="middle" class="ntitle">Road probes</text>
+      <text x="540" y="628" text-anchor="middle" class="nsub">layers 193 · 194 · 44 · 45</text>
+      <text x="540" y="642" text-anchor="middle" class="nsub">centre + corners + edges</text>
+    </g>
+    <g>
+      <rect class="nbox-net" x="657" y="565" width="186" height="88" rx="3"/>
+      <text x="750" y="592" text-anchor="middle" class="ncount">4</text>
+      <text x="750" y="612" text-anchor="middle" class="ntitle">Neighbour probes</text>
+      <text x="750" y="628" text-anchor="middle" class="nsub">layer 13</text>
+      <text x="750" y="642" text-anchor="middle" class="nsub">4 cardinal offsets</text>
+    </g>
+    <g>
+      <rect class="nbox-net" x="867" y="565" width="186" height="88" rx="3"/>
+      <text x="960" y="592" text-anchor="middle" class="ncount">9</text>
+      <text x="960" y="612" text-anchor="middle" class="ntitle">Satellite tiles</text>
+      <text x="960" y="628" text-anchor="middle" class="nsub">Esri z18 · 3 × 3</text>
+      <text x="960" y="642" text-anchor="middle" class="nsub">stitched to 768²</text>
+    </g>
+
+    <!-- fan in -->
+    <path class="wire" d="M120 653 L120 690 M330 653 L330 690 M540 653 L540 690 M750 653 L750 690 M960 653 L960 690"/>
+    <path class="wire" d="M120 690 L960 690"/>
+    <path class="wire" d="M540 690 L540 713" marker-end="url(#ar)"/>
+
+    <!-- ============ 06 gather ============ -->
+    <g>
+      <rect class="nbox-guard" x="380" y="715" width="320" height="56" rx="3"/>
+      <text x="394" y="735" class="nnum">05</text>
+      <text x="686" y="735" text-anchor="end" class="bang">&#10003;</text>
+      <text x="540" y="738" text-anchor="middle" class="ntitle">await asyncio.gather</text>
+      <text x="540" y="756" text-anchor="middle" class="nsub">timeout 20 s · failures classified</text>
+    </g>
+    <path class="wire" d="M540 771 L540 813" marker-end="url(#ar)"/>
+
+    <!-- ============ 07 parse ============ -->
+    <g>
+      <rect class="nbox-guard" x="380" y="815" width="320" height="56" rx="3"/>
+      <text x="394" y="835" class="nnum">06</text>
+      <text x="686" y="835" text-anchor="end" class="bang">&#10003;</text>
+      <text x="540" y="838" text-anchor="middle" class="ntitle">Response parsing</text>
+      <text x="540" y="856" text-anchor="middle" class="nsub">every body via usable_json()</text>
+    </g>
+
+    <path class="wire" d="M540 871 L540 893 M405 893 L675 893"/>
+    <path class="wire" d="M405 893 L405 916" marker-end="url(#ar)"/>
+    <path class="wire" d="M675 893 L675 916" marker-end="url(#ar)"/>
+
+    <!-- ============ 08 render ============ -->
+    <g>
+      <rect class="nbox-core" x="290" y="918" width="230" height="52" rx="3"/>
+      <text x="304" y="937" class="nnum">07</text>
+      <text x="405" y="939" text-anchor="middle" class="ntitle">DP map overlay</text>
+      <text x="405" y="956" text-anchor="middle" class="nsub">pillow</text>
+    </g>
+    <g>
+      <rect class="nbox-core" x="560" y="918" width="230" height="52" rx="3"/>
+      <text x="574" y="937" class="nnum">07</text>
+      <text x="675" y="939" text-anchor="middle" class="ntitle">Satellite stitch</text>
+      <text x="675" y="956" text-anchor="middle" class="nsub">pillow · 3×3</text>
+    </g>
+
+    <path class="wire" d="M405 970 L405 992 M675 970 L675 992 M325 992 L755 992"/>
+    <path class="wire" d="M325 992 L325 1015" marker-end="url(#ar)"/>
+    <path class="wire" d="M540 992 L540 1015" marker-end="url(#ar)"/>
+    <path class="wire" d="M755 992 L755 1015" marker-end="url(#ar)"/>
+
+    <!-- ============ 09 exports ============ -->
+    <g>
+      <rect class="nbox-out" x="233" y="1017" width="185" height="50" rx="3"/>
+      <text x="325" y="1038" text-anchor="middle" class="ntitle">GeoJSON</text>
+      <text x="325" y="1054" text-anchor="middle" class="nsub">EPSG:4326</text>
+    </g>
+    <g>
+      <rect class="nbox-out" x="448" y="1017" width="185" height="50" rx="3"/>
+      <text x="540" y="1038" text-anchor="middle" class="ntitle">AutoCAD DXF</text>
+      <text x="540" y="1054" text-anchor="middle" class="nsub">ezdxf · 11 layers</text>
+    </g>
+    <g>
+      <rect class="nbox-out" x="663" y="1017" width="185" height="50" rx="3"/>
+      <text x="755" y="1038" text-anchor="middle" class="ntitle">KML</text>
+      <text x="755" y="1054" text-anchor="middle" class="nsub">Google Earth</text>
+    </g>
+
+    <path class="wire" d="M325 1067 L325 1090 M540 1067 L540 1090 M755 1067 L755 1090 M325 1090 L755 1090"/>
+    <path class="wire" d="M540 1090 L540 1113" marker-end="url(#ar)"/>
+
+    <!-- ============ 10 pdf ============ -->
+    <g>
+      <rect class="nbox-out" x="400" y="1115" width="280" height="50" rx="3"/>
+      <text x="414" y="1135" class="nnum">08</text>
+      <text x="540" y="1136" text-anchor="middle" class="ntitle">PDF docket</text>
+      <text x="540" y="1152" text-anchor="middle" class="nsub">reportlab · 2 pages · QR</text>
+    </g>
+    <path class="wire" d="M540 1165 L540 1203" marker-end="url(#ar)"/>
+
+    <!-- ============ 11 excel ============ -->
+    <g>
+      <rect class="nbox-out" x="400" y="1205" width="280" height="50" rx="3"/>
+      <text x="414" y="1225" class="nnum">09</text>
+      <text x="540" y="1226" text-anchor="middle" class="ntitle">Excel register append</text>
+      <text x="540" y="1242" text-anchor="middle" class="nsub">28 columns · append-only</text>
+    </g>
+    <path class="wire" d="M540 1255 L540 1293" marker-end="url(#ar)"/>
+
+    <!-- ============ 12 cache write ============ -->
+    <g>
+      <rect class="nbox-guard" x="400" y="1295" width="280" height="50" rx="3"/>
+      <text x="414" y="1315" class="nnum">10</text>
+      <text x="666" y="1315" text-anchor="end" class="bang">&#10003;</text>
+      <text x="540" y="1316" text-anchor="middle" class="ntitle">Cache write</text>
+      <text x="540" y="1332" text-anchor="middle" class="nsub">clean runs only</text>
+    </g>
+    <path class="wire" d="M540 1345 L540 1383" marker-end="url(#ar)"/>
+
+    <!-- ============ 13 return ============ -->
+    <g>
+      <rect class="nbox-core" x="350" y="1385" width="380" height="54" rx="3"/>
+      <text x="364" y="1405" class="nnum">11</text>
+      <text x="540" y="1407" text-anchor="middle" class="ntitle">Return 6-section dict</text>
+      <text x="540" y="1424" text-anchor="middle" class="nsub">identity · remarks · regulatory · cluster · files · meta</text>
+    </g>
+
+    <!-- cached shortcut rejoin -->
+    <path class="wire-dim" d="M1060 243 L1072 243 L1072 1412 L736 1412" marker-end="url(#ar)"/>
+  </svg>
+  </div>
+
+  <div class="legend">
+    <span><i class="sw sw-core"></i> core step</span>
+    <span><i class="sw sw-guard"></i> hardened &mdash; explicit failure handling</span>
+    <span><i class="sw sw-net"></i> network group</span>
+    <span><i class="sw sw-out"></i> deliverable</span>
+    <span><i class="sw sw-exit"></i> early exit</span>
+  </div>
+
+  <h2>Entry points</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Route</th><th>Invocation</th><th>Note</th></tr></thead>
+      <tbody>
+        <tr><td class="id">CLI</td><td><code>uv run python dp-lookup-pro WORLI 947</code></td>
+            <td>Portable form. <code>./dp-lookup-pro</code> is macOS-only — the shebang fails on Linux and can't run on Windows.</td></tr>
+        <tr><td class="id">Library</td><td><code>from cts_dp_lookup_pro import lookup_plot_pro</code></td>
+            <td>Only importable with CWD at the repo root — no <code>[build-system]</code>, so it isn't pip-installable.</td></tr>
+        <tr><td class="id">Skill</td><td><code>SKILL.md</code></td>
+            <td>Agent metadata. The <code>version</code>, <code>command</code> and <code>parameters</code> keys are non-spec and inert.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Where the time actually goes</h2>
+  <p class="sectionnote">Measured on Malabar Hill CTS 518, 2026-07-28. One request dominates everything else.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Phase</th><th>Time</th><th>Note</th></tr></thead>
+      <tbody>
+        <tr><td><code>/export</code> &mdash; DP map render</td><td class="id">12,334 ms</td><td>95% of wall clock. Pure presentation &mdash; never a legal fact.</td></tr>
+        <tr><td>Slowest satellite tile</td><td class="id">461 ms</td><td>9 tiles, all concurrent</td></tr>
+        <tr><td>All local work</td><td class="id">~674 ms</td><td>overlay render, PDF, DXF, KML, Excel</td></tr>
+        <tr><td><b>Total cold lookup</b></td><td class="id"><b>13,008 ms</b></td><td>same plot re-ran at 5,248 ms &mdash; the endpoint is highly variable</td></tr>
+        <tr><td>Cached hit</td><td class="id">0.15 ms</td><td>~390 ms for the whole CLI, dominated by Python imports</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="sectionnote">Cost per lookup: <b>&#8377;0</b> &mdash; no paid APIs or keys. 25 requests, 228&nbsp;KB down, <b>3.59&nbsp;MB</b> written to disk (the PDF and satellite PNG are 96% of that).</p>
+
+  <h2>ArcGIS layer reference</h2>
+  <p class="sectionnote">Layer IDs are stable on this MapServer. Confirm any change against <code>GET {SERVER_URL}?f=json</code> before trusting it.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>ID</th><th>Name</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td class="id">13</td><td>Global_Property_merge_v7</td><td>CTS parcel polygons — the primary lookup layer</td></tr>
+        <tr><td class="id">0</td><td>REVISED PLU ZONES</td><td>Zone code via <code>Zone_Code2</code></td></tr>
+        <tr><td class="id">46</td><td>Reservation</td><td><code>NEW_RES_CODE_31</code>, <code>NEW_RES_MAINTYPE_31</code></td></tr>
+        <tr><td class="id">47</td><td>Designation</td><td><code>NEW_DES_CODE_31</code>, <code>DISCRIPTION</code></td></tr>
+        <tr><td class="id">192</td><td>DP Modification</td><td><code>APPROVAL_NO</code>, <code>LABEL to Display</code></td></tr>
+        <tr><td class="id">1550</td><td>Metro_buffer</td><td>Metro rail influence zone</td></tr>
+        <tr><td class="id">14</td><td>CRZ</td><td>Zone polygon — carries the sub-tier in <code>category</code></td></tr>
+        <tr><td class="id">1264</td><td>CRZ II</td><td>Corroborating polygon, <code>CLASS</code></td></tr>
+        <tr><td class="id">1548</td><td>CRZ</td><td>Corroborating polygon, <code>Category</code></td></tr>
+        <tr><td class="id">193/194</td><td>Traffic / Survey RoadLines</td><td>Road name and width — <b>identify only</b></td></tr>
+        <tr><td class="id">44/45</td><td>EXISITING_ROAD / PROPOSED_ROAD</td><td>Fallback road geometry</td></tr>
+        <tr><td class="id">2238</td><td>Coastal Districts having CRZ</td><td><b>Deliberately excluded</b> — district-wide, would mark every Mumbai plot as CRZ</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Traps worth knowing before you change anything</h2>
+  <p class="sectionnote">Each of these has already cost a debugging cycle.</p>
+
+  <div class="trap"><b>Layers 193/194 reject spatial queries.</b> Any <code>/query</code> carrying a geometry — polygon, envelope or point, with or without <code>distance</code> — returns HTTP 200 wrapping <code>{"error":{"code":400}}</code>. Only attribute queries succeed. Road data must come from <code>/identify</code>.</div>
+
+  <div class="trap"><b>CRZ line layers can never match.</b> IDs 31, 1118, 2212–2214 and 2240–2243 are all boundary <em>lines</em> (High Tide Line, Hazard Line…). A point-identify cannot intersect a line, so using them for CRZ returns NO for every plot. Use the zone polygons.</div>
+
+  <div class="trap"><b>Village names are exact and cadastral.</b> 128 valid values, not modern locality names. <code>BANDRA</code> is invalid — it's <code>BANDRA-A</code>…<code>BANDRA-I</code> and <code>BANDRA-EAST</code>. Likewise <code>KURLA - 1</code>…<code>KURLA - 4</code> and <code>BHANDUP-E</code>/<code>-W</code>. Full list in <code>START-HERE.md</code>.</div>
+
+  <div class="trap"><b>LAST_EDITED_DATE cannot revalidate the cache.</b> It reads 2019-01-23 on <em>every</em> parcel &mdash; it is the bulk load date, not a per-parcel edit stamp. DP modifications don't appear on the parcel record either (<code>APPROVAL_NO</code> is null even for plots that have one, such as Byculla 1605 with its 2024 order); they live in layer&nbsp;192.</div>
+
+  <div class="trap"><b>AREA_APP_SQ_MTRS is null on some plots.</b> Malabar Hill 518 and Tardeo 264 have no approved area on MCGM record. <code>SHAPE.AREA</code> is populated and already in true ground square metres, so it is used as a fallback &mdash; but it is the <em>digitised</em> area, not the approved one, and the two differ by up to 7% where both exist. Always read <code>plot_identity.area_source</code> before quoting a figure.</div>
+
+  <div class="trap"><b>Clear the cache before any retest.</b> A stale entry silently replays old behaviour and will make a correct fix look like it failed.</div>
+
+  <h2>Issue register</h2>
+  <p class="sectionnote">Every defect previously listed here was fixed on 2026-07-28 and is recorded below. Full detail, root causes and validation evidence in <code>APP_FLOW.json</code>.</p>
+
+  <div class="issue sev-fixed"><span class="pill ok">Register clear</span><div class="issuebody">
+    <p class="issuetitle">No open defects</p>
+    <p class="issuedesc">All 13 tracked issues are closed. 41 offline tests now guard the logic that had no coverage before &mdash; run <code>uv run pytest -q</code> before and after any change.</p></div></div>
+
+  <h2>Fixed on 2026-07-28</h2>
+  <p class="sectionnote">Validated in both directions — a coastal plot that must read YES and an inland plot that must read NO.</p>
+
+  <div class="issue sev-fixed"><span class="pill ok">Fixed</span><div class="issuebody">
+    <p class="issuetitle">CRZ false negative on every plot</p>
+    <p class="issuedesc">The layer list held only boundary lines, so CRZ could only ever return NO. Replaced with zone polygons <code>[14, 1264, 1548]</code>, and the sub-tier now reports as <code>YES (CRZ II)</code>. Worli 886/947 and Bandra-A 409 flipped to YES; Byculla 1605 and Tardeo 264 correctly stayed NO.</p></div></div>
+
+  <div class="issue sev-fixed"><span class="pill ok">Fixed</span><div class="issuebody">
+    <p class="issuetitle">Cache policy matched to real data velocity</p>
+    <p class="issuedesc">TTL raised 24&nbsp;h &rarr; <b>30 days</b>, reasoned from the data rather than guessed: layer&nbsp;13 has been frozen since 2019-01-23 and zoning changes only by gazetted order. A hit now <b>verifies every promised file still exists</b> &mdash; previously a deleted bundle produced a confident success pointing at seven missing files. Age is reported on every hit via <code>cached_at</code>, <code>cache_age_days</code> and <code>cache_expires_in_days</code>, so staleness is never silent. <code>--no-cache</code> forces a fresh check.</p></div></div>
+
+  <div class="issue sev-fixed"><span class="pill ok">Fixed</span><div class="issuebody">
+    <p class="issuetitle">Blank plot areas now fall back to geometry</p>
+    <p class="issuedesc">Where MCGM has no approved area, the digitised <code>SHAPE.AREA</code> is used and clearly labelled &mdash; Malabar Hill 518 went from blank to 2,450.16&nbsp;m², Tardeo 264 to 2,539.25&nbsp;m². Plots that already had an approved area are byte-identical. The PDF states <em>&ldquo;DERIVED from plot boundary&rdquo;</em> so a derived figure is never mistaken for an official one.</p></div></div>
+
+  <div class="issue sev-fixed"><span class="pill ok">Fixed</span><div class="issuebody">
+    <p class="issuetitle">Silent failures no longer become authoritative reports</p>
+    <p class="issuedesc">A failed identify call now aborts the run with a clear error instead of emitting <code>zone='Unknown'</code>, <code>CRZ='NO'</code> and a full PDF. Non-fatal failures surface in <code>metadata.warnings</code> with a <code>metadata.complete</code> flag, and a run carrying warnings is never cached. Every response is parsed through <code>usable_json()</code>, which rejects HTTP&nbsp;200 bodies carrying an ArcGIS <code>error</code> key. Request timeout raised 10&nbsp;s &rarr; 20&nbsp;s.</p></div></div>
+
+  <div class="issue sev-fixed"><span class="pill ok">Fixed</span><div class="issuebody">
+    <p class="issuetitle">Cache expiry, bypass, and correct location</p>
+    <p class="issuedesc">Entries are timestamped and expire after 24&nbsp;h; <code>--no-cache</code> forces a fresh fetch. The store now lives at <code>&lt;output_dir&gt;/.cache_store.json</code> instead of a CWD-relative path. Legacy untimestamped entries &mdash; which hold pre-fix CRZ answers &mdash; are treated as expired.</p></div></div>
+
+  <div class="issue sev-fixed"><span class="pill ok">Fixed</span><div class="issuebody">
+    <p class="issuetitle">Input validation, escaping, and packaging</p>
+    <p class="issuedesc">Village and CTS values pass a character whitelist before reaching the WHERE clause. KML and ReportLab data values are XML-escaped. <code>pyproject.toml</code> gained hatchling packaging and a <code>dp-lookup-pro</code> console script, the shebang is portable, and the Pillow floor is <code>&gt;=10.1.0</code> to match the <code>font_size=</code> requirement.</p></div></div>
+
+  <div class="issue sev-fixed"><span class="pill ok">Fixed</span><div class="issuebody">
+    <p class="issuetitle">Road detection missing abutting roads</p>
+    <p class="issuedesc">Two dead <code>/query</code> calls removed and boundary-edge probes added alongside the original centroid and corner probes. Mohili 732 went from <code>None</code> to 21.35 m. <b>The probes are additive on purpose</b> — an earlier attempt that replaced the corner probes regressed Worli 947.</p></div></div>
+
+  <footer>
+    dp-lookup-pro system flow map · drawn 2026-07-28<br>
+    Machine-readable twin: APP_FLOW.json · Non-technical guide: START-HERE.md · Technical reference: README.md<br>
+    © 2026 Imran Patel. All rights reserved. Proprietary — not open source.
+  </footer>
+
+</div>

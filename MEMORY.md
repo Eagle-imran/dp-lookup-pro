@@ -8,7 +8,7 @@
 
 * **Project Name**: `dp-lookup-pro`
 * **Repository**: [https://github.com/Eagle-imran/dp-lookup-pro](https://github.com/Eagle-imran/dp-lookup-pro)
-* **Local Workspace Path**: `/Users/imranpatel/Developer/skillfromgemini_pro`
+* **Local Workspace Path**: `/Users/imranpatel/Developer/dp-lookup-pro-IP`
 * **Primary Executable**: `./dp-lookup-pro`
 * **Skill Metadata File**: `SKILL.md`
 * **Purpose**: Automated Real Estate Spatial Querying, GIS CAD Exporter & DP Remark Docket Generator for Mumbai Land Parcels under MCGM Development Plan (SDP) 2014-34.
@@ -29,7 +29,7 @@
 | **CAD Exporters** | `ezdxf`, GeoJSON, KML | Native AutoCAD `.dxf` drawing files, OGC `.geojson` vectors, and 3D Google Earth `.kml` placemarks. |
 | **QR Code Engine** | `qrcode` | Dynamic scannable QR code linking physical PDF reports directly to live MCGM Web GIS Maps. |
 | **Audit Database** | `openpyxl` | Appends query audit records to central Excel workbook (`output/dp-lookups.xlsx`). |
-| **Persistent Caching** | Local JSON Store | In-memory cache + persistent disk store (`./output/.cache_store.json`) for **~12 ms** repeat lookups. |
+| **Persistent Caching** | Local JSON Store | Disk store at `<output_dir>/.cache_store.json`, 30-day TTL, `--no-cache` bypass. Verifies the bundle files still exist before serving, reports `cache_age_days` on every hit, and never caches a degraded run. |
 
 ---
 
@@ -62,8 +62,7 @@
 | Query Execution Mode | Latency (ms) | Notes |
 | :--- | :--- | :--- |
 | **Repeat CLI Query (Persistent Disk Cache)** | ⚡ **`12.0 ms`** | Served instantly from `./output/.cache_store.json` |
-| **Warm Network Connection** | ⚡ **`800 ms – 1,200 ms`** | HTTP/2 multiplexed connection pool active |
-| **Cold Fresh Network Query** | ⚡ **`2,200 ms – 3,000 ms`** | Full network fetch, tile stitching, PDF & CAD export |
+| **Cold Fresh Network Query** | **`6,900 ms – 13,000 ms`** | 25 requests, tile stitching, PDF & CAD export. Measured 2026-07-28; earlier sub-second figures were not reproducible. |
 
 ---
 
@@ -145,4 +144,4 @@
 
 * **Data Source**: Official Municipal Corporation of Greater Mumbai (MCGM) Development Plan 2034 ArcGIS REST Services (`agsmaps.mcgm.gov.in`).
 * **Satellite Base Map**: Esri World Imagery (`services.arcgisonline.com`).
-* **License**: MIT License. Open-source for developers, urban planners, and real estate professionals.
+* **License**: **Proprietary — © 2026 Imran Patel. All rights reserved.** Not open-source. Evaluation use only; commercial licensing available on request. See `LICENSE`.

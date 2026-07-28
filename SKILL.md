@@ -11,7 +11,7 @@ parameters:
   properties:
     village:
       type: string
-      description: "Name of the Mumbai village (e.g., 'BANDRA', 'WORLI', 'MALABAR HILL')"
+      description: "Exact MCGM revenue village name, one of 128 valid values (e.g., 'BANDRA-A', 'WORLI', 'MALABAR HILL'). Note: 'BANDRA' alone is NOT valid — use BANDRA-A..BANDRA-I or BANDRA-EAST."
     cts_number:
       type: string
       description: "CTS or CS plot number (e.g., '100', '748A', '16/738')"
@@ -32,7 +32,7 @@ parameters:
 5. **🌍 Google Earth 3D Exports**: Generates interactive 3D `.kml` files with metadata popups for Google Earth.
 6. **📄 Auto-Generated 2-Page PDF Docket**: Generates a 2-page downloadable **DP Remark PDF Report** complete with formatted data tables, status banners, maps, adjoining parcel cluster tables, and a scannable interactive map **QR Code**.
 7. **📁 Dedicated Query Export Subfolders**: Isolates all query assets inside clean bundle subfolders (`output/<village_name>_cts_<cts_no>/`).
-8. **⚡ High-Speed Concurrency & Persistent Disk Cache**: Sub-second HTTP/2 async pipelining with persistent disk caching (~12 ms for repeat lookups).
+8. **⚡ Concurrency & Persistent Disk Cache**: Single-batch HTTP/2 pipelining (~5-13 s cold, 25 requests) with a 30-day disk cache for instant repeat lookups. Cache hits report their age, self-invalidate if the files are gone, and incomplete results are never cached.
 
 ## Tooling Standards
 

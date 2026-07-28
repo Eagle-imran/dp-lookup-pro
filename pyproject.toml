@@ -1,14 +1,36 @@
 [project]
 name = "dp-lookup-pro"
-version = "3.5.0"
-description = "Enhanced MCGM SDP 2014-34 DP Lookup Tool with PDF Reports, HD Maps, Satellite Aerial Views, GIS CAD Exports, and High-Speed Async Batching"
+version = "3.7.0"
+description = "MCGM SDP 2014-34 DP Lookup Tool with PDF Reports, HD Maps, Satellite Aerial Views, GIS CAD Exports, and High-Speed Async Batching"
 readme = "README.md"
 requires-python = ">=3.9"
+license = { file = "LICENSE" }
 dependencies = [
     "httpx[http2]>=0.28.0",
-    "pillow>=10.0.0",
+    # ImageDraw.text(font_size=...) is used for the map legend and north arrow.
+    # That keyword arrived in Pillow 10.1.0, so 10.0.x would crash at render time.
+    "pillow>=10.1.0",
     "openpyxl>=3.1.0",
     "reportlab>=4.0.0",
     "qrcode>=7.4.0",
     "ezdxf>=1.4.2",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[project.scripts]
+dp-lookup-pro = "cts_dp_lookup_pro:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+include = ["cts_dp_lookup_pro.py"]
+
+[tool.hatch.build.targets.sdist]
+include = ["cts_dp_lookup_pro.py", "README.md", "START-HERE.md", "LICENSE", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
