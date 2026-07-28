@@ -8,7 +8,7 @@ import io
 import time
 import datetime
 from xml.sax.saxutils import escape as _xml_escape
-from typing import Dict, Any, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 import httpx
 from PIL import Image, ImageDraw
 from openpyxl import Workbook, load_workbook
@@ -927,6 +927,7 @@ async def lookup_plot_pro(
     use_cache: bool = True,
     cache_ttl_seconds: int = DEFAULT_CACHE_TTL_SECONDS,
     timeout_seconds: float = 20.0,
+    on_data: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     """
     Ultra-Fast Enterprise DP Plot Lookup Pro Tool (AutoCAD DXF + GeoJSON + KML Exports).
@@ -935,6 +936,14 @@ async def lookup_plot_pro(
     cache_ttl_seconds  - entries older than this are refetched. Negative disables expiry.
     timeout_seconds    - per-request timeout. The default was 10s, which the 24-request
                          batch regularly exceeded, producing silently degraded reports.
+    on_data            - called with the planning result as soon as it is known,
+                         typically ~1-2s, without waiting for the map image. The
+                         DP map export is roughly 95% of a cold lookup, so a caller
+                         that reports from this callback shows an answer about ten
+                         times sooner. metadata.documents_pending is True in that
+                         snapshot; the returned dict is the final one. Exceptions
+                         raised by the callback are caught and logged, never
+                         allowed to abort the lookup.
     """
     try:
         safe_village = sanitize_query_value(village, _VILLAGE_RE, "village", 64)
@@ -1195,20 +1204,31 @@ async def lookup_plot_pro(
                 sat_tile_tasks.append(fetch_tile_cached(client, zoom, ty, tx))
                 sat_coords.append((dx + half_dim, dy + half_dim))
 
-        all_results = await asyncio.gather(
-            ident_task,
+        # Everything is dispatched at once, but the wait is split in two.
+        #
+        # Measured on MALABAR HILL 518: the /export map image alone took 12,334 ms
+        # of a 13,008 ms lookup - 95% of the runtime - while every planning call
+        # finished inside 500 ms. Awaiting the image work before reporting anything
+        # made the whole answer as slow as its slowest picture.
+        #
+        # asyncio.gather() schedules immediately, so the slow half is genuinely
+        # in flight while the fast half is being parsed.
+        slow_group = asyncio.gather(
             dp_snap_task,
+            asyncio.gather(*sat_tile_tasks, return_exceptions=True),
+            return_exceptions=True,
+        )
+
+        fast_results = await asyncio.gather(
+            ident_task,
             asyncio.gather(*road_tasks, return_exceptions=True),
             asyncio.gather(*neighbor_tasks, return_exceptions=True),
-            asyncio.gather(*sat_tile_tasks, return_exceptions=True),
             return_exceptions=True
         )
 
-        ident_resp = all_results[0]
-        dp_snap_resp = all_results[1]
-        road_resps = all_results[2]
-        neighbor_resps = all_results[3]
-        sat_tile_bytes = all_results[4]
+        ident_resp = fast_results[0]
+        road_resps = fast_results[1]
+        neighbor_resps = fast_results[2]
 
         # Parse Roads
         road_map = {}
@@ -1381,6 +1401,111 @@ async def lookup_plot_pro(
         def px_dp(x, y):
             return ((x - x0) / (x1 - x0) * W, (y1 - y) / (y1 - y0) * H)
 
+        # ------------------------------------------------------------------
+        # FAST PATH COMPLETE. Everything below the on_data callback needs the
+        # slow image fetches; everything above needed only planning data.
+        # ------------------------------------------------------------------
+        map_link = (
+            f"https://mcgm.maps.arcgis.com/apps/webappviewer/index.html?"
+            f"id=67118c3502fd492e94680d10e77ec112&marker={lon},{lat},4326,{cts_number}%20{village}"
+            f"&center={lon},{lat}&level=19"
+        )
+
+        geojson_fname = f"plot_{ward_clean}_{cts_clean}_{village_clean}.geojson"
+        geojson_path = os.path.join(query_dir, geojson_fname)
+        dxf_fname = f"plot_{ward_clean}_{cts_clean}_{village_clean}.dxf"
+        dxf_path = os.path.join(query_dir, dxf_fname)
+        kml_fname = f"plot_{ward_clean}_{cts_clean}_{village_clean}.kml"
+        kml_path = os.path.join(query_dir, kml_fname)
+        dp_snapshot_fname = f"plot_{ward_clean}_{cts_clean}_{village_clean}_hd.png"
+        dp_snapshot_path = os.path.join(query_dir, dp_snapshot_fname)
+        sat_snapshot_fname = f"plot_{ward_clean}_{cts_clean}_{village_clean}_satellite.png"
+        sat_snapshot_path = os.path.join(query_dir, sat_snapshot_fname)
+        pdf_fname = f"dp_report_{ward_clean}_{cts_clean}_{village_clean}.pdf"
+        pdf_path = os.path.join(query_dir, pdf_fname)
+
+        export_props = {
+            "village": village.upper(),
+            "cts_no": str(cts_number),
+            "ward": str(attrs['WARD']),
+            "type": str(attrs['TYPE']),
+            "area_sqm": attrs['AREA_APP_SQ_MTRS'],
+            "zone": zone,
+            "status_badge": status_badge,
+            "reservation_code": res_code,
+            "reservation_type": res_type,
+            "designation_description": des_desc,
+            "modification_approval": mod_approval,
+            "crz_buffer_flag": crz_buffer_flag,
+            "metro_buffer_flag": metro_buffer_flag,
+            "abutting_road": road_name,
+            "road_width": road_width,
+            "area_source": area_source,
+            "adjoining_cts_plots_count": len(neighbors),
+            "map_link": map_link
+        }
+
+        # Vector exports need geometry and attributes only - no imagery - so they
+        # are written now rather than behind the map fetch.
+        export_geojson(wgs_rings, export_props, geojson_path)
+        export_dxf(wgs_rings, export_props, dxf_path, neighbors=neighbors, roads=road_geoms[:6])
+        export_kml(wgs_rings, export_props, kml_path)
+
+        def _compose_result(exec_ms: float, pending: bool) -> Dict[str, Any]:
+            return {
+                "plot_identity": {
+                    "village": village.upper(), "cts_no": str(cts_number),
+                    "ward": str(attrs["WARD"]), "type": str(attrs["TYPE"]),
+                    "area_sqm": area_sqm, "area_source": area_source,
+                    "coordinates_wgs84": {"latitude": lat, "longitude": lon},
+                },
+                "planning_remarks": {
+                    "status_badge": status_badge, "status_summary": status_summary, "zone": zone,
+                    "reservation": {"code": res_code, "type": res_type},
+                    "designation": {"code": des_code, "description": des_desc},
+                    "dp_modification": {"approval_no": mod_approval, "details": mod_label,
+                                        "document_link": mod_doc},
+                },
+                "regulatory_and_infrastructure": {
+                    "crz_status": crz_buffer_flag, "metro_buffer": metro_buffer_flag,
+                    "abutting_road": {"name": road_name, "width": road_width},
+                },
+                "spatial_cluster": {
+                    "adjoining_plots_count": len(neighbors),
+                    "adjoining_cts_plots": [{k: v for k, v in n.items() if k != 'rings'}
+                                            for n in neighbors],
+                },
+                "export_files": {
+                    "bundle_folder": query_dir, "pdf_report": pdf_path,
+                    "hd_dp_map": dp_snapshot_path, "satellite_view": sat_snapshot_path,
+                    "autocad_dxf": dxf_path, "autocad_geojson": geojson_path,
+                    "google_earth_kml": kml_path, "master_excel_register": register_path,
+                },
+                "metadata": {
+                    "source": "MCGM SDP 2014-34",
+                    "lookup_datetime": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "execution_time_ms": exec_ms,
+                    "cached_result": False,
+                    "complete": not warnings,
+                    "documents_pending": pending,
+                    "warnings": list(warnings),
+                    "notes": list(notes),
+                    "interactive_web_map": map_link,
+                },
+            }
+
+        if on_data is not None:
+            fast_ms = round((time.perf_counter() - t_start) * 1000, 1)
+            try:
+                on_data(_compose_result(fast_ms, pending=True))
+            except Exception as exc:
+                print(f"[dp-lookup-pro] on_data callback raised: {exc}", file=sys.stderr)
+
+        # ---- slow half: map image + satellite tiles, then PDF ----
+        slow_results = await slow_group
+        dp_snap_resp = slow_results[0]
+        sat_tile_bytes = slow_results[1]
+
         # Render HD DP Map Overlay
         dp_map_ok = (
             not isinstance(dp_snap_resp, Exception)
@@ -1414,8 +1539,6 @@ async def lookup_plot_pro(
         draw_dp.text((lx0+20, ly0+115), f"Status: {status_badge[:30]}", fill=(0, 0, 0, 255), font_size=16)
 
         final_dp_img = Image.alpha_composite(dp_img, dp_overlay)
-        dp_snapshot_fname = f"plot_{ward_clean}_{cts_clean}_{village_clean}_hd.png"
-        dp_snapshot_path = os.path.join(query_dir, dp_snapshot_fname)
 
         # Stitch Satellite Canvas
         canvas_w, canvas_h = grid_dim * 256, grid_dim * 256
@@ -1461,58 +1584,12 @@ async def lookup_plot_pro(
         draw_sat.text((slx0+12, sly0+82), f"Adjoining Parcels Identified: {len(neighbors)}", fill=(255, 255, 255, 255), font_size=12)
 
         final_sat = Image.alpha_composite(sat_canvas, sat_overlay)
-        sat_snapshot_fname = f"plot_{ward_clean}_{cts_clean}_{village_clean}_satellite.png"
-        sat_snapshot_path = os.path.join(query_dir, sat_snapshot_fname)
-
         def save_images():
             final_dp_img.convert("RGB").save(dp_snapshot_path, "PNG", compress_level=1)
             final_sat.convert("RGB").save(sat_snapshot_path, "PNG", compress_level=1)
 
         await asyncio.to_thread(save_images)
 
-        map_link = (
-            f"https://mcgm.maps.arcgis.com/apps/webappviewer/index.html?"
-            f"id=67118c3502fd492e94680d10e77ec112&marker={lon},{lat},4326,{cts_number}%20{village}"
-            f"&center={lon},{lat}&level=19"
-        )
-
-        geojson_fname = f"plot_{ward_clean}_{cts_clean}_{village_clean}.geojson"
-        geojson_path = os.path.join(query_dir, geojson_fname)
-        
-        dxf_fname = f"plot_{ward_clean}_{cts_clean}_{village_clean}.dxf"
-        dxf_path = os.path.join(query_dir, dxf_fname)
-        
-        kml_fname = f"plot_{ward_clean}_{cts_clean}_{village_clean}.kml"
-        kml_path = os.path.join(query_dir, kml_fname)
-
-        export_props = {
-            "village": village.upper(),
-            "cts_no": str(cts_number),
-            "ward": str(attrs['WARD']),
-            "type": str(attrs['TYPE']),
-            "area_sqm": attrs['AREA_APP_SQ_MTRS'],
-            "zone": zone,
-            "status_badge": status_badge,
-            "reservation_code": res_code,
-            "reservation_type": res_type,
-            "designation_description": des_desc,
-            "modification_approval": mod_approval,
-            "crz_buffer_flag": crz_buffer_flag,
-            "metro_buffer_flag": metro_buffer_flag,
-            "abutting_road": road_name,
-            "road_width": road_width,
-            "area_source": area_source,
-            "adjoining_cts_plots_count": len(neighbors),
-            "map_link": map_link
-        }
-
-        export_geojson(wgs_rings, export_props, geojson_path)
-        export_dxf(wgs_rings, export_props, dxf_path, neighbors=neighbors, roads=road_geoms[:6])
-        export_kml(wgs_rings, export_props, kml_path)
-
-        pdf_fname = f"dp_report_{ward_clean}_{cts_clean}_{village_clean}.pdf"
-        pdf_path = os.path.join(query_dir, pdf_fname)
-        
         qr = qrcode.QRCode(box_size=4, border=1)
         qr.add_data(map_link)
         qr.make(fit=True)
@@ -1557,75 +1634,8 @@ async def lookup_plot_pro(
         t_end = time.perf_counter()
         exec_ms = round((t_end - t_start) * 1000, 1)
 
-        result_dict = {
-            "plot_identity": {
-                "village": village.upper(),
-                "cts_no": str(cts_number),
-                "ward": str(attrs["WARD"]),
-                "type": str(attrs["TYPE"]),
-                "area_sqm": area_sqm,
-                "area_source": area_source,
-                "coordinates_wgs84": {
-                    "latitude": lat,
-                    "longitude": lon
-                }
-            },
-            "planning_remarks": {
-                "status_badge": status_badge,
-                "status_summary": status_summary,
-                "zone": zone,
-                "reservation": {
-                    "code": res_code,
-                    "type": res_type
-                },
-                "designation": {
-                    "code": des_code,
-                    "description": des_desc
-                },
-                "dp_modification": {
-                    "approval_no": mod_approval,
-                    "details": mod_label,
-                    "document_link": mod_doc
-                }
-            },
-            "regulatory_and_infrastructure": {
-                "crz_status": crz_buffer_flag,
-                "metro_buffer": metro_buffer_flag,
-                "abutting_road": {
-                    "name": road_name,
-                    "width": road_width
-                }
-            },
-            "spatial_cluster": {
-                "adjoining_plots_count": len(neighbors),
-                "adjoining_cts_plots": [
-                    {k: v for k, v in n.items() if k != 'rings'} for n in neighbors
-                ]
-            },
-            "export_files": {
-                "bundle_folder": query_dir,
-                "pdf_report": pdf_path,
-                "hd_dp_map": dp_snapshot_path,
-                "satellite_view": sat_snapshot_path,
-                "autocad_dxf": dxf_path,
-                "autocad_geojson": geojson_path,
-                "google_earth_kml": kml_path,
-                "master_excel_register": register_path
-            },
-            "metadata": {
-                "source": "MCGM SDP 2014-34",
-                "lookup_datetime": now_str,
-                "execution_time_ms": exec_ms,
-                "cached_result": False,
-                "complete": not warnings,
-                "warnings": warnings,
-                "notes": notes,
-                "interactive_web_map": map_link
-            }
-        }
+        result_dict = _compose_result(exec_ms, pending=False)
 
-        # Only a clean run earns a cache entry. Caching a degraded result used to
-        # freeze a transient network failure into a permanent authoritative answer.
         if warnings:
             print(f"[dp-lookup-pro] WARNING: result incomplete, not cached - {'; '.join(warnings)}",
                   file=sys.stderr)
@@ -1803,16 +1813,36 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not as_json:
         print(f"  Looking up {village} CTS {cts_number}"
               f"{' (fresh)' if not use_cache else ''}...")
+    # Print the planning answer the moment it is known, then let the map image,
+    # satellite tiles and PDF finish. The user sees the result in ~1-2s instead
+    # of waiting on an export call that is ~95% of the runtime.
+    shown = {"done": False}
+
+    def _show_early(snapshot):
+        if as_json or shown["done"]:
+            return
+        shown["done"] = True
+        print(format_result_human(snapshot))
+        print("  Building PDF, maps and CAD files...", flush=True)
+
     result = asyncio.run(
         lookup_plot_pro(
             village=village,
             cts_number=cts_number,
             output_dir=output_dir,
             use_cache=use_cache,
+            on_data=None if as_json else _show_early,
         )
     )
+
     if as_json:
         print(json.dumps(result, indent=2, ensure_ascii=False))
+    elif shown["done"] and "error" not in result:
+        meta = result.get("metadata", {})
+        print(f"  Done in {meta.get('execution_time_ms', 0) / 1000:.1f}s - all 6 files written.")
+        for w in meta.get("warnings") or []:
+            print(f"  Warning: {w}")
+        print()
     else:
         print(format_result_human(result))
     return 1 if "error" in result else 0

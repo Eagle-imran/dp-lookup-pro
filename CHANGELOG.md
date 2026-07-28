@@ -6,6 +6,58 @@ All notable changes to this project. Newest first.
 
 ---
 
+## [3.10.0] — 2026-07-29
+
+The planning answer no longer waits for the pictures.
+
+### ⚡ Answer in ~0.7s instead of ~6.5s
+
+A lookup fires 25 requests. The planning data — zone, reservation, CRZ, metro,
+road, neighbours — is ready long before the DP map image, which is consistently
+the slowest single request (5.6–5.9s measured). Previously the whole answer
+waited on it.
+
+The wait is now split. Vector exports (GeoJSON, DXF, KML) need geometry only, so
+they are written in the fast half too. The CLI prints the result as soon as it is
+known, then finishes the map, satellite view and PDF:
+
+```
+    CRZ               YES (CRZ II)
+    ...
+    Fetched in 0.7s
+
+  Building PDF, maps and CAD files...
+  Done in 6.5s - all 6 files written.
+```
+
+Measured on WORLI 733, three consecutive runs:
+
+| Run | Answer visible | All files | Perceived |
+| :--- | ---: | ---: | ---: |
+| 1 | 4,746 ms | 6,246 ms | 1.3× |
+| 2 | 700 ms | 6,470 ms | **9.2×** |
+| 3 | 635 ms | 6,443 ms | **10.1×** |
+
+**Typically ~10×.** Run 1 shows the honest caveat: one identify request stalled
+at 4,470 ms, and the fast half can only be as quick as its slowest call. MCGM is
+slow *and variable* across every endpoint, not just the map export — an earlier
+note in this changelog attributed 95% of runtime to `/export` alone, which held
+for that measurement but is not reliably true.
+
+Nothing is skipped or deferred to a detached task: the same six files are written
+before the process exits, and the final returned result is unchanged.
+
+### API
+
+`lookup_plot_pro(..., on_data=callback)` — called with the planning result as
+soon as it is known, carrying `metadata.documents_pending: True`. The returned
+dict is the final one. A callback that raises is caught and logged, never allowed
+to abort the lookup. Omit it and behaviour is exactly as before.
+
+70 tests, up from 68.
+
+---
+
 ## [3.9.0] — 2026-07-28
 
 Makes the tool usable without an AI assistant, and turns the commonest failure

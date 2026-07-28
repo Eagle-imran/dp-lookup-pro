@@ -435,6 +435,36 @@ def test_exports_do_not_crash_on_none_area(tmp_path):
 # CLI argument handling
 # --------------------------------------------------------------------------
 
+def test_lookup_accepts_an_on_data_callback():
+    import inspect
+    sig = inspect.signature(dp.lookup_plot_pro)
+    assert "on_data" in sig.parameters
+    assert sig.parameters["on_data"].default is None
+
+
+def test_summary_marks_a_pending_snapshot_as_still_building():
+    """The early snapshot must not read as a finished report."""
+    snap = {
+        "plot_identity": {"village": "WORLI", "cts_no": "733", "ward": "G/S",
+                          "area_sqm": 1317.74, "area_source": "approved (MCGM)"},
+        "planning_remarks": {"status_badge": "CLEAR", "zone": "R",
+                             "reservation": {"code": "None", "type": "None"},
+                             "designation": {"description": "None"},
+                             "dp_modification": {"approval_no": "None"}},
+        "regulatory_and_infrastructure": {"crz_status": "YES (CRZ II)", "metro_buffer": "NO",
+                                          "abutting_road": {"name": "B G KHER", "width": "18.30 M"}},
+        "spatial_cluster": {"adjoining_plots_count": 3, "adjoining_cts_plots": []},
+        "export_files": {"bundle_folder": "./o", "pdf_report": "./o/r.pdf",
+                         "master_excel_register": "./o/x.xlsx"},
+        "metadata": {"execution_time_ms": 650, "cached_result": False, "complete": True,
+                     "documents_pending": True, "warnings": [], "notes": []},
+    }
+    text = dp.format_result_human(snap)
+    # the planning answer is fully present in the early snapshot
+    for token in ("WORLI", "CTS 733", "YES (CRZ II)", "1,317.74"):
+        assert token in text
+
+
 def test_village_list_is_complete_and_sorted():
     assert len(dp.MCGM_VILLAGES) == 128
     assert list(dp.MCGM_VILLAGES) == sorted(dp.MCGM_VILLAGES)
