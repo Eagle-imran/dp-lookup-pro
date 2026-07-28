@@ -101,7 +101,7 @@ see this:
   🟢 CLEAR (No Reservation)
   BANDRA-A  ·  CTS 409  ·  Ward H/W
 
-    Plot area         115.58 m²
+    Plot area         115.58 m²   (MCGM approved)
     Zone              R
     CRZ               YES (CRZ II)
     Abutting road     Bazar Road
@@ -260,7 +260,7 @@ before making any legal, financial or development decision.
 
 Proprietary software. © 2026 Imran Patel. All rights reserved.
 
-*Version 3.7.0 — see [CHANGELOG.md](CHANGELOG.md). If an update ever breaks
+*Version 3.10.0 — see [CHANGELOG.md](CHANGELOG.md). If an update ever breaks
 something, [ROLLBACK.md](ROLLBACK.md) explains how to go back.*
 
 Free for personal evaluation and testing. Commercial use, redistribution and

@@ -1,16 +1,17 @@
 {
   "_meta": {
     "purpose": "Machine-readable architecture map of dp-lookup-pro, written for an AI agent picking up this codebase cold.",
-    "generated": "2026-07-28",
+    "generated": "2026-07-29",
     "engine_file": "cts_dp_lookup_pro.py",
-    "line_numbers_valid_as_of": "2026-07-28 post issue-register sweep",
+    "line_numbers_valid_as_of": "2026-07-29, v3.10.0 (merged to main as 9bc0f2e)",
     "line_numbers_caveat": "Line numbers drift with edits. Treat them as hints; confirm with grep before relying on them.",
-    "version": "3.7.0",
+    "version": "3.10.0",
     "related_docs": {
       "changelog": "CHANGELOG.md",
       "rollback": "ROLLBACK.md",
       "user_guide": "START-HERE.md",
-      "visual_map": "APP_FLOW.html"
+      "visual_map": "APP_FLOW.html",
+      "dxf_guide": "DXF-GUIDE.md"
     }
   },
   "project": {
@@ -26,10 +27,12 @@
       "openpyxl",
       "reportlab",
       "qrcode",
-      "ezdxf"
+      "ezdxf",
+      "shapely"
     ],
     "llm_dependency": "NONE. No AI library is imported or required. An LLM is an optional convenience for reading the JSON output aloud; it generates none of the deliverables.",
-    "license": "Proprietary, all rights reserved. Evaluation use only. NOT open source."
+    "license": "Proprietary, all rights reserved. Evaluation use only. NOT open source.",
+    "shapely_note": "Added v3.8.0 for true parallel polygon offsetting of DXF setback lines. A hand-rolled miter offset was exact on convex plots but self-intersected on concave ones, and real CTS parcels are concave."
   },
   "entry_points": [
     {
@@ -38,14 +41,20 @@
       "invocation_portable": "uv run python dp-lookup-pro <VILLAGE> <CTS> [OUTPUT_DIR] [--no-cache]",
       "invocation_mac_only": "./dp-lookup-pro <VILLAGE> <CTS>",
       "warning": "FIXED 2026-07-28. Shebang is now '#!/usr/bin/env python3' and the wrapper is a thin shim over cts_dp_lookup_pro.main().",
-      "notes": "Arg parsing, --no-cache/--fresh flags and the 'WORLI CTS 947' conversational form all live in main(). Returns exit code 1 on error.",
-      "invocation_installed": "dp-lookup-pro <VILLAGE> <CTS>   (after: uv pip install -e .)"
+      "notes": "main() handles arg parsing, flags, the conversational 'WORLI CTS 733' form, and prints a readable summary via format_result_human(). Exit code 1 on error.",
+      "invocation_installed": "dp-lookup-pro <VILLAGE> <CTS>   (after: uv pip install -e .)",
+      "flags": {
+        "--json": "full JSON instead of the readable summary; clean on stdout (notices go to stderr)",
+        "--no-cache": "ignore the 30-day cache and refetch",
+        "--list-villages": "print all 128 valid MCGM village names and exit"
+      }
     },
     {
       "kind": "python_library",
       "import": "from cts_dp_lookup_pro import lookup_plot_pro",
-      "signature": "async def lookup_plot_pro(village, cts_number, output_dir='./output', use_cache=True, cache_ttl_seconds=86400, timeout_seconds=20.0) -> Dict[str, Any]",
-      "warning": "FIXED 2026-07-28. pyproject.toml now has [build-system] (hatchling) and a dp-lookup-pro console script, so `uv pip install -e .` works and the module imports from any CWD."
+      "signature": "async def lookup_plot_pro(village, cts_number, output_dir='./output', use_cache=True, cache_ttl_seconds=2592000, timeout_seconds=20.0, on_data=None) -> Dict[str, Any]",
+      "warning": "FIXED 2026-07-28. pyproject.toml now has [build-system] (hatchling) and a dp-lookup-pro console script, so `uv pip install -e .` works and the module imports from any CWD.",
+      "on_data": "Optional callback fired with the planning result as soon as it is known (~0.7s typical), carrying metadata.documents_pending=True. The RETURNED dict is the final one. A callback that raises is caught and logged, never allowed to abort the lookup."
     },
     {
       "kind": "agent_skill",
@@ -92,11 +101,11 @@
     },
     {
       "stage": 5,
-      "name": "Single-batch concurrent fetch",
+      "name": "Concurrent fetch - SPLIT WAIT",
       "line_hint": 724,
-      "detail": "One asyncio.gather over all 5 groups, return_exceptions=True, HTTP/2 pool (max_keepalive=30, max_connections=50, timeout=20.0s).",
+      "detail": "All 25 requests dispatch at once, but the wait is split. FAST half (awaited first): planning identify, 9 road probes, 4 neighbour probes. SLOW half (awaited later): map export + 9 satellite tiles. asyncio.gather schedules immediately, so the slow half is genuinely in flight while the fast half is parsed. timeout 20s, return_exceptions=True.",
       "issues": [],
-      "critical_note": "FIXED 2026-07-28. Failures are now classified: a failed identify aborts the run with an error (no PDF, no Excel row, no cache entry); road/neighbour/tile/map failures become metadata.warnings and suppress caching. metadata.complete reports whether the run was clean. Timeout raised 10s -> 20s."
+      "critical_note": "Failures are classified: a failed identify aborts the run; road/neighbour/tile/map failures become metadata.warnings and suppress caching. NOTE: the fast half is only as quick as its SLOWEST call - identify latency ranges 414ms-4470ms, so the ~10x win is typical, not guaranteed."
     },
     {
       "stage": 6,
@@ -106,10 +115,16 @@
       "issues": []
     },
     {
+      "stage": "6b",
+      "name": "Vector exports + on_data (FAST PATH ENDS HERE)",
+      "detail": "GeoJSON, DXF and KML need geometry and attributes only - no imagery - so they are written here. _compose_result() builds the result dict (file paths are deterministic, so they are correct before the files exist) and on_data fires with documents_pending=True.",
+      "note": "Everything after this point requires the slow image fetches."
+    },
+    {
       "stage": 7,
       "name": "Raster rendering",
       "line_hint": 800,
-      "detail": "DP map: server PNG + Pillow RGBA overlay (plot polygon, north arrow, legend box). Satellite: 3x3 Esri z18 tiles stitched to 768x768, plot polygon reprojected via tile_to_latlon bounds. Saved off the event loop via asyncio.to_thread."
+      "detail": "Awaits the slow half, then renders the DP overlay and stitches 9 Esri tiles. Saved off-loop via asyncio.to_thread."
     },
     {
       "stage": 8,
@@ -203,10 +218,16 @@
       }
     ],
     "observed_latency_ms": {
-      "cache_hit": "10-20",
-      "cold_typical": "6900-8000",
-      "cold_observed_max": 12991,
-      "note": "Measured 2026-07-28. README/MEMORY/SKILL latency claims corrected to match."
+      "cache_hit": "~0.2 in-process, ~390 for a full CLI run",
+      "answer_visible": "635-4746",
+      "all_files": "5000-13000",
+      "note": "The /export map image is the slowest single call (5600-5900ms) but is NOT reliably 95% of runtime - that attribution held for one measurement only. Identify calls range 414-4470ms."
+    },
+    "split_wait": {
+      "fast_half": "1 parcel query (sequential) + 1 identify + 9 road + 4 neighbour = 15",
+      "slow_half": "1 map export + 9 satellite tiles = 10",
+      "answer_visible_ms": "635-4746 measured (typical ~700)",
+      "all_files_ms": "5000-13000"
     }
   },
   "arcgis_layers": {
@@ -364,8 +385,11 @@
       "execution_time_ms",
       "cached_result",
       "complete",
+      "documents_pending",
       "warnings",
-      "interactive_web_map"
+      "notes",
+      "interactive_web_map",
+      "cached_at / cache_age_days / cache_expires_in_days (cache hits only)"
     ]
   },
   "dxf_layers": [
@@ -379,6 +403,7 @@
     "C-RESTRICT-ZONE",
     "C-ANNO-TEXT",
     "C-ANNO-DIMS",
+    "C-NORTH-ARROW",
     "C-TITLE-BLOCK"
   ],
   "domain_constraints": [
@@ -594,6 +619,7 @@
   "guidance_for_next_agent": [
     "Run `uv run pytest -q` before and after any change - there are now 41 offline tests covering projection maths, validation, escaping, cache TTL and the exporters.",
     "Before changing anything, read CHANGELOG.md 3.7.0 - it records which behaviours were deliberately corrected. Reverting one of them reintroduces a known bug; ROLLBACK.md documents the safe procedure.",
+    "MCGM village names are held locally in MCGM_VILLAGES (128 entries) with suggest_villages() for did-you-mean. Refresh only if MCGM changes the cadastral list - layer 13 has not been edited since 2019-01-23.",
     "The engine is cts_dp_lookup_pro.py. lookup_plot_pro is the single entry function and is ~450 lines.",
     "Any change touching CRZ, roads or layer IDs MUST be regression-tested against verified_test_plots above, in BOTH directions - a coastal plot that should be YES and an inland plot that should be NO.",
     "Clear ./output/.cache_store.json before any retest. Cached results will silently replay the old behaviour and make a fix look like it failed.",
@@ -601,5 +627,12 @@
     "Verify layer behaviour against the live server before assuming it: GET {SERVER_URL}?f=json lists every layer id and name.",
     "The owner's stated priority is a simple install for non-technical users plus eventual commercialisation via a web app with logins. Prefer changes that reduce setup friction. Do not add an LLM dependency.",
     "This is proprietary software. Do not add an open-source licence or describe it as open source."
+  ],
+  "dxf_notes": [
+    "Setbacks are TRUE parallel offsets via shapely (exact 3.000/6.000 m), omitted and labelled when a plot cannot sustain one.",
+    "Every DXF carries a layer legend and a PLOT DATA panel; legend swatches are drawn on their own layers so each shows its real colour.",
+    "Sheet border is sized from all drawn content, not the plot outline - roads and neighbours extend beyond it.",
+    "Setback lines are indicative geometry, NOT a DCPR compliance check. See DXF-GUIDE.md.",
+    "KNOWN LIMIT: every ring is treated as an outer boundary, so a plot with an interior hole would have that ring's setback offset outward."
   ]
 }

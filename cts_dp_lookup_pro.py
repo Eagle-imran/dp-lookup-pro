@@ -1161,7 +1161,8 @@ async def lookup_plot_pro(
             # flip the normal so it points away from the parcel centre
             if (emx + enx - mcx) ** 2 + (emy + eny - mcy) ** 2 < (emx - mcx) ** 2 + (emy - mcy) ** 2:
                 enx, eny = -enx, -eny
-            edge_probes.append((seg_len, (emx + enx * 6.0, emy + eny * 6.0)))
+            for nudge in [6.0, 15.0, 25.0]:
+                edge_probes.append((seg_len, (emx + enx * nudge, emy + eny * nudge)))
 
         edge_probes.sort(key=lambda e: e[0], reverse=True)
         # Keep the original centroid + bounding-box corner probes as well. They are
@@ -1172,10 +1173,10 @@ async def lookup_plot_pro(
             (mcx, mcy),
             (min(xs), min(ys)),
             (max(xs), max(ys)),
-        ] + [pt for _, pt in edge_probes[:6]]
+        ] + [pt for _, pt in edge_probes[:12]]
 
         road_tasks = [
-            client.post(f"{SERVER_URL}/identify", data={"geometry": f"{px},{py}", "geometryType": "esriGeometryPoint", "sr": "102100", "layers": "visible:193,194,44,45", "tolerance": "40", "mapExtent": f"{mcx-d},{mcy-d},{mcx+d},{mcy+d}", "imageDisplay": "1000,1000,96", "returnGeometry": "true", "f": "json"})
+            client.post(f"{SERVER_URL}/identify", data={"geometry": f"{px},{py}", "geometryType": "esriGeometryPoint", "sr": "102100", "layers": "visible:193,194,44,45,2224", "tolerance": "50", "mapExtent": f"{mcx-d},{mcy-d},{mcx+d},{mcy+d}", "imageDisplay": "1000,1000,96", "returnGeometry": "true", "f": "json"})
             for px, py in road_sample_pts
         ]
 
@@ -1244,17 +1245,18 @@ async def lookup_plot_pro(
                     continue
                 for f in j.get('features', []):
                     r_attrs = f.get('attributes', {})
-                    r_name, r_w = r_attrs.get('ROAD_NAME'), r_attrs.get('WIDTH_RL')
+                    r_name = r_attrs.get('ROAD_NAME') or r_attrs.get('Roadname') or r_attrs.get('NAME') or r_attrs.get('Name') or r_attrs.get('TYPE_') or r_attrs.get('Type')
+                    r_w = r_attrs.get('WIDTH_RL') or r_attrs.get('WIDTH') or r_attrs.get('Width')
                     if r_name or r_w:
                         road_map[f"{r_name}|{r_w}"] = {'name': r_name or 'Road', 'width': r_w or 'N/A'}
                 for item in j.get('results', []):
                     r_attrs = item.get('attributes', {})
-                    r_name = r_attrs.get('ROAD_NAME') or r_attrs.get('TYPE_')
-                    r_w = r_attrs.get('WIDTH_RL') or r_attrs.get('WIDTH')
+                    r_name = r_attrs.get('ROAD_NAME') or r_attrs.get('Roadname') or r_attrs.get('NAME') or r_attrs.get('Name') or r_attrs.get('TYPE_') or r_attrs.get('Type')
+                    r_w = r_attrs.get('WIDTH_RL') or r_attrs.get('WIDTH') or r_attrs.get('Width')
                     if r_name or r_w:
                         road_map[f"{r_name}|{r_w}"] = {'name': r_name or 'Road', 'width': r_w or 'N/A'}
                     # Road layers are mixed geometry: 193/194 are polylines and
-                    # return 'paths'; 44/45 are road polygons and return 'rings'.
+                    # return 'paths'; 44/45/2224 are road polygons and return 'rings'.
                     # Reading only 'paths' left C-ROAD-ALIGN empty on any plot
                     # whose frontage came from the polygon layers.
                     r_geom = item.get('geometry', {}) or {}
@@ -1272,8 +1274,14 @@ async def lookup_plot_pro(
                 "abutting road may be incomplete"
             )
 
-        named_roads = [r for r in road_map.values() if r['name'] != 'Exisiting Road' and r['width'] != 'N/A']
-        roads = named_roads if named_roads else list(road_map.values())
+        named_with_width = [r for r in road_map.values() if r['width'] != 'N/A' and r['name'] not in ['Exisiting Road', 'EXISTING', 'Road', 'None']]
+        named_roads = [r for r in road_map.values() if r['name'] not in ['Exisiting Road', 'EXISTING', 'Road', 'None'] or r['width'] != 'N/A']
+        if named_with_width:
+            roads = named_with_width
+        elif named_roads:
+            roads = named_roads
+        else:
+            roads = list(road_map.values())
         road_name = roads[0]["name"] if roads else "None"
         road_width = roads[0]["width"] if roads else "None"
 

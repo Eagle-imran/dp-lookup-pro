@@ -11,7 +11,7 @@ The rest of this README is the technical reference for developers.
 > ⚖️ **Proprietary software** — © 2026 Imran Patel. All rights reserved. Not open-source.
 > Free for personal evaluation; commercial use requires a licence. See [LICENSE](LICENSE).
 
-**v3.8.0** · [What changed](CHANGELOG.md) · [Reading the DXF](DXF-GUIDE.md) · [How to roll back](ROLLBACK.md) · [System flow map](APP_FLOW.html)
+**v3.10.0** · [What changed](CHANGELOG.md) · [Reading the DXF](DXF-GUIDE.md) · [How to roll back](ROLLBACK.md) · [System flow map](APP_FLOW.html)
 
 ---
 
@@ -24,7 +24,9 @@ It automatically generates a complete export bundle containing a **2-Page PDF DP
 ## ✨ Features & Capabilities
 
 * **🏷️ Automated Planning Status Badges**: Instantly classifies land parcels into `🟢 CLEAR (No Reservation)`, `🟡 MODIFIED (DP Order)`, or `🔴 RESERVED (DCPR Amenity)`.
-* **🌊 Precise CRZ & Infrastructure Detection**: Queries plot-specific Coastal Regulation Zone (CRZ-I/II/III/IV) restriction boundaries & Layer 1550 Metro Rail Influence buffers.
+* **🌊 Precise CRZ & Infrastructure Detection**: Queries CRZ **zone polygons** (layers 14/1264/1548) and reports the sub-tier — `YES (CRZ II)`, not a bare yes — plus Layer 1550 Metro Rail Influence buffers.
+* **🗺️ Village name help**: `--list-villages` lists all 128 valid names, and a wrong name suggests the right one (`BANDRA` → `BANDRA-A`…). 
+* **📖 Readable output**: a plain summary by default; `--json` for the full response.
 * **🗺️ Dual High-Definition Visuals**:
   * **Retina HD DP 2034 Map**: High-resolution zoning map complete with North Arrow ($N \uparrow$) and scale legend.
   * **Tile-Stitched Satellite Aerial View**: Pixel-aligned Esri World Imagery satellite view showing actual building structures and ground coverage.
@@ -36,7 +38,8 @@ It automatically generates a complete export bundle containing a **2-Page PDF DP
 * **📄 2-Page Executive PDF Report Docket**: Professional PDF containing metadata tables, status banners, maps, adjoining parcel lists, and a scannable QR Code linking directly to the live MCGM Web Map.
 * **📊 Centralized Excel Register**: Automatically appends query results to `output/dp-lookups.xlsx`.
 * **⚡ High-Speed Concurrency & Persistent Disk Cache**:
-  * Single-batch HTTP/2 async request pipelining: **~7-13 seconds** for a cold lookup (25 requests; measured 2026-07-28).
+  * **Answer in ~0.7 s.** All 25 requests fire at once, but only the planning half is awaited before reporting; the map, satellite and PDF finish after. Typically ~10× faster to an answer than waiting for everything (measured 0.7 s vs 6.5 s).
+  * A cold lookup writes all six files in **5–13 s**. MCGM is slow and variable across every endpoint.
   * Cached repeat queries return in **~0.4 s** end-to-end (the lookup itself is sub-millisecond; the rest is Python interpreter startup). Entries live **30 days** — matching how slowly DP data actually moves — are invalidated automatically if their files are deleted, and report their age on every hit. Pass `--no-cache` for a same-day fresh check. The cache lives in the output directory and expires after 24 hours by default; pass `--no-cache` to force a fresh fetch.
 
 ---
@@ -90,7 +93,7 @@ Run the command by passing the **Village Name** and **CTS Number**:
 ```bash
 uv run python dp-lookup-pro WORLI 748A
 ```
-*(A fresh lookup takes about 5–13 seconds; a cached one is instant. See [CHANGELOG.md](CHANGELOG.md) for what changed in v3.7.0.)*
+*(The answer appears in about a second; the PDF, maps and CAD files finish a few seconds later. A cached lookup is instant. See [CHANGELOG.md](CHANGELOG.md).)*
 
 ### Step 5: Inspect the Generated Output Bundle
 Navigate to the newly created subfolder `./output/worli_cts_748A/` to access all generated assets:
@@ -112,7 +115,7 @@ When invoking `dp-lookup-pro` inside AI Agent environments (e.g. Google Antigrav
 | Action / Permission | Why it is Requested | Target Resource / Scope |
 | :--- | :--- | :--- |
 | **1. File Read & Write (`write_file` / `read_file`)** | Creating `./output/<query_folder>/` to write PDFs, PNG maps, DXF drawings, GeoJSON, KML, and Excel logs. | Local directory `./output/*` |
-| **2. Terminal Execution (`command`)** | Executing Python CLI wrapper script `./dp-lookup-pro` or `uv run python`. | Local terminal `./dp-lookup-pro` |
+| **2. Terminal Execution (`command`)** | Running the lookup. | `uv run python dp-lookup-pro` |
 | **3. Web Requests (`read_url` / HTTP GET & POST)** | Fetching plot boundaries, CRZ layers, & satellite tiles from official GIS servers. | `https://agsmaps.mcgm.gov.in/*`<br>`https://server.arcgisonline.com/*` |
 
 > **Note on Security & Privacy**: `dp-lookup-pro` **only** makes outbound HTTP requests to official government MapServers (`mcgm.gov.in`) and Esri basemaps (`arcgisonline.com`). It does **not** upload or transmit any local data or credentials.
@@ -148,7 +151,7 @@ If you are using Claude Code in your terminal:
 3. Ask Claude to execute the skill:
    > *"Run the DP lookup tool for Worli CTS 748A"*
 
-   Claude Code will automatically run `./dp-lookup-pro WORLI 748A` using shell execution and present the generated PDF docket and DXF file paths!
+   Claude Code runs `uv run python dp-lookup-pro WORLI 733` and reports the result, then points you at the generated PDF and DXF.
 
 ---
 
@@ -169,6 +172,16 @@ If you are building a custom Python agent with OpenAI Codex or Function Calling:
 
    asyncio.run(main())
    ```
+Pass `on_data=` to receive the planning result as soon as it is known — roughly
+ten times sooner than waiting for the map image:
+
+```python
+def show(snapshot):          # metadata.documents_pending is True here
+    print(snapshot["regulatory_and_infrastructure"]["crz_status"])
+
+result = await lookup_plot_pro("WORLI", "733", on_data=show)   # returned dict is final
+```
+
 2. Or register it as an Agent Tool:
    ```python
    from langchain.tools import tool
@@ -184,7 +197,7 @@ If you are building a custom Python agent with OpenAI Codex or Function Calling:
 ### 4. 🟣 Cursor / Windsurf / Roo Code / VS Code AI Extensions
 If you are pair-programming in Cursor or Windsurf:
 * Simply open your AI Chat panel (`Cmd+L` or `Ctrl+L`) and type:
-  > *"Run `./dp-lookup-pro 'MALABAR HILL' '16/738'` and give me the summary"*
+  > *"Run a DP lookup for Malabar Hill CTS 518 and give me the summary"*
 
 ---
 
@@ -194,19 +207,25 @@ You can also run the tool directly from any shell prompt without an AI agent:
 
 ### Syntax:
 ```bash
-./dp-lookup-pro "<VILLAGE_NAME>" "<CTS_NUMBER>" [OUTPUT_DIR]
+uv run python dp-lookup-pro "<VILLAGE_NAME>" "<CTS_NUMBER>" [OUTPUT_DIR] [options]
 ```
+
+| Option | Effect |
+| :--- | :--- |
+| `--json` | full JSON response instead of the summary (clean on stdout) |
+| `--no-cache` | ignore any cached report and refetch |
+| `--list-villages` | print all 128 valid village names and exit |
 
 ### Examples:
 ```bash
 # Example 1: Query Bandra plot (note: 'BANDRA' alone is not a valid village)
-./dp-lookup-pro BANDRA-A 409
+uv run python dp-lookup-pro BANDRA-A 409
 
-# Example 2: Query Worli plot
-./dp-lookup-pro WORLI 748A
+# Example 2: Query Worli plot (coastal - reports CRZ II)
+uv run python dp-lookup-pro WORLI 733
 
 # Example 3: Query Malabar Hill plot with custom output folder
-./dp-lookup-pro "MALABAR HILL" "16/738" ./my_reports
+uv run python dp-lookup-pro "MALABAR HILL" 518 ./my_reports
 ```
 
 ---
