@@ -1,25 +1,26 @@
+import asyncio
+import datetime
+import io
+import json
+import math
 import os
 import re
 import sys
-import json
-import math
-import asyncio
-import io
 import time
-import datetime
-from xml.sax.saxutils import escape as _xml_escape
 from typing import Any, Callable, Dict, List, Optional
-import httpx
-from PIL import Image, ImageDraw
-from openpyxl import Workbook, load_workbook
-import qrcode
-import ezdxf
-from ezdxf.enums import TextEntityAlignment
+from xml.sax.saxutils import escape as _xml_escape
 
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, PageBreak
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+import ezdxf
+import httpx
+import qrcode
+from ezdxf.enums import TextEntityAlignment
+from openpyxl import Workbook, load_workbook
+from PIL import Image, ImageDraw
 from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.platypus import Image as RLImage
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 SERVER_URL = "https://agsmaps.mcgm.gov.in/server/rest/services/Development_Plan_2034/MapServer"
 SATELLITE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile"
@@ -355,8 +356,8 @@ def offset_polygon_inward(ring: list, distance: float) -> list:
     return out
 
 
-def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: list = None,
-               roads: list = None):
+def export_dxf(wgs_rings: list, properties: dict, output_path: str,
+               neighbors: Optional[list] = None, roads: Optional[list] = None):
     """
     Generates a scale-accurate Multi-Layered AutoCAD DXF CAD drawing file (.dxf)
     centered around Local Origin (0, 0) in Real-World Metric Meters (1 CAD Unit = 1 Meter).
@@ -1718,7 +1719,7 @@ def suggest_villages(name: Any, limit: int = 8) -> List[str]:
 def format_result_human(result: Dict[str, Any]) -> str:
     """Readable summary of a lookup. Raw JSON stays available behind --json."""
     if "error" in result:
-        lines = ["", f"  Could not complete the lookup:", f"  {result['error']}", ""]
+        lines = ["", "  Could not complete the lookup:", f"  {result['error']}", ""]
         return "\n".join(lines)
 
     ident = result["plot_identity"]
@@ -1818,7 +1819,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Tolerate the conversational form: "WORLI CTS 947"
     if len(args) >= 3 and args[1].upper() in ("CTS", "CS", "PLOT", "NO", "NO."):
-        args = [args[0], args[2]] + args[3:]
+        args = [args[0], args[2], *args[3:]]
 
     if len(args) < 2:
         print(USAGE)

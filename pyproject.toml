@@ -33,5 +33,31 @@ include = ["cts_dp_lookup_pro.py"]
 [tool.hatch.build.targets.sdist]
 include = ["cts_dp_lookup_pro.py", "README.md", "START-HERE.md", "LICENSE", "tests"]
 
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+exclude = [".venv", "output", "docs"]
+
+[tool.ruff.lint]
+# Chosen for defects, not style. Deliberately excluded:
+#   UP/FA  - Dict->dict modernisation and __future__ annotations. Pure churn
+#            across 17 sites with no behaviour change, and the project still
+#            declares support back to 3.9.
+#   DTZ    - naive datetimes. These are local report timestamps shown to a
+#            human in one city; timezone-aware would add noise, not safety.
+#   S110   - try/except/pass. Several are deliberate (optional ezdxf linetypes);
+#            reviewed by hand rather than gated in CI.
+select = ["E", "F", "I", "B", "RUF"]
+# E501 is deferred, not dismissed: 13 long lines are ArcGIS request payloads whose
+# exact params are validated against the live server. Hand-wrapping them now risks
+# a typo in a working request for no behaviour gain; they get restructured when
+# lookup_plot_pro (730 lines) is split.
+ignore = ["E501"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.0",
+]

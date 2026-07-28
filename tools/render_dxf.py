@@ -38,9 +38,9 @@ def main(argv=None):
     try:
         import matplotlib
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
         import ezdxf
-        from ezdxf.addons.drawing import RenderContext, Frontend
+        import matplotlib.pyplot as plt
+        from ezdxf.addons.drawing import Frontend, RenderContext
         from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
     except ImportError as exc:
         print(f"missing dependency ({exc}). Install with: uv pip install -e \".[dev]\"",

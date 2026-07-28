@@ -20,7 +20,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import cts_dp_lookup_pro as dp
 
-
 # --------------------------------------------------------------------------
 # Projection and tile maths
 # --------------------------------------------------------------------------
@@ -377,7 +376,7 @@ def test_setback_omitted_when_plot_cannot_sustain_it():
 
 
 def test_setback_handles_duplicate_closing_vertex():
-    closed = SQUARE + [SQUARE[0]]
+    closed = [*SQUARE, SQUARE[0]]
     assert dp.offset_polygon_inward(closed, 10)
 
 
