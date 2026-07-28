@@ -801,6 +801,7 @@ def test_neighbour_probe_offset_has_a_floor():
 
 def _png_bytes(size=(256, 256), colour=(10, 120, 30)):
     import io as _io
+
     from PIL import Image
     buf = _io.BytesIO()
     Image.new("RGB", size, colour).save(buf, format="PNG")
@@ -864,5 +865,5 @@ def test_satellite_survives_corrupt_tile_bytes():
 
 
 def test_renderers_accept_a_multi_ring_plot():
-    two = MERC_SQUARE + [[[10.0, 10.0], [20.0, 10.0], [20.0, 20.0], [10.0, 20.0]]]
+    two = [*MERC_SQUARE, [[10.0, 10.0], [20.0, 10.0], [20.0, 20.0], [10.0, 20.0]]]
     assert dp.render_dp_map(None, two, (0, 0, 100, 100), (300, 300), DP_LABELS)

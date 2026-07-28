@@ -356,6 +356,175 @@ def offset_polygon_inward(ring: list, distance: float) -> list:
     return out
 
 
+# --- DXF construction --------------------------------------------------------
+# Layer table and the local projection, lifted out of export_dxf (420 lines).
+
+# name -> (ACI colour, linetype). Order is the order they appear in the legend.
+DXF_LAYERS = (
+    ("0_GRID_AXIS", 8, "DASHED"),
+    ("C-PLOT-BDY", 1, None),
+    ("C-PROP-HATCH", 252, None),
+    ("C-SETBACK-3M", 3, "DASHED"),
+    ("C-SETBACK-6M", 70, "DASHED"),
+    ("C-ADJN-PLOTS", 2, None),
+    ("C-ROAD-ALIGN", 4, "DASHED"),
+    ("C-RESTRICT-ZONE", 6, "PHANTOM"),
+    ("C-ANNO-TEXT", 7, None),
+    ("C-ANNO-DIMS", 5, None),
+    ("C-NORTH-ARROW", 7, None),
+    ("C-TITLE-BLOCK", 4, None),
+)
+
+# Degrees to metres at Mumbai's latitude. Longitude scales with cos(lat);
+# latitude is effectively constant over a parcel.
+METRES_PER_DEG_LAT = 111132.0
+METRES_PER_DEG_LON_EQUATOR = 111319.5
+
+
+def new_dxf_document():
+    """R2010 document in metric units with the project's layer table."""
+    doc = ezdxf.new("R2010")
+    doc.header["$INSUNITS"] = 6      # metres
+    doc.header["$MEASUREMENT"] = 1   # ISO metric
+    try:
+        doc.linetypes.add("DASHED", pattern="A, 1.0, -0.5")
+        doc.linetypes.add("PHANTOM", pattern="A, 2.0, -0.5, 0.5, -0.5, 0.5, -0.5")
+    except Exception:
+        # A document that already defines them is fine; the layers below still work.
+        pass
+    for name, colour, linetype in DXF_LAYERS:
+        if linetype:
+            doc.layers.add(name=name, color=colour, linetype=linetype)
+        else:
+            doc.layers.add(name=name, color=colour)
+    return doc
+
+
+def project_rings_to_local_metres(wgs_rings: list) -> Dict[str, Any]:
+    """
+    WGS84 degrees to local metres with the plot centroid at (0, 0).
+
+    An architect wants 1 CAD unit = 1 metre and the plot at the origin, not
+    UTM coordinates in the millions. Accurate to well under a centimetre over a
+    parcel, which is finer than MCGM's own digitisation.
+    """
+    r0 = wgs_rings[0]
+    lon0 = sum(p[0] for p in r0) / len(r0)
+    lat0 = sum(p[1] for p in r0) / len(r0)
+    mpd_lon = METRES_PER_DEG_LON_EQUATOR * math.cos(math.radians(lat0))
+    mpd_lat = METRES_PER_DEG_LAT
+
+    return {
+        "lon0": lon0, "lat0": lat0,
+        "mpd_lon": mpd_lon, "mpd_lat": mpd_lat,
+        "local_rings": [[((p[0] - lon0) * mpd_lon, (p[1] - lat0) * mpd_lat) for p in ring]
+                        for ring in wgs_rings],
+    }
+
+
+def to_local_metres(points: list, lon0: float, lat0: float,
+                    mpd_lon: float, mpd_lat: float) -> list:
+    """Project an arbitrary WGS84 ring/path into the same local frame."""
+    return [((p[0] - lon0) * mpd_lon, (p[1] - lat0) * mpd_lat) for p in points]
+
+
+def draw_dxf_legend_column(msp, properties: Dict[str, Any], setback_status: Dict[float, bool],
+                           utm_cx: float, utm_cy: float,
+                           lg_x0: float, lg_w: float, b_max_y: float, b_min_y: float,
+                           char_h: float, dim_char_h: float, scale: float) -> None:
+    """
+    Legend, plot-data panel and title block, stacked down the right-hand column.
+
+    Legend swatches are drawn ON their own layers, so each sample line carries
+    that layer's real colour and linetype - the swatch is the layer rather than
+    a picture of one.
+    """
+    # ---- LEGEND ----------------------------------------------------------
+    lg_row = max(char_h * 1.9, 2.2)
+    legend_rows = [
+        ('C-PLOT-BDY',      'PLOT BOUNDARY - gross plot area'),
+        ('C-PROP-HATCH',    'Gross plot area (fill)'),
+        ('C-ROAD-ALIGN',    'Abutting road alignment / frontage'),
+        ('C-SETBACK-3M',    '3.0 m setback line (true parallel offset)'),
+        ('C-SETBACK-6M',    '6.0 m setback line (true parallel offset)'),
+        ('C-RESTRICT-ZONE', 'CRZ / Metro development restriction'),
+        ('C-ADJN-PLOTS',    'Adjoining CTS plots'),
+        ('C-ANNO-DIMS',     'Boundary segment dimensions (m)'),
+        ('C-ANNO-TEXT',     'Plot metadata'),
+        ('C-NORTH-ARROW',   'True north'),
+        ('0_GRID_AXIS',     'Metric grid, 0,0 at plot centroid'),
+        ('C-TITLE-BLOCK',   'Sheet border, legend, title block'),
+    ]
+    lg_h = lg_row * (len(legend_rows) + 9.5)
+    lg_y1 = b_max_y - scale * 0.05
+    lg_y0 = lg_y1 - lg_h
+    msp.add_lwpolyline(
+        [(lg_x0, lg_y0), (lg_x0 + lg_w, lg_y0), (lg_x0 + lg_w, lg_y1), (lg_x0, lg_y1)],
+        dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
+
+    y = lg_y1 - lg_row * 1.2
+    msp.add_text("LAYER LEGEND", dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': char_h * 0.95}) \
+        .set_placement((lg_x0 + lg_row * 0.4, y))
+    y -= lg_row * 1.3
+
+    swatch_w = lg_row * 1.5
+    for layer_name, meaning in legend_rows:
+        # sample line drawn ON its own layer, so it carries that layer's colour
+        # and linetype - the swatch is the layer, not a picture of it.
+        msp.add_line((lg_x0 + lg_row * 0.4, y + lg_row * 0.22),
+                     (lg_x0 + lg_row * 0.4 + swatch_w, y + lg_row * 0.22),
+                     dxfattribs={'layer': layer_name})
+        msp.add_text(f"{layer_name}  -  {meaning}",
+                     dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': dim_char_h * 0.92}) \
+            .set_placement((lg_x0 + lg_row * 0.4 + swatch_w + lg_row * 0.5, y))
+        y -= lg_row
+
+    # ---- PLOT DATA (what an architect needs before massing) --------------
+    y -= lg_row * 0.6
+    msp.add_text("PLOT DATA", dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': char_h * 0.95}) \
+        .set_placement((lg_x0 + lg_row * 0.4, y))
+    y -= lg_row * 1.25
+
+    sb3 = "drawn" if setback_status.get(3.0) else "NOT VIABLE - plot too narrow"
+    sb6 = "drawn" if setback_status.get(6.0) else "NOT VIABLE - plot too narrow"
+    area_note = properties.get('area_source') or ''
+    data_rows = [
+        f"GROSS PLOT AREA : {properties.get('area_sqm')} sq m",
+        f"AREA SOURCE     : {'DERIVED from boundary' if 'derived' in area_note else 'MCGM approved record'}",
+        f"CTS / VILLAGE   : {properties.get('cts_no')} / {properties.get('village')}",
+        f"WARD / ZONE     : {properties.get('ward')} / {properties.get('zone')}",
+        f"ABUTTING ROAD   : {properties.get('abutting_road')} ({properties.get('road_width')})",
+        f"CRZ STATUS      : {properties.get('crz_buffer_flag')}",
+        f"METRO BUFFER    : {properties.get('metro_buffer_flag')}",
+        f"3.0 m SETBACK   : {sb3}",
+        f"6.0 m SETBACK   : {sb6}",
+    ]
+    for row in data_rows:
+        msp.add_text(row, dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': dim_char_h * 0.92}) \
+            .set_placement((lg_x0 + lg_row * 0.4, y))
+        y -= lg_row
+
+    # ---- TITLE BLOCK (bottom of the legend column) -----------------------
+    tb_h = lg_row * 7.2
+    tb_y0 = b_min_y + scale * 0.05
+    msp.add_lwpolyline(
+        [(lg_x0, tb_y0), (lg_x0 + lg_w, tb_y0), (lg_x0 + lg_w, tb_y0 + tb_h), (lg_x0, tb_y0 + tb_h)],
+        dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
+    title_meta = (
+        f"MCGM DEVELOPMENT PLAN 2034 - CAD BASE\n"
+        f"PLOT: CTS {properties.get('cts_no')} ({properties.get('village')})\n"
+        f"PURPOSE: Architectural concept & massing base\n"
+        f"SCALE: 1:1 METRIC (1 CAD unit = 1 metre)\n"
+        f"ORIGIN: Plot centroid (0.00, 0.00)\n"
+        f"UTM 43N CENTROID: E {utm_cx:.2f} / N {utm_cy:.2f}\n"
+        f"SETBACKS ARE INDICATIVE - confirm against DCPR 2034"
+    )
+    msp.add_mtext(title_meta, dxfattribs={'layer': 'C-TITLE-BLOCK', 'char_height': dim_char_h * 0.92}) \
+        .set_location((lg_x0 + lg_row * 0.4, tb_y0 + tb_h - lg_row * 0.5))
+
+
+
+
 def export_dxf(wgs_rings: list, properties: dict, output_path: str,
                neighbors: Optional[list] = None, roads: Optional[list] = None):
     """
@@ -376,56 +545,15 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
     - C-ANNO-DIMS: Automated Boundary Segment Dimensions in Meters
     - C-TITLE-BLOCK: Architectural Sheet Border Frame & Title Block Box
     """
-    doc = ezdxf.new('R2010')
-    doc.header['$INSUNITS'] = 6     # Units = Meters
-    doc.header['$MEASUREMENT'] = 1  # ISO Metric
-    
+    doc = new_dxf_document()
     msp = doc.modelspace()
     
-    # Try adding linetypes
-    try:
-        doc.linetypes.add('DASHED', pattern='A, 1.0, -0.5')
-        doc.linetypes.add('PHANTOM', pattern='A, 2.0, -0.5, 0.5, -0.5, 0.5, -0.5')
-    except Exception:
-        pass
-
-    # Add Architectural Layers
-    doc.layers.add(name='0_GRID_AXIS', color=8, linetype='DASHED')
-    doc.layers.add(name='C-PLOT-BDY', color=1)
-    doc.layers.add(name='C-PROP-HATCH', color=252)
-    doc.layers.add(name='C-SETBACK-3M', color=3, linetype='DASHED')
-    doc.layers.add(name='C-SETBACK-6M', color=70, linetype='DASHED')
-    doc.layers.add(name='C-ADJN-PLOTS', color=2)
-    doc.layers.add(name='C-ROAD-ALIGN', color=4, linetype='DASHED')
-    doc.layers.add(name='C-RESTRICT-ZONE', color=6, linetype='PHANTOM')
-    doc.layers.add(name='C-ANNO-TEXT', color=7)
-    doc.layers.add(name='C-ANNO-DIMS', color=5)
-    doc.layers.add(name='C-NORTH-ARROW', color=7)
-    doc.layers.add(name='C-TITLE-BLOCK', color=4)
-    
     # 1. Fast Scale-Accurate Metric Projection around Local Origin (0, 0)
-    r0 = wgs_rings[0]
-    lons = [p[0] for p in r0]
-    lats = [p[1] for p in r0]
+    proj = project_rings_to_local_metres(wgs_rings)
+    lon0, lat0 = proj["lon0"], proj["lat0"]
+    meters_per_deg_lon, meters_per_deg_lat = proj["mpd_lon"], proj["mpd_lat"]
+    local_rings = proj["local_rings"]
     
-    lon0 = sum(lons) / len(lons)
-    lat0 = sum(lats) / len(lats)
-    
-    lat_rad = math.radians(lat0)
-    cos_lat = math.cos(lat_rad)
-    
-    # Degree-to-Meter conversion constants for Mumbai latitude (~18.9° N)
-    meters_per_deg_lon = 111319.5 * cos_lat
-    meters_per_deg_lat = 111132.0
-    
-    local_rings = []
-    for ring in wgs_rings:
-        loc_ring = [
-            ((p[0] - lon0) * meters_per_deg_lon, (p[1] - lat0) * meters_per_deg_lat)
-            for p in ring
-        ]
-        local_rings.append(loc_ring)
-        
     lr0 = local_rings[0]
     all_x = [p[0] for p in lr0]
     all_y = [p[1] for p in lr0]
@@ -679,88 +807,10 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
         [(b_min_x, b_min_y), (b_max_x, b_min_y), (b_max_x, b_max_y), (b_min_x, b_max_y)],
         dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
 
-    # ---- LEGEND ----------------------------------------------------------
-    lg_row = max(char_h * 1.9, 2.2)
-    legend_rows = [
-        ('C-PLOT-BDY',      'PLOT BOUNDARY - gross plot area'),
-        ('C-PROP-HATCH',    'Gross plot area (fill)'),
-        ('C-ROAD-ALIGN',    'Abutting road alignment / frontage'),
-        ('C-SETBACK-3M',    '3.0 m setback line (true parallel offset)'),
-        ('C-SETBACK-6M',    '6.0 m setback line (true parallel offset)'),
-        ('C-RESTRICT-ZONE', 'CRZ / Metro development restriction'),
-        ('C-ADJN-PLOTS',    'Adjoining CTS plots'),
-        ('C-ANNO-DIMS',     'Boundary segment dimensions (m)'),
-        ('C-ANNO-TEXT',     'Plot metadata'),
-        ('C-NORTH-ARROW',   'True north'),
-        ('0_GRID_AXIS',     'Metric grid, 0,0 at plot centroid'),
-        ('C-TITLE-BLOCK',   'Sheet border, legend, title block'),
-    ]
-    lg_h = lg_row * (len(legend_rows) + 9.5)
-    lg_y1 = b_max_y - scale * 0.05
-    lg_y0 = lg_y1 - lg_h
-    msp.add_lwpolyline(
-        [(lg_x0, lg_y0), (lg_x0 + lg_w, lg_y0), (lg_x0 + lg_w, lg_y1), (lg_x0, lg_y1)],
-        dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
-
-    y = lg_y1 - lg_row * 1.2
-    msp.add_text("LAYER LEGEND", dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': char_h * 0.95}) \
-        .set_placement((lg_x0 + lg_row * 0.4, y))
-    y -= lg_row * 1.3
-
-    swatch_w = lg_row * 1.5
-    for layer_name, meaning in legend_rows:
-        # sample line drawn ON its own layer, so it carries that layer's colour
-        # and linetype - the swatch is the layer, not a picture of it.
-        msp.add_line((lg_x0 + lg_row * 0.4, y + lg_row * 0.22),
-                     (lg_x0 + lg_row * 0.4 + swatch_w, y + lg_row * 0.22),
-                     dxfattribs={'layer': layer_name})
-        msp.add_text(f"{layer_name}  -  {meaning}",
-                     dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': dim_char_h * 0.92}) \
-            .set_placement((lg_x0 + lg_row * 0.4 + swatch_w + lg_row * 0.5, y))
-        y -= lg_row
-
-    # ---- PLOT DATA (what an architect needs before massing) --------------
-    y -= lg_row * 0.6
-    msp.add_text("PLOT DATA", dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': char_h * 0.95}) \
-        .set_placement((lg_x0 + lg_row * 0.4, y))
-    y -= lg_row * 1.25
-
-    sb3 = "drawn" if setback_status.get(3.0) else "NOT VIABLE - plot too narrow"
-    sb6 = "drawn" if setback_status.get(6.0) else "NOT VIABLE - plot too narrow"
-    area_note = properties.get('area_source') or ''
-    data_rows = [
-        f"GROSS PLOT AREA : {properties.get('area_sqm')} sq m",
-        f"AREA SOURCE     : {'DERIVED from boundary' if 'derived' in area_note else 'MCGM approved record'}",
-        f"CTS / VILLAGE   : {properties.get('cts_no')} / {properties.get('village')}",
-        f"WARD / ZONE     : {properties.get('ward')} / {properties.get('zone')}",
-        f"ABUTTING ROAD   : {properties.get('abutting_road')} ({properties.get('road_width')})",
-        f"CRZ STATUS      : {properties.get('crz_buffer_flag')}",
-        f"METRO BUFFER    : {properties.get('metro_buffer_flag')}",
-        f"3.0 m SETBACK   : {sb3}",
-        f"6.0 m SETBACK   : {sb6}",
-    ]
-    for row in data_rows:
-        msp.add_text(row, dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': dim_char_h * 0.92}) \
-            .set_placement((lg_x0 + lg_row * 0.4, y))
-        y -= lg_row
-
-    # ---- TITLE BLOCK (bottom of the legend column) -----------------------
-    tb_h = lg_row * 7.2
-    tb_y0 = b_min_y + scale * 0.05
-    msp.add_lwpolyline(
-        [(lg_x0, tb_y0), (lg_x0 + lg_w, tb_y0), (lg_x0 + lg_w, tb_y0 + tb_h), (lg_x0, tb_y0 + tb_h)],
-        dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
-    title_meta = (
-        f"MCGM DEVELOPMENT PLAN 2034 - CAD BASE\n"
-        f"PLOT: CTS {properties.get('cts_no')} ({properties.get('village')})\n"
-        f"PURPOSE: Architectural concept & massing base\n"
-        f"SCALE: 1:1 METRIC (1 CAD unit = 1 metre)\n"
-        f"ORIGIN: Plot centroid (0.00, 0.00)\n"
-        f"UTM 43N CENTROID: E {utm_cx:.2f} / N {utm_cy:.2f}\n"
-        f"SETBACKS ARE INDICATIVE - confirm against DCPR 2034"
+    draw_dxf_legend_column(
+        msp, properties, setback_status, utm_cx, utm_cy,
+        lg_x0, lg_w, b_max_y, b_min_y, char_h, dim_char_h, scale,
     )
-    msp.add_mtext(title_meta, dxfattribs={'layer': 'C-TITLE-BLOCK', 'char_height': dim_char_h * 0.92}) \
-        .set_location((lg_x0 + lg_row * 0.4, tb_y0 + tb_h - lg_row * 0.5))
 
     # Set Header Extents & Active Modelspace Viewport Zoom Framing for AutoCAD 2024
     doc.header['$EXTMIN'] = (b_min_x, b_min_y, 0)
