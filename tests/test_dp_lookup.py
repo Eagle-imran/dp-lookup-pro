@@ -553,3 +553,154 @@ def test_cli_rejects_bad_village_without_network(capsys):
     code = dp.main(["1' OR '1'='1", "947"])
     assert code == 1
     assert "unsupported characters" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------
+# Extracted pure helpers — previously buried inside a 730-line function and
+# therefore only reachable through a live network call.
+# --------------------------------------------------------------------------
+
+def test_mercator_roundtrips_against_the_known_plot_centroid():
+    """WORLI 733's centroid, verified live: 19.011989 N, 72.817102 E."""
+    lon, lat = dp.mercator_to_wgs84(8106574.0, 2151800.0, precision=4)
+    assert 72.0 < lon < 73.5
+    assert 18.5 < lat < 19.5
+
+
+def test_mercator_is_monotonic():
+    assert dp.mercator_to_wgs84(1e6, 0)[0] > dp.mercator_to_wgs84(0, 0)[0]
+    assert dp.mercator_to_wgs84(0, 1e6)[1] > dp.mercator_to_wgs84(0, 0)[1]
+
+
+# ---- area resolution ----
+
+def test_area_prefers_the_mcgm_approved_figure():
+    got = dp.resolve_plot_area({"AREA_APP_SQ_MTRS": 1317.74, "SHAPE.AREA": 1321.74})
+    assert got["area_sqm"] == 1317.74
+    assert "approved" in got["area_source"]
+    assert got["note"] is None
+
+
+def test_area_falls_back_to_geometry_and_says_so():
+    """MALABAR HILL 518 and TARDEO 264 really do have no approved area."""
+    got = dp.resolve_plot_area({"AREA_APP_SQ_MTRS": None, "SHAPE.AREA": 2450.15659})
+    assert got["area_sqm"] == 2450.16
+    assert "derived" in got["area_source"]
+    assert "indicative only" in got["note"]
+
+
+@pytest.mark.parametrize("attrs", [
+    {"AREA_APP_SQ_MTRS": None, "SHAPE.AREA": None},
+    {"AREA_APP_SQ_MTRS": 0, "SHAPE.AREA": 0},
+    {},
+])
+def test_area_reports_unavailable_rather_than_guessing(attrs):
+    got = dp.resolve_plot_area(attrs)
+    assert got["area_sqm"] is None
+    assert got["area_source"] == "unavailable"
+
+
+# ---- geometry ----
+
+MERC_RING = [[[8106500.0, 2151700.0], [8106600.0, 2151700.0],
+              [8106600.0, 2151800.0], [8106500.0, 2151800.0]]]
+
+
+def test_prepare_geometry_returns_a_usable_window():
+    g = dp.prepare_geometry(MERC_RING)
+    assert g["mcx"] == pytest.approx(8106550.0)
+    assert g["mcy"] == pytest.approx(2151750.0)
+    assert g["d"] >= 50                      # floor, so tiny plots still get a map window
+    assert 72 < g["lon"] < 73 and 18 < g["lat"] < 20
+    assert len(g["wgs_rings"][0]) == 4
+
+
+def test_prepare_geometry_floors_the_window_for_a_tiny_plot():
+    tiny = [[[8106500.0, 2151700.0], [8106504.0, 2151700.0],
+             [8106504.0, 2151704.0], [8106500.0, 2151704.0]]]
+    assert dp.prepare_geometry(tiny)["d"] == 50
+
+
+# ---- bundle folder ----
+
+@pytest.mark.parametrize("village,cts,expected", [
+    ("WORLI", "733", "worli_cts_733"),
+    ("MALABAR HILL", "16/738", "malabar_hill_cts_16-738"),
+    ("BANDRA-A", "409", "bandra-a_cts_409"),
+    ("  TARDEO  ", "264", "tardeo_cts_264"),
+])
+def test_bundle_folder_is_filesystem_safe(village, cts, expected):
+    name = dp.bundle_folder_name(village, cts)
+    assert name == expected
+    assert "/" not in name and "\\" not in name and " " not in name
+
+
+# ---- road selection ----
+
+def test_road_prefers_a_named_road_with_a_width():
+    chosen = dp.select_road({
+        "a": {"name": "Exisiting Road", "width": "N/A"},
+        "b": {"name": "B G KHER", "width": "18.30 M"},
+    })
+    assert chosen == {"name": "B G KHER", "width": "18.30 M"}
+
+
+def test_road_accepts_a_width_without_a_name():
+    """MOHILI 732 returns an unnamed road carrying a real 21.35 m width."""
+    chosen = dp.select_road({"a": {"name": "Road", "width": "21.35"}})
+    assert chosen["width"] == "21.35"
+
+
+def test_road_falls_back_to_the_generic_record():
+    """WORLI 886: MCGM's own typo, no width. Better than reporting nothing."""
+    chosen = dp.select_road({"a": {"name": "Exisiting Road", "width": "N/A"}})
+    assert chosen == {"name": "Exisiting Road", "width": "N/A"}
+
+
+def test_road_reports_none_when_nothing_was_found():
+    assert dp.select_road({}) == {"name": "None", "width": "None"}
+
+
+# ---- CRZ tier ----
+
+@pytest.mark.parametrize("item,expected", [
+    (None, "NO (Outside CRZ Buffer)"),
+    ({"attributes": {"category": "II"}}, "YES (CRZ II)"),          # layer 14
+    ({"attributes": {"Category": "II"}}, "YES (CRZ II)"),          # layer 1548
+    ({"attributes": {"CLASS": "CRZ II"}}, "YES (CRZ II)"),         # layer 1264, pre-prefixed
+    ({"attributes": {"category": "III"}}, "YES (CRZ III)"),
+])
+def test_crz_tier_is_read_from_whichever_attribute_the_layer_uses(item, expected):
+    assert dp.crz_flag_from(item) == expected
+
+
+def test_crz_falls_back_to_the_layer_name_when_no_tier_is_present():
+    got = dp.crz_flag_from({"layerName": "CRZ", "attributes": {"category": "Null"}})
+    assert got == "YES (CRZ)"
+
+
+# ---- status precedence ----
+
+def test_a_dp_modification_outranks_everything():
+    got = dp.derive_status({"x": 1}, {"y": 1}, {"z": 1}, "Hospital", "EH1.2",
+                           "RC1", "Garden", "MCP/7526")
+    assert "MODIFIED" in got["badge"]
+    assert "MCP/7526" in got["summary"]
+
+
+def test_a_designation_outranks_a_reservation():
+    got = dp.derive_status(None, {"y": 1}, {"z": 1}, "Fire Station", "EPU1.1",
+                           "RC1", "Garden", "None")
+    assert "RESERVED / DESIGNATED" in got["badge"]
+    assert "Fire Station" in got["summary"]
+
+
+def test_a_reservation_is_reported_when_there_is_no_designation():
+    got = dp.derive_status(None, None, {"z": 1}, "None", "None", "RC1", "Garden", "None")
+    assert "RESERVED" in got["badge"] and "Garden" in got["badge"]
+
+
+def test_a_plot_with_nothing_against_it_is_clear():
+    got = dp.derive_status(None, None, None, "None", "None", "None", "None", "None")
+    assert "CLEAR" in got["badge"]
+    assert got["summary"] == "Unreserved Land Parcel"

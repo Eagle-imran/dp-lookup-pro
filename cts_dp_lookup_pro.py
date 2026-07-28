@@ -930,6 +930,155 @@ def build_pdf_doc(pdf_path, status_badge, status_summary, village, attrs, cts_nu
 
     doc.build(story)
 
+# --- pure helpers ------------------------------------------------------------
+# Extracted from lookup_plot_pro, which had grown to 730 lines doing network IO,
+# geometry, parsing, rendering, export and logging in one scope. Everything below
+# is free of IO and shared state, so it is unit-testable without touching MCGM.
+
+WEB_MERCATOR_R = 20037508.342789244
+
+
+def mercator_to_wgs84(x: float, y: float, precision: int = 7) -> List[float]:
+    """Web Mercator (EPSG:102100/3857) metres to WGS84 degrees."""
+    lon = round((x / WEB_MERCATOR_R) * 180, precision)
+    lat = round(
+        (math.atan(math.exp(y / WEB_MERCATOR_R * math.pi)) * 2 - math.pi / 2) * 180 / math.pi,
+        precision,
+    )
+    return [lon, lat]
+
+
+def resolve_plot_area(attrs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Decide which area to report, and say which one it is.
+
+    MCGM leaves AREA_APP_SQ_MTRS null on a meaningful number of parcels
+    (MALABAR HILL 518, TARDEO 264). SHAPE.AREA - the digitised polygon's own
+    area - is populated there and is already in true ground square metres:
+    verified to match AREA_APP_SQ_MTRS exactly on plots carrying both.
+
+    It is NOT the same authority. It is the drawn area, not the approved
+    cadastral one, and the two differ by up to 7% where both exist. So it is a
+    labelled fallback, never a silent substitution.
+
+    Returns {"area_sqm", "area_source", "note"} - note is None when the approved
+    figure was available.
+    """
+    approved = attrs.get("AREA_APP_SQ_MTRS")
+    geometry = attrs.get("SHAPE.AREA")
+    if approved not in (None, "", 0):
+        return {"area_sqm": approved,
+                "area_source": "approved (MCGM AREA_APP_SQ_MTRS)",
+                "note": None}
+    if isinstance(geometry, (int, float)) and geometry > 0:
+        return {"area_sqm": round(float(geometry), 2),
+                "area_source": "derived from plot geometry - MCGM has no approved area on record",
+                "note": ("MCGM has no approved area for this plot; area is derived from the "
+                         "digitised boundary and is indicative only")}
+    return {"area_sqm": None, "area_source": "unavailable", "note": None}
+
+
+def prepare_geometry(rings: list) -> Dict[str, Any]:
+    """
+    Everything derived from the parcel rings: centroid, bounding box, the
+    half-extent used for map windows, and the WGS84 reprojection.
+    """
+    ring = rings[0]
+    cx = sum(p[0] for p in ring) / len(ring)
+    cy = sum(p[1] for p in ring) / len(ring)
+
+    pts = [p for r in rings for p in r]
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    mcx, mcy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    span = max(max(xs) - min(xs), max(ys) - min(ys))
+
+    lon, lat = mercator_to_wgs84(cx, cy, precision=6)
+    return {
+        "cx": cx, "cy": cy, "mcx": mcx, "mcy": mcy,
+        "xs": xs, "ys": ys,
+        "d": max(50, span / 2),
+        "lat": lat, "lon": lon,
+        "wgs_rings": [[mercator_to_wgs84(p[0], p[1]) for p in r] for r in rings],
+    }
+
+
+def bundle_folder_name(village: Any, cts_number: Any) -> str:
+    """Filesystem-safe bundle folder, e.g. 'malabar_hill_cts_16-738'."""
+    cts_clean = str(cts_number).replace("/", "-").replace("\\", "-")
+    village_clean = (str(village).lower().strip()
+                     .replace("/", "-").replace("\\", "-").replace(" ", "_"))
+    return f"{village_clean}_cts_{cts_clean}"
+
+
+# MCGM records unnamed carriageway under several placeholder names, and its own
+# typo "Exisiting Road" is the commonest.
+GENERIC_ROAD_NAMES = ("Exisiting Road", "EXISTING", "Road", "None")
+
+
+def select_road(road_map: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Pick the abutting road to report, best evidence first:
+
+      1. a real name AND a recorded width
+      2. a real name OR a recorded width
+      3. whatever was found, so the field is never empty when something matched
+
+    Behaviour-preserving extraction of the selection already in lookup_plot_pro.
+    """
+    def real_name(r):
+        return r.get("name") not in GENERIC_ROAD_NAMES
+
+    def real_width(r):
+        return r.get("width") != "N/A"
+
+    values = list(road_map.values())
+    named_with_width = [r for r in values if real_width(r) and real_name(r)]
+    named_or_width = [r for r in values if real_name(r) or real_width(r)]
+    roads = named_with_width or named_or_width or values
+    if not roads:
+        return {"name": "None", "width": "None"}
+    return {"name": roads[0]["name"], "width": roads[0]["width"]}
+
+
+def crz_flag_from(crz_item: Optional[Dict[str, Any]]) -> str:
+    """
+    Report the CRZ sub-tier rather than a bare yes.
+
+    The attribute name varies by layer: 14 uses `category` ("II"), 1548 uses
+    `Category`, 1264 uses `CLASS` (already "CRZ II").
+    """
+    if not crz_item:
+        return "NO (Outside CRZ Buffer)"
+    attrs = crz_item.get("attributes", {}) or {}
+    tier = None
+    for key in ("category", "Category", "CATEGORY", "CLASS", "Class"):
+        val = attrs.get(key)
+        if val and str(val).strip().lower() not in ("", "null", "none"):
+            tier = str(val).strip()
+            break
+    if not tier:
+        return f"YES ({crz_item.get('layerName')})"
+    label = tier if tier.upper().startswith("CRZ") else f"CRZ {tier}"
+    return f"YES ({label})"
+
+
+def derive_status(mod_item, des_item, rv_item, des_desc, des_code,
+                  res_code, res_type, mod_approval) -> Dict[str, str]:
+    """Planning status badge and one-line summary, in precedence order."""
+    if mod_item:
+        return {"badge": "\U0001F7E1 MODIFIED (DP Notification Order)",
+                "summary": f"Modified via {mod_approval}"}
+    if des_item and des_desc != "None":
+        return {"badge": f"\U0001F534 RESERVED / DESIGNATED ({des_desc})",
+                "summary": f"Designated as {des_desc} ({des_code})"}
+    if rv_item and res_code != "None":
+        return {"badge": f"\U0001F534 RESERVED ({res_type})",
+                "summary": f"Reserved under {res_code}"}
+    return {"badge": "\U0001F7E2 CLEAR (No Reservation)",
+            "summary": "Unreserved Land Parcel"}
+
+
 async def lookup_plot_pro(
     village: str,
     cts_number: str,
@@ -1046,56 +1195,23 @@ async def lookup_plot_pro(
         attrs = feature["attributes"]
         rings = feature["geometry"]["rings"]
 
-        # Plot area. MCGM leaves AREA_APP_SQ_MTRS null on a meaningful number of
-        # parcels (MALABAR HILL 518, TARDEO 264, ...). SHAPE.AREA - the digitised
-        # polygon's own area - is populated there and is already in true ground
-        # square metres (verified: it matches AREA_APP_SQ_MTRS exactly on plots
-        # where both exist). It is NOT the same authority though: it is the drawn
-        # area, not the approved cadastral one, and the two can differ by several
-        # percent. So fall back to it, but always say which one is being reported.
-        approved_area = attrs.get("AREA_APP_SQ_MTRS")
-        geometry_area = attrs.get("SHAPE.AREA")
-        if approved_area not in (None, "", 0):
-            area_sqm = approved_area
-            area_source = "approved (MCGM AREA_APP_SQ_MTRS)"
-        elif isinstance(geometry_area, (int, float)) and geometry_area > 0:
-            area_sqm = round(float(geometry_area), 2)
-            area_source = "derived from plot geometry - MCGM has no approved area on record"
-            notes.append(
-                "MCGM has no approved area for this plot; area is derived from the "
-                "digitised boundary and is indicative only"
-            )
-        else:
-            area_sqm = None
-            area_source = "unavailable"
-        # Keep attrs consistent for the downstream renderers.
-        attrs["AREA_APP_SQ_MTRS"] = area_sqm
-        
-        ring = rings[0]
-        cx = sum(p[0] for p in ring) / len(ring)
-        cy = sum(p[1] for p in ring) / len(ring)
-        
-        pts = [p for r in rings for p in r]
-        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
-        mcx, mcy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
-        d = max(50, max(max(xs) - min(xs), max(ys) - min(ys)) / 2)
-        
-        R = 20037508.342789244
-        lon = round((cx / R) * 180, 6)
-        lat = round((math.atan(math.exp(cy / R * math.pi)) * 2 - math.pi / 2) * 180 / math.pi, 6)
-        
-        wgs_rings = [
-            [
-                [round((p[0] / R) * 180, 7), round((math.atan(math.exp(p[1] / R * math.pi)) * 2 - math.pi / 2) * 180 / math.pi, 7)]
-                for p in r_ring
-            ]
-            for r_ring in rings
-        ]
+        area = resolve_plot_area(attrs)
+        area_sqm, area_source = area["area_sqm"], area["area_source"]
+        if area["note"]:
+            notes.append(area["note"])
+        attrs["AREA_APP_SQ_MTRS"] = area_sqm  # keep attrs consistent for renderers
+
+        geom = prepare_geometry(rings)
+        cx, cy = geom["cx"], geom["cy"]
+        mcx, mcy = geom["mcx"], geom["mcy"]
+        xs, ys, d = geom["xs"], geom["ys"], geom["d"]
+        lat, lon = geom["lat"], geom["lon"]
+        wgs_rings = geom["wgs_rings"]
+        R = WEB_MERCATOR_R
 
         cts_clean = str(cts_number).replace('/', '-').replace('\\', '-')
         village_clean = village.lower().strip().replace('/', '-').replace('\\', '-').replace(' ', '_')
-        query_folder_name = f"{village_clean}_cts_{cts_clean}"
-        query_dir = os.path.join(output_dir, query_folder_name)
+        query_dir = os.path.join(output_dir, bundle_folder_name(village, cts_number))
         os.makedirs(query_dir, exist_ok=True)
 
         # CRZ *zone polygons* — not boundary lines.
@@ -1284,16 +1400,8 @@ async def lookup_plot_pro(
                 "abutting road may be incomplete"
             )
 
-        named_with_width = [r for r in road_map.values() if r['width'] != 'N/A' and r['name'] not in ['Exisiting Road', 'EXISTING', 'Road', 'None']]
-        named_roads = [r for r in road_map.values() if r['name'] not in ['Exisiting Road', 'EXISTING', 'Road', 'None'] or r['width'] != 'N/A']
-        if named_with_width:
-            roads = named_with_width
-        elif named_roads:
-            roads = named_roads
-        else:
-            roads = list(road_map.values())
-        road_name = roads[0]["name"] if roads else "None"
-        road_width = roads[0]["width"] if roads else "None"
+        chosen_road = select_road(road_map)
+        road_name, road_width = chosen_road["name"], chosen_road["width"]
 
         # Parse Neighbors
         neighbors_map = {}
@@ -1381,38 +1489,11 @@ async def lookup_plot_pro(
         
         metro_buffer_flag = "YES (Metro Buffer Zone)" if metro_item else "NO"
 
-        # Report the CRZ sub-tier (CRZ I / II / III / IV) rather than a bare YES.
-        # Attribute name varies by layer: 14 -> `category` ("II"), 1548 -> `Category`,
-        # 1264 -> `CLASS` (already "CRZ II").
-        crz_tier = None
-        if crz_item:
-            crz_attrs = crz_item.get("attributes", {})
-            for key in ("category", "Category", "CATEGORY", "CLASS", "Class"):
-                val = crz_attrs.get(key)
-                if val and str(val).strip().lower() not in ("", "null", "none"):
-                    crz_tier = str(val).strip()
-                    break
+        crz_buffer_flag = crz_flag_from(crz_item)
 
-        if not crz_item:
-            crz_buffer_flag = "NO (Outside CRZ Buffer)"
-        elif crz_tier:
-            tier = crz_tier if crz_tier.upper().startswith("CRZ") else f"CRZ {crz_tier}"
-            crz_buffer_flag = f"YES ({tier})"
-        else:
-            crz_buffer_flag = f"YES ({crz_item.get('layerName')})"
-
-        if mod_item:
-            status_badge = "🟡 MODIFIED (DP Notification Order)"
-            status_summary = f"Modified via {mod_approval}"
-        elif des_item and des_desc != "None":
-            status_badge = f"🔴 RESERVED / DESIGNATED ({des_desc})"
-            status_summary = f"Designated as {des_desc} ({des_code})"
-        elif rv_item and res_code != "None":
-            status_badge = f"🔴 RESERVED ({res_type})"
-            status_summary = f"Reserved under {res_code}"
-        else:
-            status_badge = "🟢 CLEAR (No Reservation)"
-            status_summary = "Unreserved Land Parcel"
+        status = derive_status(mod_item, des_item, rv_item, des_desc, des_code,
+                               res_code, res_type, mod_approval)
+        status_badge, status_summary = status["badge"], status["summary"]
 
         ward_clean = str(attrs['WARD']).replace('/', '-').replace('\\', '-')
 
