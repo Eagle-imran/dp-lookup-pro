@@ -6,6 +6,41 @@ All notable changes to this project. Newest first.
 
 ---
 
+## [3.8.1] — 2026-07-28
+
+Second review pass over the satellite-to-DXF pipeline. One layout defect found
+and fixed; everything else measured and confirmed correct.
+
+### 🔴 Sheet border was sized from the plot, not the drawing
+
+The border, legend and title block were positioned from the plot outline alone.
+Roads and adjoining parcels routinely extend well past the plot, so on WORLI 733
+the drawing ran to x −139.8 while the border stopped at −51.8 — geometry fell
+outside the frame and **the legend sat on top of it**. The sheet is now sized
+from everything actually drawn, and grows downward when the legend stack is
+taller than the drawing.
+
+### ✅ Measured and confirmed correct
+
+- **Satellite overlay alignment** — the plot outline is drawn 0.26 m E–W and
+  0.14 m N–S from its true position at 0.565 m/pixel. Sub-pixel; the drawn
+  outline is exactly the expected size in pixels.
+- **DXF dimensions are true metres** — every boundary segment checked against
+  Vincenty distances on the WGS84 ellipsoid. Worst error **4.6 cm on a 50 m
+  segment** (0.09%). All 14 printed dimension labels match real geometry.
+- **Setbacks** exact at 3.00 m / 6.00 m on every regenerated plot.
+- **North arrow** verified to point to +Y (true north).
+- **Text legibility** — smallest text is 1/190 of plot width.
+- **No multi-ring plots** encountered in 14 samples. Noted as a known limit:
+  `export_dxf` treats every ring as an outer boundary, so a plot with a hole
+  would have that ring's setback offset the wrong way.
+- `ezdxf.recover` reports **0 errors** on all files.
+
+> Files generated before this release are stale — they carry the old radial
+> setbacks and no north-arrow layer. Re-run any plot you intend to use.
+
+---
+
 ## [3.8.0] — 2026-07-28
 
 DXF reworked so an architect can open it and start massing immediately.

@@ -620,12 +620,46 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
         .set_placement((na_x - char_h * 0.35, na_y + na_r * 1.8))
 
     # 9. C-TITLE-BLOCK: sheet border, legend panel and title block.
-    b_min_x = min_x - scale * 0.35
-    b_min_y = min_y - scale * 0.45
-    b_max_y = max_y + scale * 0.45
-    plot_right = max_x + scale * 0.35
+    #
+    # The border must be sized from EVERYTHING drawn, not from the plot alone.
+    # Roads and adjoining parcels routinely extend well beyond the plot, so a
+    # border derived from min_x/max_x left them outside the frame and put the
+    # legend directly on top of them.
+    content_x, content_y = [], []
+    for entity in msp:
+        try:
+            if entity.dxftype() == 'LWPOLYLINE':
+                for vx, vy in entity.get_points('xy'):
+                    content_x.append(vx)
+                    content_y.append(vy)
+            elif entity.dxftype() == 'LINE':
+                content_x += [entity.dxf.start.x, entity.dxf.end.x]
+                content_y += [entity.dxf.start.y, entity.dxf.end.y]
+            elif entity.dxftype() == 'CIRCLE':
+                ctr, rad = entity.dxf.center, entity.dxf.radius
+                content_x += [ctr.x - rad, ctr.x + rad]
+                content_y += [ctr.y - rad, ctr.y + rad]
+        except Exception:
+            continue
+    if not content_x:
+        content_x, content_y = [min_x, max_x], [min_y, max_y]
 
-    # Legend panel sits to the right of the drawing so it never covers geometry.
+    pad = max(scale * 0.10, 3.0)
+    b_min_x = min(content_x) - pad
+    plot_right = max(content_x) + pad
+    b_min_y = min(content_y) - pad
+    b_max_y = max(content_y) + pad
+
+    # The legend column carries the legend rows, the plot-data rows and the title
+    # block. On a small plot that stack is taller than the drawing, so grow the
+    # sheet downward rather than letting the legend run off the bottom.
+    _lg_row = max(char_h * 1.9, 2.2)
+    _legend_rows_n = 12
+    _needed = _lg_row * (_legend_rows_n + 9.5) + _lg_row * 7.2 + pad * 3
+    if (b_max_y - b_min_y) < _needed:
+        b_min_y = b_max_y - _needed
+
+    # Legend panel sits to the right of all geometry, so it never covers anything.
     lg_w = max(scale * 0.95, 26.0)
     lg_x0 = plot_right + scale * 0.06
     b_max_x = lg_x0 + lg_w + scale * 0.06
