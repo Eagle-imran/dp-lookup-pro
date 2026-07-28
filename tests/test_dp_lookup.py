@@ -792,3 +792,77 @@ def test_neighbour_probe_offset_has_a_floor():
     """A tiny plot still needs to reach far enough to find a neighbour."""
     assert dp.neighbour_probe_points(0.0, 0.0, 1.0) == [
         (15.0, 0.0), (-15.0, 0.0), (0.0, 15.0), (0.0, -15.0)]
+
+
+# --------------------------------------------------------------------------
+# Image renderers — previously inline in lookup_plot_pro and only reachable
+# through a live fetch of the MCGM map and nine Esri tiles.
+# --------------------------------------------------------------------------
+
+def _png_bytes(size=(256, 256), colour=(10, 120, 30)):
+    import io as _io
+    from PIL import Image
+    buf = _io.BytesIO()
+    Image.new("RGB", size, colour).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+DP_LABELS = {"cts": "733", "village": "WORLI", "ward": "G/S", "zone": "R",
+             "area": 1317.74, "status": "CLEAR (No Reservation)"}
+SAT_LABELS = {"cts": "733", "village": "WORLI", "ward": "G/S",
+              "lat": 19.011989, "lon": 72.817102, "neighbours": 3}
+MERC_SQUARE = [[[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]]]
+
+
+def test_dp_map_renders_over_the_server_image():
+    img = dp.render_dp_map(_png_bytes((1000, 1000)), MERC_SQUARE,
+                           bbox=(0, 0, 100, 100), size=(1000, 1000), labels=DP_LABELS)
+    assert img.size == (1000, 1000)
+    assert img.mode == "RGBA"
+
+
+def test_dp_map_still_renders_when_the_server_image_is_missing():
+    """A failed /export must not abort the report."""
+    img = dp.render_dp_map(None, MERC_SQUARE, bbox=(0, 0, 100, 100),
+                           size=(400, 400), labels=DP_LABELS)
+    assert img.size == (400, 400)
+
+
+def test_dp_map_draws_the_plot_boundary_in_red():
+    img = dp.render_dp_map(None, MERC_SQUARE, bbox=(0, 0, 100, 100),
+                           size=(600, 600), labels=DP_LABELS).convert("RGB")
+    px = img.load()
+    reds = sum(1 for x in range(0, 600, 3) for y in range(0, 600, 3)
+               if px[x, y][0] > 180 and px[x, y][1] < 110 and px[x, y][2] < 130)
+    assert reds > 50, "no red boundary drawn"
+
+
+def test_satellite_stitches_a_grid():
+    tiles = [_png_bytes() for _ in range(9)]
+    coords = [(x, y) for y in range(3) for x in range(3)]
+    img = dp.stitch_satellite(tiles, coords, 3, [[[72.8, 19.0], [72.81, 19.0], [72.81, 19.01]]],
+                              bounds=(19.02, 72.79, 18.99, 72.82), labels=SAT_LABELS)
+    assert img.size == (768, 768)
+
+
+def test_satellite_survives_missing_and_failed_tiles():
+    """Tiles arrive as bytes, None, or exceptions when a fetch failed."""
+    tiles = [_png_bytes(), None, RuntimeError("timeout"), b"", _png_bytes(),
+             None, None, _png_bytes(), None]
+    coords = [(x, y) for y in range(3) for x in range(3)]
+    img = dp.stitch_satellite(tiles, coords, 3, [[[72.8, 19.0], [72.81, 19.0], [72.81, 19.01]]],
+                              bounds=(19.02, 72.79, 18.99, 72.82), labels=SAT_LABELS)
+    assert img.size == (768, 768)
+
+
+def test_satellite_survives_corrupt_tile_bytes():
+    tiles = [b"not a png"] * 9
+    coords = [(x, y) for y in range(3) for x in range(3)]
+    img = dp.stitch_satellite(tiles, coords, 3, [], bounds=(19.02, 72.79, 18.99, 72.82),
+                              labels=SAT_LABELS)
+    assert img.size == (768, 768)
+
+
+def test_renderers_accept_a_multi_ring_plot():
+    two = MERC_SQUARE + [[[10.0, 10.0], [20.0, 10.0], [20.0, 20.0], [10.0, 20.0]]]
+    assert dp.render_dp_map(None, two, (0, 0, 100, 100), (300, 300), DP_LABELS)

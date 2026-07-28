@@ -1179,6 +1179,113 @@ def neighbour_probe_points(mcx: float, mcy: float, d: float) -> List[tuple]:
     return [(mcx + off, mcy), (mcx - off, mcy), (mcx, mcy + off), (mcx, mcy - off)]
 
 
+# --- image rendering ---------------------------------------------------------
+# Both renderers take bytes and return a PIL image, so they can be exercised
+# with synthetic input and never need the network.
+
+
+def render_dp_map(base_png: Optional[bytes], rings: list, bbox: tuple, size: tuple,
+                  labels: Dict[str, Any]) -> "Image.Image":
+    """
+    DP zoning map with the plot outlined and a legend.
+
+    `base_png` is the server's rendered map, or None when the fetch failed - in
+    which case a blank ground is used so the report still builds rather than
+    crashing on a missing image.
+    """
+    x0, y0, x1, y1 = bbox
+    width, height = size
+
+    if base_png:
+        base = Image.open(io.BytesIO(base_png)).convert("RGBA")
+    else:
+        base = Image.new("RGBA", (width, height), (240, 240, 240, 255))
+
+    overlay = Image.new("RGBA", base.size, (255, 255, 255, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    def to_px(x, y):
+        return ((x - x0) / (x1 - x0) * width, (y1 - y) / (y1 - y0) * height)
+
+    for ring in rings:
+        draw.polygon([to_px(p[0], p[1]) for p in ring],
+                     fill=(255, 23, 68, 45), outline=(255, 23, 68, 255), width=5)
+
+    # north arrow
+    nx, ny = width - 80, 80
+    draw.ellipse([nx - 30, ny - 30, nx + 30, ny + 30],
+                 fill=(255, 255, 255, 230), outline=(0, 0, 0, 255), width=2)
+    draw.polygon([(nx, ny - 22), (nx - 10, ny + 12), (nx + 10, ny + 12)], fill=(220, 0, 0, 255))
+    draw.text((nx - 5, ny - 48), "N", fill=(0, 0, 0, 255), font_size=24)
+
+    lw, lh = 420, 160
+    lx0, ly0 = width - lw - 30, height - lh - 30
+    draw.rectangle([lx0, ly0, lx0 + lw, ly0 + lh],
+                   fill=(255, 255, 255, 235), outline=(0, 0, 0, 255), width=2)
+    draw.rectangle([lx0 + 20, ly0 + 20, lx0 + 50, ly0 + 42],
+                   fill=(255, 23, 68, 100), outline=(255, 23, 68, 255), width=2)
+    draw.text((lx0 + 60, ly0 + 20), f"Plot Boundary (CTS {labels['cts']})",
+              fill=(0, 0, 0, 255), font_size=18)
+    draw.text((lx0 + 20, ly0 + 55), f"Village: {labels['village']} | Ward: {labels['ward']}",
+              fill=(0, 0, 0, 255), font_size=16)
+    draw.text((lx0 + 20, ly0 + 85), f"Zone: {labels['zone']} | Area: {labels['area']} sq m",
+              fill=(0, 0, 0, 255), font_size=16)
+    draw.text((lx0 + 20, ly0 + 115), f"Status: {labels['status']}",
+              fill=(0, 0, 0, 255), font_size=16)
+
+    return Image.alpha_composite(base, overlay)
+
+
+def stitch_satellite(tiles: list, coords: list, grid_dim: int, wgs_rings: list,
+                     bounds: tuple, labels: Dict[str, Any]) -> "Image.Image":
+    """
+    Esri tiles stitched into one canvas with the plot outlined.
+
+    `bounds` is (top_lat, left_lon, bot_lat, right_lon) for the whole grid.
+    Tiles that failed arrive as falsy or as exceptions and are skipped, leaving
+    the dark ground showing rather than aborting.
+    """
+    top_lat, left_lon, bot_lat, right_lon = bounds
+    canvas_w = canvas_h = grid_dim * 256
+    canvas = Image.new("RGBA", (canvas_w, canvas_h), (40, 40, 40, 255))
+
+    for (gx, gy), blob in zip(coords, tiles):
+        if not blob or isinstance(blob, Exception):
+            continue
+        try:
+            canvas.paste(Image.open(io.BytesIO(blob)).convert("RGBA"), (gx * 256, gy * 256))
+        except Exception:
+            continue
+
+    overlay = Image.new("RGBA", (canvas_w, canvas_h), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    def to_px(lon, lat):
+        return ((lon - left_lon) / (right_lon - left_lon) * canvas_w,
+                (top_lat - lat) / (top_lat - bot_lat) * canvas_h)
+
+    for ring in wgs_rings:
+        draw.polygon([to_px(p[0], p[1]) for p in ring],
+                     fill=(255, 235, 59, 50), outline=(255, 235, 59, 255), width=5)
+
+    slw, slh = 320, 110
+    sx, sy = canvas_w - slw - 15, canvas_h - slh - 15
+    draw.rectangle([sx, sy, sx + slw, sy + slh],
+                   fill=(0, 0, 0, 210), outline=(255, 255, 255, 255), width=2)
+    draw.rectangle([sx + 12, sy + 12, sx + 35, sy + 30],
+                   fill=(255, 235, 59, 100), outline=(255, 235, 59, 255), width=2)
+    draw.text((sx + 42, sy + 12), f"Satellite Boundary (CTS {labels['cts']})",
+              fill=(255, 255, 255, 255), font_size=13)
+    draw.text((sx + 12, sy + 38), f"Village: {labels['village']} | Ward: {labels['ward']}",
+              fill=(255, 255, 255, 255), font_size=12)
+    draw.text((sx + 12, sy + 60), f"Lat: {labels['lat']:.6f} | Lon: {labels['lon']:.6f}",
+              fill=(255, 255, 255, 255), font_size=12)
+    draw.text((sx + 12, sy + 82), f"Adjoining Parcels Identified: {labels['neighbours']}",
+              fill=(255, 255, 255, 255), font_size=12)
+
+    return Image.alpha_composite(canvas, overlay)
+
+
 async def lookup_plot_pro(
     village: str,
     cts_number: str,
@@ -1534,9 +1641,6 @@ async def lookup_plot_pro(
 
         ward_clean = str(attrs['WARD']).replace('/', '-').replace('\\', '-')
 
-        def px_dp(x, y):
-            return ((x - x0) / (x1 - x0) * W, (y1 - y) / (y1 - y0) * H)
-
         # ------------------------------------------------------------------
         # FAST PATH COMPLETE. Everything below the on_data callback needs the
         # slow image fetches; everything above needed only planning data.
@@ -1648,78 +1752,39 @@ async def lookup_plot_pro(
             and getattr(dp_snap_resp, "status_code", None) == 200
             and dp_snap_resp.headers.get("content-type", "").startswith("image")
         )
-        if dp_map_ok:
-            dp_img = Image.open(io.BytesIO(dp_snap_resp.content)).convert("RGBA")
-        else:
+        if not dp_map_ok:
             warnings.append("DP base map could not be fetched; the map image is a blank placeholder")
-            dp_img = Image.new("RGBA", (W, H), (240, 240, 240, 255))
-        dp_overlay = Image.new("RGBA", dp_img.size, (255, 255, 255, 0))
-        draw_dp = ImageDraw.Draw(dp_overlay)
 
-        for r in rings:
-            poly_pts = [px_dp(p[0], p[1]) for p in r]
-            draw_dp.polygon(poly_pts, fill=(255, 23, 68, 45), outline=(255, 23, 68, 255), width=5)
-
-        nx, ny = W - 80, 80
-        draw_dp.ellipse([nx-30, ny-30, nx+30, ny+30], fill=(255, 255, 255, 230), outline=(0, 0, 0, 255), width=2)
-        draw_dp.polygon([(nx, ny-22), (nx-10, ny+12), (nx+10, ny+12)], fill=(220, 0, 0, 255))
-        draw_dp.text((nx-5, ny-48), "N", fill=(0, 0, 0, 255), font_size=24)
-
-        lw, lh = 420, 160
-        lx0, ly0 = W - lw - 30, H - lh - 30
-        draw_dp.rectangle([lx0, ly0, lx0+lw, ly0+lh], fill=(255, 255, 255, 235), outline=(0, 0, 0, 255), width=2)
-        draw_dp.rectangle([lx0+20, ly0+20, lx0+50, ly0+42], fill=(255, 23, 68, 100), outline=(255, 23, 68, 255), width=2)
-        draw_dp.text((lx0+60, ly0+20), f"Plot Boundary (CTS {cts_number})", fill=(0, 0, 0, 255), font_size=18)
-        draw_dp.text((lx0+20, ly0+55), f"Village: {village.upper()} | Ward: {attrs['WARD']}", fill=(0, 0, 0, 255), font_size=16)
-        draw_dp.text((lx0+20, ly0+85), f"Zone: {zone} | Area: {attrs['AREA_APP_SQ_MTRS']} sq m", fill=(0, 0, 0, 255), font_size=16)
-        draw_dp.text((lx0+20, ly0+115), f"Status: {status_badge[:30]}", fill=(0, 0, 0, 255), font_size=16)
-
-        final_dp_img = Image.alpha_composite(dp_img, dp_overlay)
+        final_dp_img = render_dp_map(
+            dp_snap_resp.content if dp_map_ok else None,
+            rings,
+            bbox=(x0, y0, x1, y1),
+            size=(W, H),
+            labels={"cts": cts_number, "village": village.upper(), "ward": attrs["WARD"],
+                    "zone": zone, "area": attrs["AREA_APP_SQ_MTRS"],
+                    "status": status_badge[:30]},
+        )
 
         # Stitch Satellite Canvas
-        canvas_w, canvas_h = grid_dim * 256, grid_dim * 256
-        sat_canvas = Image.new('RGBA', (canvas_w, canvas_h), (40, 40, 40, 255))
-        missing_tiles = 0
-        if isinstance(sat_tile_bytes, Exception):
-            missing_tiles = len(sat_coords)
-        else:
-            missing_tiles = sum(1 for b in sat_tile_bytes if isinstance(b, Exception) or not b)
+        tiles = [] if isinstance(sat_tile_bytes, Exception) else list(sat_tile_bytes)
+        missing_tiles = (len(sat_coords) if isinstance(sat_tile_bytes, Exception)
+                         else sum(1 for b in tiles if isinstance(b, Exception) or not b))
         if missing_tiles:
             warnings.append(f"{missing_tiles} of {len(sat_coords)} satellite tiles failed to load")
-        if not isinstance(sat_tile_bytes, Exception):
-            for (gx, gy), b in zip(sat_coords, sat_tile_bytes):
-                if b and not isinstance(b, Exception):
-                    try:
-                        t_img = Image.open(io.BytesIO(b)).convert('RGBA')
-                        sat_canvas.paste(t_img, (gx * 256, gy * 256))
-                    except Exception:
-                        pass
-                    
+
         top_lat, left_lon = tile_to_latlon(xtile - half_dim, ytile - half_dim, zoom)
         bot_lat, right_lon = tile_to_latlon(xtile + half_dim + 1, ytile + half_dim + 1, zoom)
-        
-        sat_overlay = Image.new('RGBA', (canvas_w, canvas_h), (255, 255, 255, 0))
-        draw_sat = ImageDraw.Draw(sat_overlay)
-        
-        def px_sat(w_lon, w_lat):
-            x_px = (w_lon - left_lon) / (right_lon - left_lon) * canvas_w
-            y_px = (top_lat - w_lat) / (top_lat - bot_lat) * canvas_h
-            return (x_px, y_px)
-            
-        for r in wgs_rings:
-            poly_pts = [px_sat(p[0], p[1]) for p in r]
-            draw_sat.polygon(poly_pts, fill=(255, 235, 59, 50), outline=(255, 235, 59, 255), width=5)
-            
-        slw, slh = 320, 110
-        slx0, sly0 = canvas_w - slw - 15, canvas_h - slh - 15
-        draw_sat.rectangle([slx0, sly0, slx0+slw, sly0+slh], fill=(0, 0, 0, 210), outline=(255, 255, 255, 255), width=2)
-        draw_sat.rectangle([slx0+12, sly0+12, slx0+35, sly0+30], fill=(255, 235, 59, 100), outline=(255, 235, 59, 255), width=2)
-        draw_sat.text((slx0+42, sly0+12), f"Satellite Boundary (CTS {cts_number})", fill=(255, 255, 255, 255), font_size=13)
-        draw_sat.text((slx0+12, sly0+38), f"Village: {village.upper()} | Ward: {attrs['WARD']}", fill=(255, 255, 255, 255), font_size=12)
-        draw_sat.text((slx0+12, sly0+60), f"Lat: {lat:.6f} | Lon: {lon:.6f}", fill=(255, 255, 255, 255), font_size=12)
-        draw_sat.text((slx0+12, sly0+82), f"Adjoining Parcels Identified: {len(neighbors)}", fill=(255, 255, 255, 255), font_size=12)
 
-        final_sat = Image.alpha_composite(sat_canvas, sat_overlay)
+        final_sat = stitch_satellite(
+            tiles or [None] * len(sat_coords),
+            sat_coords,
+            grid_dim,
+            wgs_rings,
+            bounds=(top_lat, left_lon, bot_lat, right_lon),
+            labels={"cts": cts_number, "village": village.upper(), "ward": attrs["WARD"],
+                    "lat": lat, "lon": lon, "neighbours": len(neighbors)},
+        )
+
         def save_images():
             final_dp_img.convert("RGB").save(dp_snapshot_path, "PNG", compress_level=1)
             final_sat.convert("RGB").save(sat_snapshot_path, "PNG", compress_level=1)
