@@ -309,6 +309,120 @@ def test_dxf_geometry_is_metric_and_centred_on_origin(tmp_path):
     assert max(abs(y) for _, y in pts) < 200
 
 
+def _dist_to_boundary(pt, poly):
+    best = 1e9
+    for i in range(len(poly)):
+        a, b = poly[i], poly[(i + 1) % len(poly)]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        l2 = dx * dx + dy * dy
+        if l2 == 0:
+            continue
+        t = max(0.0, min(1.0, ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / l2))
+        best = min(best, math.hypot(pt[0] - (a[0] + t * dx), pt[1] - (a[1] + t * dy)))
+    return best
+
+
+SQUARE = [(0, 0), (100, 0), (100, 100), (0, 100)]
+# concave L - the shape class that broke the hand-rolled miter offset
+L_SHAPE = [(0, 0), (60, 0), (60, 20), (20, 20), (20, 60), (0, 60)]
+
+
+def test_setback_offset_is_exact_on_a_square():
+    rings = dp.offset_polygon_inward(SQUARE, 10)
+    assert len(rings) == 1
+    assert abs(abs(dp.polygon_signed_area(rings[0])) - 6400.0) < 0.01
+
+
+@pytest.mark.parametrize("poly", [SQUARE, L_SHAPE])
+@pytest.mark.parametrize("distance", [3.0, 6.0])
+def test_setback_is_a_true_parallel_offset(poly, distance):
+    """
+    The two properties an architect depends on, checked along the whole line
+    rather than at vertices only:
+
+      1. No part of the setback line is closer than `distance` to the boundary
+         (it never encroaches).
+      2. It actually touches `distance` somewhere (it is not over-conservative,
+         which would silently shrink the buildable envelope).
+
+    Vertices at reflex corners sit further out than `distance` by design - that
+    is what a mitre join does - so a per-vertex equality check is the wrong test.
+    """
+    rings = dp.offset_polygon_inward(poly, distance)
+    assert rings, "expected a viable setback"
+
+    sampled = []
+    for ring in rings:
+        for i in range(len(ring)):
+            a, b = ring[i], ring[(i + 1) % len(ring)]
+            for step in range(21):  # sample along each edge, not just the ends
+                t = step / 20.0
+                sampled.append(_dist_to_boundary(
+                    (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t), poly))
+
+    assert min(sampled) >= distance - 0.02, "setback encroaches inside the required distance"
+    assert min(sampled) <= distance + 0.02, "setback is further in than required"
+
+
+def test_setback_is_winding_independent():
+    a = dp.offset_polygon_inward(SQUARE, 10)
+    b = dp.offset_polygon_inward(SQUARE[::-1], 10)
+    assert abs(abs(dp.polygon_signed_area(a[0])) - abs(dp.polygon_signed_area(b[0]))) < 0.01
+
+
+def test_setback_omitted_when_plot_cannot_sustain_it():
+    """Better to draw nothing than a line an architect would build to."""
+    assert dp.offset_polygon_inward([(0, 0), (4, 0), (4, 4), (0, 4)], 6.0) == []
+    assert dp.offset_polygon_inward([(0, 0), (1, 0), (1, 1)], 3.0) == []
+
+
+def test_setback_handles_duplicate_closing_vertex():
+    closed = SQUARE + [SQUARE[0]]
+    assert dp.offset_polygon_inward(closed, 10)
+
+
+def test_dxf_has_no_empty_layers_and_carries_a_legend(tmp_path):
+    """A declared-but-empty layer misleads whoever opens the drawing."""
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    ring = [[[72.8200, 18.9700], [72.8215, 18.9700], [72.8215, 18.9715],
+             [72.8200, 18.9715], [72.8200, 18.9700]]]
+    props = dict(PROPS, crz_buffer_flag="YES (CRZ II)", metro_buffer_flag="YES",
+                 area_source="approved (MCGM AREA_APP_SQ_MTRS)")
+    roads = [[[72.8195, 18.9698], [72.8220, 18.9698]]]
+    neighbours = [{"cts_no": "948", "rings": [[[72.8216, 18.9700], [72.8225, 18.9700],
+                                               [72.8225, 18.9712], [72.8216, 18.9700]]]}]
+    dp.export_dxf(ring, props, str(out), neighbors=neighbours, roads=roads)
+
+    doc = ezdxf.readfile(str(out))
+    msp = doc.modelspace()
+    used = {e.dxf.layer for e in msp}
+    for layer in ("C-PLOT-BDY", "C-ROAD-ALIGN", "C-ADJN-PLOTS", "C-SETBACK-3M",
+                  "C-RESTRICT-ZONE", "C-NORTH-ARROW", "C-TITLE-BLOCK", "C-ANNO-DIMS"):
+        assert layer in used, f"{layer} is declared but empty"
+
+    text = " ".join(
+        (e.plain_text() if hasattr(e, "plain_text") else e.dxf.text)
+        for e in msp if e.dxftype() in ("TEXT", "MTEXT")
+    )
+    for token in ("LAYER LEGEND", "PLOT DATA", "GROSS PLOT AREA", "ABUTTING ROAD",
+                  "CRZ STATUS", "1 CAD unit = 1 metre"):
+        assert token in text, f"legend is missing {token!r}"
+
+
+def test_dxf_geometry_stays_within_sane_extents(tmp_path):
+    """Regression: neighbour rings arrived in Web Mercator and drew at ~8e11."""
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    neighbours = [{"cts_no": "1", "rings": [[[72.8216, 18.9700], [72.8225, 18.9700],
+                                             [72.8225, 18.9712], [72.8216, 18.9700]]]}]
+    dp.export_dxf(RING, PROPS, str(out), neighbors=neighbours)
+    doc = ezdxf.readfile(str(out))
+    coords = [c for e in doc.modelspace() if e.dxftype() == "LWPOLYLINE"
+              for p in e.get_points("xy") for c in (p[0], p[1])]
+    assert coords and max(abs(c) for c in coords) < 5000
+
+
 def test_exports_do_not_crash_on_none_area(tmp_path):
     """MALABAR HILL 16/738 really does return a null area from MCGM."""
     props = dict(PROPS, area_sqm=None)

@@ -6,6 +6,81 @@ All notable changes to this project. Newest first.
 
 ---
 
+## [3.8.0] — 2026-07-28
+
+DXF reworked so an architect can open it and start massing immediately.
+
+### 🔴 Setback lines were wrong
+
+The "3 m" and "6 m" setbacks were produced by pulling each boundary vertex
+*toward the plot centre*, not by offsetting perpendicular to each edge. Measured
+on WORLI 733, the 3 m line sat between **1.15 m and 3.00 m** from the boundary
+and the 6 m line between **2.35 m and 6.00 m**.
+
+**Massing built to those lines would have breached the DCR.**
+
+Now a true parallel offset. Verified on WORLI 733: 3.0000 m and 6.0000 m.
+Where a plot is too small to sustain a setback it is **omitted and labelled**
+rather than drawn wrong — BANDRA-A 409 (115 m²) correctly gets no 6 m line.
+
+### 🔴 Adjoining plots were drawn 850,000 km away
+
+Neighbour geometry arrives in Web Mercator but was treated as WGS84 degrees, so
+adjoining parcels landed at ~8×10¹¹ — far outside the sheet, in **every DXF ever
+generated**. Now converted correctly; they sit within metres of the plot.
+
+### 🔴 The road layer was empty
+
+`C-ROAD-ALIGN` was declared but never populated, so there was no way to tell
+which edge was the frontage — the thing that governs the front setback. Road
+geometry is now fetched and drawn. Two causes had to be fixed: geometry was not
+being requested at all, and the road layers return mixed types (193/194 give
+`paths`, 44/45 give `rings`) where only `paths` was read. Roads are clipped to
+the plot vicinity — one came back 3.8 km long with 2,472 vertices.
+
+### 📐 New: layer legend and plot data panel
+
+Every DXF now carries a legend keyed to the layers, drawn on its own layers so
+each swatch shows that layer's real colour and linetype:
+
+| Layer | Meaning |
+| :--- | :--- |
+| `C-PLOT-BDY` | Plot boundary — gross plot area |
+| `C-PROP-HATCH` | Gross plot area (fill) |
+| `C-ROAD-ALIGN` | Abutting road alignment / frontage |
+| `C-SETBACK-3M` | 3.0 m setback (true parallel offset) |
+| `C-SETBACK-6M` | 6.0 m setback (true parallel offset) |
+| `C-RESTRICT-ZONE` | CRZ / Metro development restriction |
+| `C-ADJN-PLOTS` | Adjoining CTS plots |
+| `C-ANNO-DIMS` | Boundary segment dimensions (m) |
+| `C-ANNO-TEXT` | Plot metadata |
+| `C-NORTH-ARROW` | True north |
+| `0_GRID_AXIS` | Metric grid, 0,0 at plot centroid |
+| `C-TITLE-BLOCK` | Sheet border, legend, title block |
+
+Alongside it, a **PLOT DATA** panel: gross plot area and whether it is the
+MCGM-approved figure or derived from the boundary, CTS/village, ward/zone,
+abutting road and width, CRZ status, metro buffer, and whether each setback was
+drawn or omitted.
+
+Also added: a **north arrow** (`C-NORTH-ARROW`), CRZ restriction notes on
+`C-RESTRICT-ZONE`, and a viewport that frames the whole sheet including the
+legend.
+
+### ✅ Verified
+
+- Setbacks measured exact on square, concave-L and three live plots
+- Scale confirmed: DXF polygon area matches MCGM to 0.3% on MALABAR HILL 518
+- No declared-but-empty layers on any plot
+- `ezdxf.recover` reports **0 errors, 0 autofixes** across all generated files
+- 57 offline tests (up from 47)
+
+> ⚠️ Setback lines are indicative geometry, not a DCPR compliance check. Actual
+> requirements vary with building height, plot size and road width — confirm
+> against DCPR 2034 Table 18.
+
+---
+
 ## [3.7.0] — 2026-07-28
 
 The first release to correct results rather than add features. Two lookups were

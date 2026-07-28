@@ -1,6 +1,6 @@
 [project]
 name = "dp-lookup-pro"
-version = "3.7.0"
+version = "3.8.0"
 description = "MCGM SDP 2014-34 DP Lookup Tool with PDF Reports, HD Maps, Satellite Aerial Views, GIS CAD Exports, and High-Speed Async Batching"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -14,6 +14,7 @@ dependencies = [
     "reportlab>=4.0.0",
     "qrcode>=7.4.0",
     "ezdxf>=1.4.2",
+    "shapely>=2.0.7",
 ]
 
 [project.optional-dependencies]

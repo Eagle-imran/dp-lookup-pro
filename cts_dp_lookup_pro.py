@@ -284,7 +284,77 @@ def wgs84_to_utm43n(lon: float, lat: float) -> tuple:
     )
     return x, y
 
-def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: list = None):
+def polygon_signed_area(ring: list) -> float:
+    """Shoelace. Positive = counter-clockwise winding."""
+    n = len(ring)
+    return sum(
+        ring[i][0] * ring[(i + 1) % n][1] - ring[(i + 1) % n][0] * ring[i][1]
+        for i in range(n)
+    ) / 2.0
+
+
+def offset_polygon_inward(ring: list, distance: float) -> list:
+    """
+    True parallel inward offset of a closed polygon. Returns a LIST of rings.
+
+    This is what a building setback actually is: every point on the result is
+    exactly `distance` from the nearest boundary edge.
+
+    Two earlier approaches were wrong and both were caught by measurement:
+
+      1. Pulling each vertex radially toward the centroid by
+         min(distance, dist*0.3). Neither perpendicular nor the requested
+         distance - on WORLI 733 the "3 m" line sat 1.15-3.00 m from the
+         boundary.
+      2. A hand-rolled miter offset. Exact on convex plots, but it
+         self-intersects on concave ones, and real CTS parcels are concave
+         (WORLI 733 has 6 reflex corners). It measured 0.68 m against a 3 m
+         target.
+
+    Shapely's buffer resolves self-intersection properly, which is the whole
+    difficulty here. A setback can legitimately split a plot into more than one
+    buildable island, so every resulting ring is returned.
+
+    Returns [] when the plot cannot sustain the offset, so the caller omits the
+    line rather than drawing a misleading one.
+    """
+    from shapely.geometry import Polygon
+    from shapely.geometry.base import BaseMultipartGeometry
+
+    pts = list(ring)
+    if len(pts) > 1 and math.isclose(pts[0][0], pts[-1][0], abs_tol=1e-9) \
+            and math.isclose(pts[0][1], pts[-1][1], abs_tol=1e-9):
+        pts = pts[:-1]
+    if len(pts) < 3 or distance <= 0:
+        return []
+
+    try:
+        poly = Polygon(pts)
+        if not poly.is_valid:
+            poly = poly.buffer(0)          # repair self-touching input
+        shrunk = poly.buffer(-abs(distance), join_style=2)  # 2 = mitre
+    except Exception:
+        return []
+
+    if shrunk.is_empty:
+        return []
+
+    parts = list(shrunk.geoms) if isinstance(shrunk, BaseMultipartGeometry) else [shrunk]
+    out = []
+    for part in parts:
+        exterior = getattr(part, "exterior", None)
+        if exterior is None:
+            continue
+        coords = [(x, y) for x, y in exterior.coords]
+        if len(coords) > 1 and coords[0] == coords[-1]:
+            coords = coords[:-1]
+        if len(coords) >= 3 and abs(polygon_signed_area(coords)) >= 1.0:
+            out.append(coords)
+    return out
+
+
+def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: list = None,
+               roads: list = None):
     """
     Generates a scale-accurate Multi-Layered AutoCAD DXF CAD drawing file (.dxf)
     centered around Local Origin (0, 0) in Real-World Metric Meters (1 CAD Unit = 1 Meter).
@@ -327,6 +397,7 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
     doc.layers.add(name='C-RESTRICT-ZONE', color=6, linetype='PHANTOM')
     doc.layers.add(name='C-ANNO-TEXT', color=7)
     doc.layers.add(name='C-ANNO-DIMS', color=5)
+    doc.layers.add(name='C-NORTH-ARROW', color=7)
     doc.layers.add(name='C-TITLE-BLOCK', color=4)
     
     # 1. Fast Scale-Accurate Metric Projection around Local Origin (0, 0)
@@ -399,31 +470,25 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
         except Exception:
             pass
 
-    # 4. C-SETBACK-3M & C-SETBACK-6M: Concept Setback Lines
-    for loc_ring in local_rings:
-        pts_3m = []
-        pts_6m = []
-        n_pts = len(loc_ring)
-        for i in range(n_pts):
-            px, py = loc_ring[i]
-            vx = cx - px
-            vy = cy - py
-            dist = math.sqrt(vx*vx + vy*vy)
-            if dist > 0.001:
-                ux = vx / dist
-                uy = vy / dist
-                off_3m = min(3.0, dist * 0.3)
-                off_6m = min(6.0, dist * 0.45)
-                pts_3m.append((px + ux * off_3m, py + uy * off_3m))
-                pts_6m.append((px + ux * off_6m, py + uy * off_6m))
-            else:
-                pts_3m.append((px, py))
-                pts_6m.append((px, py))
-                
-        if len(pts_3m) >= 3:
-            msp.add_lwpolyline(pts_3m, dxfattribs={'layer': 'C-SETBACK-3M', 'closed': True})
-        if len(pts_6m) >= 3:
-            msp.add_lwpolyline(pts_6m, dxfattribs={'layer': 'C-SETBACK-6M', 'closed': True})
+    # 4. C-SETBACK-3M & C-SETBACK-6M: true parallel setback lines.
+    #
+    # Each is a genuine perpendicular offset from every boundary edge (miter
+    # joins at the corners), so an architect can build massing directly to these
+    # lines. If the plot is too small to sustain an offset the line is omitted
+    # rather than drawn wrong, and that is recorded for the legend.
+    setback_status = {}
+    for spec_layer, spec_dist in (('C-SETBACK-3M', 3.0), ('C-SETBACK-6M', 6.0)):
+        drawn = 0
+        for loc_ring in local_rings:
+            for offset_ring in offset_polygon_inward(loc_ring, spec_dist):
+                msp.add_lwpolyline(offset_ring, dxfattribs={'layer': spec_layer, 'closed': True})
+                drawn += 1
+        setback_status[spec_dist] = drawn > 0
+        if not drawn:
+            msp.add_text(
+                f"{spec_dist:.1f}m SETBACK NOT VIABLE - PLOT TOO NARROW",
+                dxfattribs={'layer': spec_layer, 'height': dim_char_h}
+            ).set_placement((min_x, min_y - dim_char_h * (2.5 if spec_dist == 3.0 else 4.0)))
 
     # 5. C-ANNO-DIMS: Automated Boundary Side Dimension Lines in Meters
     for loc_ring in local_rings:
@@ -472,13 +537,61 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
                         'height': dim_char_h * 0.9
                     }).set_placement((ncx, ncy))
 
-    # 7. C-RESTRICT-ZONE: Metro / CRZ Restrictions
+    # 6b. C-ROAD-ALIGN: abutting road centreline(s).
+    # This layer was declared but never populated - an architect had no idea
+    # which edge was the frontage, which is what governs the front setback.
+    # MCGM returns whole road networks - one polyline came back 3.8 km long with
+    # 2472 vertices. Clip to the plot's vicinity so the sheet stays legible and
+    # the drawing extents stay sane.
+    clip = scale * 0.9
+    cx_lo, cx_hi = min_x - clip, max_x + clip
+    cy_lo, cy_hi = min_y - clip, max_y + clip
+
+    def _inside(p):
+        return cx_lo <= p[0] <= cx_hi and cy_lo <= p[1] <= cy_hi
+
+    road_drawn = 0
+    for road_ring in (roads or []):
+        loc = [((pt[0] - lon0) * meters_per_deg_lon, (pt[1] - lat0) * meters_per_deg_lat)
+               for pt in road_ring]
+        # keep contiguous runs that fall inside the sheet, plus one point either
+        # side of each crossing so the line reaches the sheet edge
+        run, runs = [], []
+        for i, p in enumerate(loc):
+            if _inside(p):
+                if not run and i > 0:
+                    run.append(loc[i - 1])
+                run.append(p)
+            elif run:
+                run.append(p)
+                runs.append(run)
+                run = []
+        if run:
+            runs.append(run)
+        for seg in runs:
+            if len(seg) >= 2:
+                msp.add_lwpolyline(seg, dxfattribs={'layer': 'C-ROAD-ALIGN'})
+                road_drawn += 1
+
+    if road_drawn:
+        msp.add_text(
+            f"ABUTTING ROAD: {properties.get('abutting_road')} ({properties.get('road_width')})",
+            dxfattribs={'layer': 'C-ROAD-ALIGN', 'height': dim_char_h}
+        ).set_placement((min_x, min_y - dim_char_h * 1.2))
+
+    # 7. C-RESTRICT-ZONE: CRZ and Metro development restrictions.
+    restrict_notes = []
+    crz_flag = str(properties.get("crz_buffer_flag") or "")
+    if crz_flag.upper().startswith("YES"):
+        restrict_notes.append(f"COASTAL REGULATION ZONE: {crz_flag}")
+        restrict_notes.append("Development restricted under CRZ Notification - verify with MCGM/MCZMA")
     if properties.get("metro_buffer_flag") == "YES":
-        msp.add_circle((cx, cy), radius=scale*0.6, dxfattribs={'layer': 'C-RESTRICT-ZONE'})
-        msp.add_text("METRO RAIL INFLUENCE BUFFER", dxfattribs={
-            'layer': 'C-RESTRICT-ZONE',
-            'height': dim_char_h
-        }).set_placement((cx - scale*0.5, cy - scale*0.6 - dim_char_h))
+        msp.add_circle((cx, cy), radius=scale * 0.6, dxfattribs={'layer': 'C-RESTRICT-ZONE'})
+        restrict_notes.append("METRO RAIL INFLUENCE BUFFER")
+    for i, note in enumerate(restrict_notes):
+        msp.add_text(note, dxfattribs={
+            'layer': 'C-RESTRICT-ZONE', 'height': dim_char_h
+        }).set_placement((min_x, max_y + dim_char_h * (2.2 + i * 1.4)))
 
     # 8. C-ANNO-TEXT: Centroid Metadata Title Block
     lbl_text = (
@@ -494,43 +607,116 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
     mtext = msp.add_mtext(lbl_text, dxfattribs={'layer': 'C-ANNO-TEXT', 'char_height': char_h})
     mtext.set_location((cx - width * 0.4, cy + height * 0.2))
 
-    # 9. C-TITLE-BLOCK: Sheet Border Frame & Title Block Box
+    # 8b. C-NORTH-ARROW: orientation. Local +Y is true north because the metric
+    # projection maps latitude straight onto Y.
+    na_x = max_x + scale * 0.16
+    na_y = max_y - scale * 0.06
+    na_r = scale * 0.07
+    msp.add_circle((na_x, na_y), radius=na_r, dxfattribs={'layer': 'C-NORTH-ARROW'})
+    msp.add_lwpolyline(
+        [(na_x, na_y + na_r * 1.5), (na_x - na_r * 0.5, na_y - na_r * 0.7), (na_x + na_r * 0.5, na_y - na_r * 0.7)],
+        dxfattribs={'layer': 'C-NORTH-ARROW', 'closed': True})
+    msp.add_text("N", dxfattribs={'layer': 'C-NORTH-ARROW', 'height': char_h}) \
+        .set_placement((na_x - char_h * 0.35, na_y + na_r * 1.8))
+
+    # 9. C-TITLE-BLOCK: sheet border, legend panel and title block.
     b_min_x = min_x - scale * 0.35
-    b_max_x = max_x + scale * 0.35
-    b_min_y = min_y - scale * 0.35
-    b_max_y = max_y + scale * 0.35
-    
-    tb_box = [
-        (b_min_x, b_min_y),
-        (b_max_x, b_min_y),
-        (b_max_x, b_max_y),
-        (b_min_x, b_max_y)
+    b_min_y = min_y - scale * 0.45
+    b_max_y = max_y + scale * 0.45
+    plot_right = max_x + scale * 0.35
+
+    # Legend panel sits to the right of the drawing so it never covers geometry.
+    lg_w = max(scale * 0.95, 26.0)
+    lg_x0 = plot_right + scale * 0.06
+    b_max_x = lg_x0 + lg_w + scale * 0.06
+
+    msp.add_lwpolyline(
+        [(b_min_x, b_min_y), (b_max_x, b_min_y), (b_max_x, b_max_y), (b_min_x, b_max_y)],
+        dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
+
+    # ---- LEGEND ----------------------------------------------------------
+    lg_row = max(char_h * 1.9, 2.2)
+    legend_rows = [
+        ('C-PLOT-BDY',      'PLOT BOUNDARY - gross plot area'),
+        ('C-PROP-HATCH',    'Gross plot area (fill)'),
+        ('C-ROAD-ALIGN',    'Abutting road alignment / frontage'),
+        ('C-SETBACK-3M',    '3.0 m setback line (true parallel offset)'),
+        ('C-SETBACK-6M',    '6.0 m setback line (true parallel offset)'),
+        ('C-RESTRICT-ZONE', 'CRZ / Metro development restriction'),
+        ('C-ADJN-PLOTS',    'Adjoining CTS plots'),
+        ('C-ANNO-DIMS',     'Boundary segment dimensions (m)'),
+        ('C-ANNO-TEXT',     'Plot metadata'),
+        ('C-NORTH-ARROW',   'True north'),
+        ('0_GRID_AXIS',     'Metric grid, 0,0 at plot centroid'),
+        ('C-TITLE-BLOCK',   'Sheet border, legend, title block'),
     ]
-    msp.add_lwpolyline(tb_box, dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
-    
-    # Title Block Header Box (Bottom Right)
-    tb_w = scale * 0.8
-    tb_h = scale * 0.25
-    tb_x0 = b_max_x - tb_w
-    tb_y0 = b_min_y
-    
-    msp.add_lwpolyline([
-        (tb_x0, tb_y0),
-        (b_max_x, tb_y0),
-        (b_max_x, tb_y0 + tb_h),
-        (tb_x0, tb_y0 + tb_h)
-    ], dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
-    
+    lg_h = lg_row * (len(legend_rows) + 9.5)
+    lg_y1 = b_max_y - scale * 0.05
+    lg_y0 = lg_y1 - lg_h
+    msp.add_lwpolyline(
+        [(lg_x0, lg_y0), (lg_x0 + lg_w, lg_y0), (lg_x0 + lg_w, lg_y1), (lg_x0, lg_y1)],
+        dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
+
+    y = lg_y1 - lg_row * 1.2
+    msp.add_text("LAYER LEGEND", dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': char_h * 0.95}) \
+        .set_placement((lg_x0 + lg_row * 0.4, y))
+    y -= lg_row * 1.3
+
+    swatch_w = lg_row * 1.5
+    for layer_name, meaning in legend_rows:
+        # sample line drawn ON its own layer, so it carries that layer's colour
+        # and linetype - the swatch is the layer, not a picture of it.
+        msp.add_line((lg_x0 + lg_row * 0.4, y + lg_row * 0.22),
+                     (lg_x0 + lg_row * 0.4 + swatch_w, y + lg_row * 0.22),
+                     dxfattribs={'layer': layer_name})
+        msp.add_text(f"{layer_name}  -  {meaning}",
+                     dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': dim_char_h * 0.92}) \
+            .set_placement((lg_x0 + lg_row * 0.4 + swatch_w + lg_row * 0.5, y))
+        y -= lg_row
+
+    # ---- PLOT DATA (what an architect needs before massing) --------------
+    y -= lg_row * 0.6
+    msp.add_text("PLOT DATA", dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': char_h * 0.95}) \
+        .set_placement((lg_x0 + lg_row * 0.4, y))
+    y -= lg_row * 1.25
+
+    sb3 = "drawn" if setback_status.get(3.0) else "NOT VIABLE - plot too narrow"
+    sb6 = "drawn" if setback_status.get(6.0) else "NOT VIABLE - plot too narrow"
+    area_note = properties.get('area_source') or ''
+    data_rows = [
+        f"GROSS PLOT AREA : {properties.get('area_sqm')} sq m",
+        f"AREA SOURCE     : {'DERIVED from boundary' if 'derived' in area_note else 'MCGM approved record'}",
+        f"CTS / VILLAGE   : {properties.get('cts_no')} / {properties.get('village')}",
+        f"WARD / ZONE     : {properties.get('ward')} / {properties.get('zone')}",
+        f"ABUTTING ROAD   : {properties.get('abutting_road')} ({properties.get('road_width')})",
+        f"CRZ STATUS      : {properties.get('crz_buffer_flag')}",
+        f"METRO BUFFER    : {properties.get('metro_buffer_flag')}",
+        f"3.0 m SETBACK   : {sb3}",
+        f"6.0 m SETBACK   : {sb6}",
+    ]
+    for row in data_rows:
+        msp.add_text(row, dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': dim_char_h * 0.92}) \
+            .set_placement((lg_x0 + lg_row * 0.4, y))
+        y -= lg_row
+
+    # ---- TITLE BLOCK (bottom of the legend column) -----------------------
+    tb_h = lg_row * 7.2
+    tb_y0 = b_min_y + scale * 0.05
+    msp.add_lwpolyline(
+        [(lg_x0, tb_y0), (lg_x0 + lg_w, tb_y0), (lg_x0 + lg_w, tb_y0 + tb_h), (lg_x0, tb_y0 + tb_h)],
+        dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
     title_meta = (
-        f"MCGM DEVELOPMENT PLAN 2034 CAD DRAWING\n"
+        f"MCGM DEVELOPMENT PLAN 2034 - CAD BASE\n"
         f"PLOT: CTS {properties.get('cts_no')} ({properties.get('village')})\n"
-        f"DRAWING TYPE: Architectural Concept & Massing CAD Base\n"
-        f"SCALE: 1:1 METRIC (1 CAD Unit = 1 Meter)\n"
-        f"ORIGIN: Plot Centroid (0.00, 0.00)"
+        f"PURPOSE: Architectural concept & massing base\n"
+        f"SCALE: 1:1 METRIC (1 CAD unit = 1 metre)\n"
+        f"ORIGIN: Plot centroid (0.00, 0.00)\n"
+        f"UTM 43N CENTROID: E {utm_cx:.2f} / N {utm_cy:.2f}\n"
+        f"SETBACKS ARE INDICATIVE - confirm against DCPR 2034"
     )
-    tb_text = msp.add_mtext(title_meta, dxfattribs={'layer': 'C-TITLE-BLOCK', 'char_height': char_h * 0.75})
-    tb_text.set_location((tb_x0 + scale * 0.02, tb_y0 + tb_h * 0.9))
-    
+    msp.add_mtext(title_meta, dxfattribs={'layer': 'C-TITLE-BLOCK', 'char_height': dim_char_h * 0.92}) \
+        .set_location((lg_x0 + lg_row * 0.4, tb_y0 + tb_h - lg_row * 0.5))
+
     # Set Header Extents & Active Modelspace Viewport Zoom Framing for AutoCAD 2024
     doc.header['$EXTMIN'] = (b_min_x, b_min_y, 0)
     doc.header['$EXTMAX'] = (b_max_x, b_max_y, 0)
@@ -538,7 +724,10 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
     doc.header['$LIMMAX'] = (b_max_x, b_max_y)
     
     try:
-        doc.set_modelspace_vport(height=scale * 2.2, center=(0, 0))
+        doc.set_modelspace_vport(
+            height=(b_max_y - b_min_y) * 1.08,
+            center=((b_min_x + b_max_x) / 2.0, (b_min_y + b_max_y) / 2.0),
+        )
     except Exception:
         pass
         
@@ -933,7 +1122,7 @@ async def lookup_plot_pro(
         ] + [pt for _, pt in edge_probes[:6]]
 
         road_tasks = [
-            client.post(f"{SERVER_URL}/identify", data={"geometry": f"{px},{py}", "geometryType": "esriGeometryPoint", "sr": "102100", "layers": "visible:193,194,44,45", "tolerance": "40", "mapExtent": f"{mcx-d},{mcy-d},{mcx+d},{mcy+d}", "imageDisplay": "1000,1000,96", "returnGeometry": "false", "f": "json"})
+            client.post(f"{SERVER_URL}/identify", data={"geometry": f"{px},{py}", "geometryType": "esriGeometryPoint", "sr": "102100", "layers": "visible:193,194,44,45", "tolerance": "40", "mapExtent": f"{mcx-d},{mcy-d},{mcx+d},{mcy+d}", "imageDisplay": "1000,1000,96", "returnGeometry": "true", "f": "json"})
             for px, py in road_sample_pts
         ]
 
@@ -979,6 +1168,7 @@ async def lookup_plot_pro(
 
         # Parse Roads
         road_map = {}
+        road_geoms = []          # polylines in WGS84, for the DXF road layer
         road_failures = 0
         if isinstance(road_resps, Exception):
             road_failures = len(road_sample_pts)
@@ -999,6 +1189,18 @@ async def lookup_plot_pro(
                     r_w = r_attrs.get('WIDTH_RL') or r_attrs.get('WIDTH')
                     if r_name or r_w:
                         road_map[f"{r_name}|{r_w}"] = {'name': r_name or 'Road', 'width': r_w or 'N/A'}
+                    # Road layers are mixed geometry: 193/194 are polylines and
+                    # return 'paths'; 44/45 are road polygons and return 'rings'.
+                    # Reading only 'paths' left C-ROAD-ALIGN empty on any plot
+                    # whose frontage came from the polygon layers.
+                    r_geom = item.get('geometry', {}) or {}
+                    for part in (r_geom.get('paths') or []) + (r_geom.get('rings') or []):
+                        if len(part) >= 2:
+                            road_geoms.append([
+                                [round((pt[0] / R) * 180, 7),
+                                 round((math.atan(math.exp(pt[1] / R * math.pi)) * 2 - math.pi / 2) * 180 / math.pi, 7)]
+                                for pt in part
+                            ])
 
         if road_failures:
             warnings.append(
@@ -1027,8 +1229,18 @@ async def lookup_plot_pro(
                     c_no = n_attrs.get('cts_cs_no') or n_attrs.get('CTS_CS_NO')
                     n_area = n_attrs.get('area_app_sq_mtrs') or n_attrs.get('AREA_APP_SQ_MTRS')
                     v_name = n_attrs.get('village') or n_attrs.get('VILLAGE')
-                    n_geom = item.get('geometry', {})
-                    n_rings = n_geom.get('rings', [])
+                    n_geom = item.get('geometry', {}) or {}
+                    # Identify returns Web Mercator (sr=102100). export_dxf expects
+                    # WGS84 degrees like the main plot ring - without this the
+                    # adjoining plots were drawn at ~8e11, far outside the sheet.
+                    n_rings = [
+                        [
+                            [round((pt[0] / R) * 180, 7),
+                             round((math.atan(math.exp(pt[1] / R * math.pi)) * 2 - math.pi / 2) * 180 / math.pi, 7)]
+                            for pt in nr
+                        ]
+                        for nr in (n_geom.get('rings', []) or [])
+                    ]
                     if c_no and str(c_no) != str(cts_number):
                         neighbors_map[c_no] = {
                             'cts_no': str(c_no),
@@ -1245,12 +1457,13 @@ async def lookup_plot_pro(
             "metro_buffer_flag": metro_buffer_flag,
             "abutting_road": road_name,
             "road_width": road_width,
+            "area_source": area_source,
             "adjoining_cts_plots_count": len(neighbors),
             "map_link": map_link
         }
 
         export_geojson(wgs_rings, export_props, geojson_path)
-        export_dxf(wgs_rings, export_props, dxf_path, neighbors=neighbors)
+        export_dxf(wgs_rings, export_props, dxf_path, neighbors=neighbors, roads=road_geoms[:6])
         export_kml(wgs_rings, export_props, kml_path)
 
         pdf_fname = f"dp_report_{ward_clean}_{cts_clean}_{village_clean}.pdf"
