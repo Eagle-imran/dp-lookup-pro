@@ -6,6 +6,52 @@ All notable changes to this project. Newest first.
 
 ---
 
+## [3.10.1] — 2026-07-29
+
+Rendered the DXF and looked at it. Found a defect no geometry check could catch.
+
+### 🔴 Plot metadata was printed across the plot
+
+`C-ANNO-TEXT` drew an eight-line block — CTS, village, ward, area, zone, status,
+road, UTM — starting near the plot centroid. On screen it covered the boundary
+and **both setback lines**: exactly the area an architect needs clear to draw in.
+
+Every geometry check passed, because nothing was geometrically wrong. It was
+only visible once rendered.
+
+The block is also redundant — the legend's PLOT DATA panel already carries all
+of it. The centroid now shows just `CTS <number>`, with the UTM tie-in moved
+above the plot.
+
+### Also fixed by looking
+
+- CRZ notes, the UTM line and the road label were stacked at 1.4× line spacing
+  and overlapped each other and the top boundary edge. Now 2.1×.
+- Sub-metre boundary segments produced a cluster of unreadable overlapping
+  dimension labels. Labels are now omitted below 1.0 m; the segment is still
+  drawn, and sub-metre slivers are digitisation noise rather than real frontage.
+
+### 🔍 New: `tools/render_dxf.py`
+
+```bash
+uv run python tools/render_dxf.py output/worli_cts_733/plot_G-S_733_worli.dxf --zoom
+```
+
+Renders a DXF to PNG via ezdxf's matplotlib backend. Not a substitute for
+AutoCAD, but it catches what measurement cannot: overlapping text, annotations
+sitting on geometry, a legend covering the drawing, layers that render
+invisible. Requires the dev extra (`uv pip install -e ".[dev]"`).
+
+### Known cosmetic limit
+
+On small plots (Bandra-A 409 is 7.6 × 16.4 m) annotation text is wide relative
+to the plot, because text height is floored at a 30 m reference scale. The notes
+sit outside the boundary so nothing is obscured, and annotation layers can be
+switched off — but it looks cramped. Worth a look when the drawing is opened in
+real CAD.
+
+---
+
 ## [3.10.0] — 2026-07-29
 
 The planning answer no longer waits for the pictures.

@@ -14,6 +14,7 @@ from PIL import Image, ImageDraw
 from openpyxl import Workbook, load_workbook
 import qrcode
 import ezdxf
+from ezdxf.enums import TextEntityAlignment
 
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, PageBreak
@@ -500,7 +501,9 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
             dx = p2[0] - p1[0]
             dy = p2[1] - p1[1]
             seg_len = math.sqrt(dx*dx + dy*dy)
-            if seg_len > 0.5:
+            # Sub-metre slivers are digitisation noise and their labels overlap
+            # into an unreadable cluster; the segment itself is still drawn.
+            if seg_len > 1.0:
                 mx = (p1[0] + p2[0]) / 2.0
                 my = (p1[1] + p2[1]) / 2.0
                 # Outward normal
@@ -589,24 +592,30 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
     if properties.get("metro_buffer_flag") == "YES":
         msp.add_circle((cx, cy), radius=scale * 0.6, dxfattribs={'layer': 'C-RESTRICT-ZONE'})
         restrict_notes.append("METRO RAIL INFLUENCE BUFFER")
+    # Stacked above the plot with real line spacing. At 1.4x these overlapped
+    # each other and the top boundary edge - visible only once rendered.
     for i, note in enumerate(restrict_notes):
         msp.add_text(note, dxfattribs={
             'layer': 'C-RESTRICT-ZONE', 'height': dim_char_h
-        }).set_placement((min_x, max_y + dim_char_h * (2.2 + i * 1.4)))
+        }).set_placement((min_x, max_y + dim_char_h * (3.4 + i * 2.1)))
 
-    # 8. C-ANNO-TEXT: Centroid Metadata Title Block
-    lbl_text = (
-        f"CTS NO: {properties.get('cts_no')}\n"
-        f"VILLAGE: {properties.get('village')}\n"
-        f"WARD: {properties.get('ward')}\n"
-        f"AREA: {properties.get('area_sqm')} SQ M\n"
-        f"ZONE: {properties.get('zone')}\n"
-        f"STATUS: {properties.get('status_badge')}\n"
-        f"ABUTTING ROAD: {properties.get('abutting_road')} ({properties.get('road_width')})\n"
-        f"UTM CENTROID: E {utm_cx:.2f} m | N {utm_cy:.2f} m (UTM 43N)"
-    )
-    mtext = msp.add_mtext(lbl_text, dxfattribs={'layer': 'C-ANNO-TEXT', 'char_height': char_h})
-    mtext.set_location((cx - width * 0.4, cy + height * 0.2))
+    # 8. C-ANNO-TEXT: plot identity only, at the centroid.
+    #
+    # This used to print an eight-line metadata block across the middle of the
+    # plot - covering the boundary and both setback lines, i.e. exactly the area
+    # an architect needs clear to draw in. Rendering the DXF made that obvious
+    # in a way no geometry check could. The full metadata already lives in the
+    # PLOT DATA panel beside the legend, so only the identifier stays here.
+    msp.add_text(
+        f"CTS {properties.get('cts_no')}",
+        dxfattribs={'layer': 'C-ANNO-TEXT', 'height': char_h}
+    ).set_placement((cx, cy), align=TextEntityAlignment.MIDDLE_CENTER)
+
+    # UTM tie-in point, kept off the plot so the interior stays clean.
+    msp.add_text(
+        f"PLOT CENTROID (0,0) = UTM 43N  E {utm_cx:.2f}  N {utm_cy:.2f}",
+        dxfattribs={'layer': 'C-ANNO-TEXT', 'height': dim_char_h * 0.9}
+    ).set_placement((min_x, max_y + dim_char_h * 1.2))
 
     # 8b. C-NORTH-ARROW: orientation. Local +Y is true north because the metric
     # projection maps latitude straight onto Y.
