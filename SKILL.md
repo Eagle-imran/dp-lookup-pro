@@ -4,7 +4,7 @@ description: >-
   Enterprise Pro Level 3 DP Plot Lookup & GIS Exporter for Mumbai (MCGM SDP 2014-34).
   Queries Zoning, Land Reservations, DP Modification Orders, CRZ Coastal Restrictions, Metro Rail Buffers, Road Widths, and Adjoining Plot Clusters.
   Generates 2-Page PDF Remark Dockets, Retina HD DP Maps, Esri Satellite Views, AutoCAD DXF Drawing Files, GeoJSON, and Google Earth 3D KML exports.
-version: 3.10.1
+version: 3.11.0
 command: /dp-lookup-pro
 parameters:
   type: object

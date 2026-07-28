@@ -6,6 +6,61 @@ All notable changes to this project. Newest first.
 
 ---
 
+## [3.11.0] — 2026-07-29
+
+PDF report redesigned around the decision, not the data.
+Design: `docs/superpowers/specs/2026-07-29-pdf-report-redesign-design.md`
+
+### 🔴 The status badge was a broken box
+
+`■ CLEAR (No Reservation)` — the 🟢/🟡/🔴 emoji are not in ReportLab's Helvetica,
+so the single most important element on the page rendered as an empty square.
+The same break appeared baked into the DP map legend image.
+
+Status is now a **word plus a colour band**, never a glyph. Colour is never the
+sole carrier of meaning, because these get printed in greyscale.
+
+### 📄 New structure
+
+**Page 1 — the decision.** Verdict band (status, plot identity, area), then three
+constraint cards for the findings that actually govern development — **zone, CRZ
+tier, frontage** — then a quieter two-column detail table, then the DP map at
+full width. Previously `CRZ Status: YES (CRZ II)` sat in a table row looking
+identical to `Metro Buffer: NO`.
+
+**Page 2 — the evidence.** Satellite, adjoining parcels, and two new blocks
+filling what was ~40% blank: **what each file in the bundle is for**, and
+**method & limits** — data source, retrieval time, that setbacks are indicative
+rather than a DCPR compliance check, and that a site survey beats MCGM's
+digitisation.
+
+### 🏷️ Optional branding
+
+`build_pdf_doc(..., branding={"firm": ..., "logo": ...})`. Absent by default; the
+header renders correctly without it. An unreadable logo is skipped, not fatal.
+
+### 🔧 Implementation
+
+`build_pdf_doc` took **21 positional arguments** across ~120 lines. It now takes
+the result dict the caller already holds, split into small flowable builders
+(`_verdict_band`, `_constraint_cards`, `_detail_table`, `_image_block`, …).
+
+### 🧪 12 new tests, for a file that had none
+
+Including the regression that started this: **no unrenderable glyph reaches the
+PDF**, checked for `■`, `�` and each status emoji. All three statuses verified
+live on WORLI 733 (Clear), BYCULLA 1605 (Modified) and MALABAR HILL 518
+(Reserved).
+
+One of the new tests caught a real bug: `RLImage` defers file reading to
+`doc.build()`, so a missing satellite image crashed the report despite the
+try/except around the constructor. Images are now verified before use and
+degrade to a labelled placeholder.
+
+82 tests, up from 70.
+
+---
+
 ## [3.10.1] — 2026-07-29
 
 Rendered the DXF and looked at it. Found a defect no geometry check could catch.

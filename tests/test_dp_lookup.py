@@ -554,3 +554,136 @@ def test_cli_rejects_bad_village_without_network(capsys):
     code = dp.main(["1' OR '1'='1", "947"])
     assert code == 1
     assert "unsupported characters" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------
+# PDF report  (regression: the status badge rendered as an empty box, because
+# the emoji are absent from Helvetica)
+# --------------------------------------------------------------------------
+
+def _pdf_result(**over):
+    base = {
+        "plot_identity": {"village": "WORLI", "cts_no": "733", "ward": "G/S", "type": "CTS",
+                          "area_sqm": 1317.74, "area_source": "approved (MCGM AREA_APP_SQ_MTRS)",
+                          "coordinates_wgs84": {"latitude": 19.011989, "longitude": 72.817102}},
+        "planning_remarks": {"status_badge": "\U0001F7E2 CLEAR (No Reservation)",
+                             "status_summary": "Unreserved Land Parcel", "zone": "R",
+                             "reservation": {"code": "None", "type": "None"},
+                             "designation": {"code": "None", "description": "None"},
+                             "dp_modification": {"approval_no": "None", "details": "None",
+                                                 "document_link": "None"}},
+        "regulatory_and_infrastructure": {"crz_status": "YES (CRZ II)", "metro_buffer": "NO",
+                                          "abutting_road": {"name": "B G KHER", "width": "18.30 M"}},
+        "spatial_cluster": {"adjoining_plots_count": 1,
+                            "adjoining_cts_plots": [{"cts_no": "734", "village": "WORLI",
+                                                     "area_sqm": "1995.07"}]},
+        "export_files": {"bundle_folder": "./o", "pdf_report": "./o/r.pdf",
+                         "master_excel_register": "./o/x.xlsx"},
+        "metadata": {"source": "MCGM SDP 2014-34", "lookup_datetime": "2026-07-29 04:03",
+                     "execution_time_ms": 700, "cached_result": False, "complete": True,
+                     "documents_pending": False, "warnings": [], "notes": []},
+    }
+    for k, v in over.items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            base[k] = {**base[k], **v}
+        else:
+            base[k] = v
+    return base
+
+
+def _dummy_png(path, size=(120, 90)):
+    from PIL import Image
+    Image.new("RGB", size, (200, 205, 210)).save(path)
+    return str(path)
+
+
+def _build(tmp_path, result=None, branding=None, sat=None):
+    import io as _io
+    out = tmp_path / "r.pdf"
+    dp = _dummy_png(tmp_path / "dp.png")
+    st = sat if sat is not None else _dummy_png(tmp_path / "sat.png")
+    qr = _io.BytesIO()
+    from PIL import Image
+    Image.new("RGB", (40, 40), (0, 0, 0)).save(qr, format="PNG")
+    qr.seek(0)
+    dp_module.build_pdf_doc(str(out), result or _pdf_result(), dp, st, qr, branding)
+    return out
+
+
+dp_module = dp
+
+
+def _pdf_text(path):
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open(str(path))
+    return doc.page_count, "".join(p.get_text() for p in doc)
+
+
+def test_pdf_is_two_pages_and_carries_the_key_findings(tmp_path):
+    pages, text = _pdf_text(_build(tmp_path))
+    assert pages == 2
+    for token in ("Clear", "733", "WORLI", "CRZ II", "B G KHER", "1,317.74"):
+        assert token in text, f"missing {token!r}"
+
+
+def test_pdf_contains_no_unrenderable_glyph(tmp_path):
+    """The regression that started the redesign: emoji rendered as an empty box."""
+    _, text = _pdf_text(_build(tmp_path))
+    for bad in ("■", "�", "\U0001F7E2", "\U0001F7E1", "\U0001F534"):
+        assert bad not in text, f"unrenderable glyph {bad!r} reached the PDF"
+
+
+@pytest.mark.parametrize("badge,summary,word", [
+    ("\U0001F7E2 CLEAR (No Reservation)", "Unreserved Land Parcel", "Clear"),
+    ("\U0001F7E1 MODIFIED (DP Notification Order)", "Modified via MCP/7526", "Modified"),
+    ("\U0001F534 RESERVED / DESIGNATED (Fire Station)", "Designated as Fire Station", "Reserved"),
+])
+def test_every_status_renders_as_a_word_not_a_glyph(tmp_path, badge, summary, word):
+    """Greyscale printing means colour can never be the only carrier of status."""
+    r = _pdf_result(planning_remarks={"status_badge": badge, "status_summary": summary})
+    _, text = _pdf_text(_build(tmp_path, r))
+    assert word in text
+    assert "■" not in text
+
+
+def test_pdf_builds_without_branding_and_with_firm(tmp_path):
+    assert _build(tmp_path).exists()
+    _, text = _pdf_text(_build(tmp_path, branding={"firm": "Patel Associates"}))
+    assert "Patel Associates" in text
+
+
+def test_pdf_survives_an_unreadable_logo(tmp_path):
+    assert _build(tmp_path, branding={"logo": str(tmp_path / "nope.png")}).exists()
+
+
+def test_pdf_handles_a_null_area(tmp_path):
+    r = _pdf_result(plot_identity={"area_sqm": None,
+                                   "area_source": "derived from plot geometry"})
+    _, text = _pdf_text(_build(tmp_path, r))
+    assert "not on record" in text.lower()
+    assert "Derived" in text
+
+
+def test_pdf_survives_markup_characters_in_a_road_name(tmp_path):
+    r = _pdf_result(regulatory_and_infrastructure={
+        "crz_status": "NO", "metro_buffer": "NO",
+        "abutting_road": {"name": "R & D <Marg>", "width": "9.15 M"}})
+    assert _build(tmp_path, r).exists()
+
+
+def test_pdf_survives_a_missing_image(tmp_path):
+    """A missing satellite must degrade to a placeholder, not crash the run."""
+    assert _build(tmp_path, sat=str(tmp_path / "gone.png")).exists()
+
+
+def test_pdf_reports_an_incomplete_run(tmp_path):
+    r = _pdf_result(metadata={"complete": False, "warnings": ["3 of 9 road probes failed"]})
+    _, text = _pdf_text(_build(tmp_path, r))
+    assert "incomplete" in text.lower()
+
+
+def test_report_reference_is_deterministic_and_documented_as_non_unique():
+    assert dp._report_ref("WORLI", "733") == "WOR-733"
+    assert dp._report_ref("WORLI", "733") == dp._report_ref("worli", "733")
+    # documented collision: MALABAR HILL and MALAD share the MAL prefix
+    assert dp._report_ref("MALABAR HILL", "1") == dp._report_ref("MALAD", "1")

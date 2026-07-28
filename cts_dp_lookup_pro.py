@@ -824,110 +824,378 @@ def export_kml(wgs_rings: list, properties: dict, output_path: str):
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(kml_content)
 
-def build_pdf_doc(pdf_path, status_badge, status_summary, village, attrs, cts_number, zone, des_desc, des_code, mod_approval, mod_label, crz_buffer_flag, metro_buffer_flag, road_name, road_width, dp_snapshot_path, qr_bytes, map_link, sat_snapshot_path, neighbors, area_source_label="Approved cadastral area (MCGM record)"):
-    doc = SimpleDocTemplate(pdf_path, pagesize=letter, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=15, leading=19, textColor=colors.HexColor('#1A237E'))
-    subtitle_style = ParagraphStyle('Sub', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#424242'))
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=11)
-    bold_style = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=8.5, leading=11, fontName='Helvetica-Bold')
+# --- PDF report -------------------------------------------------------------
+#
+# Verdict-first layout, per docs/superpowers/specs/2026-07-29-pdf-report-redesign-design.md
+#
+# Replaces a flat two-page table where the status badge rendered as an empty box
+# (the emoji are absent from Helvetica), a third of each page was blank, and a
+# development-restricting CRZ finding looked identical to "Metro Buffer: NO".
 
-    story = []
-    story.append(Paragraph("<b>MCGM DEVELOPMENT PLAN 2034 — SPATIAL REMARK DOCKET</b>", title_style))
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    story.append(Paragraph(f"Official Spatial Query Report | Page 1 of 2 | Generated: {now_str}", subtitle_style))
-    story.append(Spacer(1, 6))
+# Semantic status colours: (ink, fill, rule). The status WORD always accompanies
+# the colour - these get printed in greyscale and colour must never carry meaning
+# on its own.
+PDF_STATUS = {
+    "CLEAR":    ("#1B6B45", "#E8F3ED", "Unreserved land parcel"),
+    "MODIFIED": ("#8A5300", "#FBF1DE", "Subject to a DP modification order"),
+    "RESERVED": ("#A32A22", "#FBE9E7", "Reserved or designated - development restricted"),
+}
+PDF_INK = "#1B1D21"          # warm near-black, chosen not inherited
+PDF_MUTED = "#5E6067"
+PDF_HAIRLINE = "#D8D5D0"
+PDF_ACCENT = "#1B6CA8"
 
-    banner_color = colors.HexColor('#E8F5E9') if 'CLEAR' in status_badge else (colors.HexColor('#FFFDE7') if 'MODIFIED' in status_badge else colors.HexColor('#FFEBEE'))
-    banner_text = f"<b>STATUS: {_esc(status_badge)}</b> — {_esc(status_summary)}"
-    banner_table = Table([[Paragraph(banner_text, ParagraphStyle('BText', parent=body_style, fontSize=9.5, leading=12))]], colWidths=[540])
-    banner_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), banner_color),
-        ('PADDING', (0,0), (-1,-1), 5),
-        ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#BDBDBD')),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-    ]))
-    story.append(banner_table)
-    story.append(Spacer(1, 6))
 
-    # ReportLab Paragraph parses a mini-XML markup language, so every DATA value is
-    # escaped while the intentional <b>/<a> tags in the templates are left alone.
-    # An unescaped & or < in a road name or modification label previously raised
-    # during doc.build(), crashing the run after all network work had succeeded.
-    mod_label_trimmed = mod_label[:60] + ('...' if len(mod_label) > 60 else '')
-    table_data = [
-        [Paragraph("<b>Attribute</b>", bold_style), Paragraph("<b>Details</b>", bold_style), Paragraph("<b>Planning Remarks</b>", bold_style)],
-        [Paragraph("Village / Ward", body_style), Paragraph(f"{_esc(village.upper())} (Ward {_esc(attrs['WARD'])})", body_style), Paragraph("MCGM Administrative Division", body_style)],
-        [Paragraph("Plot CTS No.", body_style), Paragraph(f"CTS {_esc(cts_number)} ({_esc(attrs['TYPE'])})", body_style), Paragraph("City Survey Cadastral Parcel", body_style)],
-        [Paragraph("Plot Area", body_style), Paragraph(f"{_esc(attrs['AREA_APP_SQ_MTRS'])} sq m" if attrs['AREA_APP_SQ_MTRS'] else "Not on record", body_style), Paragraph(_esc(area_source_label), body_style)],
-        [Paragraph("Land-Use Zone", body_style), Paragraph(f"<b>Zone {_esc(zone)}</b>", body_style), Paragraph("Primary Zoning Classification", body_style)],
-        [Paragraph("PLU Designation", body_style), Paragraph(f"{_esc(des_desc)} ({_esc(des_code)})", body_style), Paragraph("Existing Amenity Designation", body_style)],
-        [Paragraph("DP Modification", body_style), Paragraph(f"Approval: {_esc(mod_approval)}", body_style), Paragraph(_esc(mod_label_trimmed), body_style)],
-        [Paragraph("CRZ Status", body_style), Paragraph(f"<b>{_esc(crz_buffer_flag)}</b>", body_style), Paragraph("Coastal Regulation Zone Layer Query", body_style)],
-        [Paragraph("Metro Buffer", body_style), Paragraph(_esc(metro_buffer_flag), body_style), Paragraph("Layer 1550 Metro Rail Influence", body_style)],
-        [Paragraph("Abutting Road", body_style), Paragraph(f"<b>{_esc(road_name)}</b> ({_esc(road_width)})", body_style), Paragraph("DP 2034 Road Access &amp; Width", body_style)],
+def _status_key(badge: Any) -> str:
+    text = str(badge or "").upper()
+    for key in ("RESERVED", "MODIFIED", "CLEAR"):
+        if key in text:
+            return key
+    return "CLEAR"
+
+
+def _plain(text: Any) -> str:
+    """Drop non-Latin-1 glyphs (emoji) that the PDF core fonts cannot render."""
+    return "".join(ch for ch in str(text or "") if ord(ch) < 0x2500).strip()
+
+
+def _report_ref(village: Any, cts: Any) -> str:
+    """
+    Human-readable label for correspondence, e.g. WOR-733. NOT unique: villages
+    sharing a three-letter prefix (MALABAR HILL / MALAD) can collide. Village and
+    CTS appear in full in the verdict band directly below it.
+    """
+    v = "".join(c for c in str(village or "").upper() if c.isalnum())[:3] or "DP"
+    c = "".join(c for c in str(cts or "").upper() if c.isalnum()) or "0"
+    return f"{v}-{c}"
+
+
+def _pdf_styles():
+    base = getSampleStyleSheet()
+    mk = ParagraphStyle
+    return {
+        "title": mk("t", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=15,
+                    leading=18, textColor=colors.HexColor(PDF_INK)),
+        "ref": mk("r", parent=base["Normal"], fontName="Helvetica", fontSize=8,
+                  leading=11, textColor=colors.HexColor(PDF_MUTED), alignment=2),
+        "verdict": mk("v", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=17,
+                      leading=20),
+        "verdictsub": mk("vs", parent=base["Normal"], fontName="Helvetica", fontSize=9.5,
+                         leading=13, textColor=colors.HexColor(PDF_INK)),
+        "cardlabel": mk("cl", parent=base["Normal"], fontName="Helvetica", fontSize=6.8,
+                        leading=9, textColor=colors.HexColor(PDF_MUTED)),
+        "cardvalue": mk("cv", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=13,
+                        leading=15, textColor=colors.HexColor(PDF_INK)),
+        "cardnote": mk("cn", parent=base["Normal"], fontName="Helvetica", fontSize=7.5,
+                       leading=10, textColor=colors.HexColor(PDF_MUTED)),
+        "sec": mk("s", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=7.5,
+                  leading=10, textColor=colors.HexColor(PDF_MUTED)),
+        "k": mk("k", parent=base["Normal"], fontName="Helvetica", fontSize=8.5, leading=12,
+                textColor=colors.HexColor(PDF_MUTED)),
+        "v2": mk("v2", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=8.5,
+                 leading=12, textColor=colors.HexColor(PDF_INK)),
+        "body": mk("b", parent=base["Normal"], fontName="Helvetica", fontSize=8,
+                   leading=11, textColor=colors.HexColor(PDF_INK)),
+        "fine": mk("f", parent=base["Normal"], fontName="Helvetica", fontSize=7,
+                   leading=9.5, textColor=colors.HexColor(PDF_MUTED)),
+    }
+
+
+def _rule(width=540, colour=PDF_HAIRLINE, thickness=0.6):
+    t = Table([[""]], colWidths=[width], rowHeights=[thickness])
+    t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(colour)),
+                           ("PADDING", (0, 0), (-1, -1), 0)]))
+    return t
+
+
+def _header(st, title, ref, when, branding=None):
+    left = [Paragraph(_esc(title), st["title"])]
+    firm = (branding or {}).get("firm")
+    if firm:
+        left.append(Paragraph(_esc(firm), st["fine"]))
+    right = [Paragraph(f"Ref {_esc(ref)}<br/>{_esc(when)}", st["ref"])]
+    t = Table([[left, right]], colWidths=[390, 150])
+    t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                           ("PADDING", (0, 0), (-1, -1), 0)]))
+    return [t, Spacer(1, 7), _rule(), Spacer(1, 11)]
+
+
+def _verdict_band(st, result):
+    pr = result["planning_remarks"]
+    pi = result["plot_identity"]
+    key = _status_key(pr.get("status_badge"))
+    ink, fill, default_sub = PDF_STATUS[key]
+
+    area = pi.get("area_sqm")
+    area_txt = f"{area:,.2f} m²" if isinstance(area, (int, float)) else "area not on record"
+    line2 = (f"{_esc(pi.get('village'))}  ·  CTS {_esc(pi.get('cts_no'))}  ·  "
+             f"Ward {_esc(pi.get('ward'))}  ·  {area_txt}")
+    summary = _plain(pr.get("status_summary")) or default_sub
+
+    cell = [
+        Paragraph(f'<font color="{ink}">{_esc(key.title())}</font>', st["verdict"]),
+        Paragraph(_esc(summary), st["cardnote"]),
+        Spacer(1, 3),
+        Paragraph(line2, st["verdictsub"]),
     ]
-    
-    t = Table(table_data, colWidths=[110, 215, 215])
+    t = Table([[cell]], colWidths=[540])
     t.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#ECEFF1')),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CFD8DC')),
-        ('PADDING', (0,0), (-1,-1), 2.5),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(fill)),
+        ("LINEBEFORE", (0, 0), (0, -1), 3.2, colors.HexColor(ink)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12), ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 9), ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
     ]))
-    story.append(t)
-    story.append(Spacer(1, 6))
+    return [t, Spacer(1, 12)]
 
-    dp_img_rl = RLImage(dp_snapshot_path, width=360, height=360)
-    qr_img_rl = RLImage(qr_bytes, width=100, height=100)
-    
-    qr_cell = [
-        Paragraph("<b>Scan for Live Interactive Map:</b>", body_style),
-        Spacer(1, 4),
-        qr_img_rl,
-        Spacer(1, 4),
-        Paragraph(f"<a href='{_esc(map_link)}'>Open ArcGIS Web Map</a>", ParagraphStyle('Link', parent=body_style, textColor=colors.blue, fontSize=8))
+
+def _card(st, label, value, note, accent=None):
+    body = [Paragraph(label, st["cardlabel"]), Spacer(1, 2)]
+    val = f'<font color="{accent}">{_esc(value)}</font>' if accent else _esc(value)
+    body.append(Paragraph(val, st["cardvalue"]))
+    if note:
+        body += [Spacer(1, 2), Paragraph(_esc(note), st["cardnote"])]
+    return body
+
+
+def _constraint_cards(st, result):
+    """Zone, CRZ and frontage - the three findings that govern what can be built."""
+    pr, rg = result["planning_remarks"], result["regulatory_and_infrastructure"]
+    zone = pr.get("zone") or "Unknown"
+    zone_names = {"R": "Residential", "C": "Commercial", "I": "Industrial"}
+
+    crz = str(rg.get("crz_status") or "")
+    crz_yes = crz.upper().startswith("YES")
+    # For YES the parenthetical carries the tier (CRZ II) and is the useful headline.
+    # For NO it is just "(Outside CRZ Buffer)" - too long for a card value, so "No".
+    if crz_yes:
+        crz_val = crz.split("(")[-1].rstrip(")").strip() if "(" in crz else "Yes"
+        crz_note = "Development restricted"
+    else:
+        crz_val, crz_note = "No", "Outside CRZ"
+
+    road = rg.get("abutting_road") or {}
+    width = str(road.get("width") or "").strip()
+    rname = str(road.get("name") or "").strip() or "Not recorded"
+    has_width = bool(width) and width not in ("N/A", "None")
+    has_name = rname != "Not recorded"
+    if has_width:
+        road_val, road_note = width, (rname if len(rname) <= 26 else rname[:24] + "…")
+    elif has_name:
+        # width unknown but the road is identified - say so rather than "Not recorded"
+        road_val = rname if len(rname) <= 18 else rname[:16] + "…"
+        road_note = "Width not on record"
+    else:
+        road_val, road_note = "Not recorded", "No abutting road found"
+
+    cells = [[
+        _card(st, "LAND-USE ZONE", zone, zone_names.get(str(zone), "See detail")),
+        _card(st, "COASTAL REGULATION", crz_val, crz_note,
+              accent=PDF_STATUS["RESERVED"][0] if crz_yes else None),
+        _card(st, "ABUTTING ROAD", road_val, road_note),
+    ]]
+    t = Table(cells, colWidths=[176, 176, 176], hAlign="LEFT")
+    t.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOX", (0, 0), (0, -1), 0.6, colors.HexColor(PDF_HAIRLINE)),
+        ("BOX", (1, 0), (1, -1), 0.6, colors.HexColor(PDF_HAIRLINE)),
+        ("BOX", (2, 0), (2, -1), 0.6, colors.HexColor(PDF_HAIRLINE)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+    ]))
+    return [t, Spacer(1, 13)]
+
+
+def _detail_table(st, result):
+    pr, rg, pi = (result["planning_remarks"], result["regulatory_and_infrastructure"],
+                  result["plot_identity"])
+    res, des, mod = pr["reservation"], pr["designation"], pr["dp_modification"]
+    src = "MCGM approved record" if "approved" in str(pi.get("area_source", "")) \
+        else "Derived from plot boundary"
+
+    pairs = [
+        ("Reservation", res.get("type") if str(res.get("code")) != "None" else "None"),
+        ("Designation", des.get("description") or "None"),
+        ("DP modification", mod.get("approval_no") or "None"),
+        ("Metro rail buffer", rg.get("metro_buffer") or "No"),
+        ("Plot type", pi.get("type") or "CTS"),
+        ("Area source", src),
     ]
-    
-    media_table = Table([[dp_img_rl, qr_cell]], colWidths=[370, 170])
-    media_table.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('ALIGN', (1,0), (1,0), 'CENTER'),
+    rows = []
+    for i in range(0, len(pairs), 2):
+        chunk = pairs[i:i + 2]
+        row = []
+        for k, v in chunk:
+            row += [Paragraph(k, st["k"]), Paragraph(_esc(v), st["v2"])]
+        while len(row) < 4:
+            row.append("")
+        rows.append(row)
+
+    t = Table(rows, colWidths=[104, 166, 106, 164], hAlign="LEFT")
+    t.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.4, colors.HexColor(PDF_HAIRLINE)),
+        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
     ]))
-    story.append(media_table)
+    return [Paragraph("DETAIL", st["sec"]), Spacer(1, 5), t, Spacer(1, 13)]
 
-    story.append(PageBreak())
-    story.append(Paragraph("<b>HIGH-RESOLUTION SATELLITE & ADJOINING PLOT CLUSTER ANALYSIS</b>", title_style))
-    story.append(Paragraph(f"Official Spatial Query Report | Page 2 of 2 | Plot CTS {_esc(cts_number)} ({_esc(village.upper())})", subtitle_style))
-    story.append(Spacer(1, 8))
 
-    sat_img_rl = RLImage(sat_snapshot_path, width=540, height=340)
-    story.append(sat_img_rl)
-    story.append(Spacer(1, 10))
+def _image_block(st, path, caption, width, height):
+    # RLImage defers file reading to doc.build(), so wrapping the constructor in
+    # try/except catches nothing - a missing image still crashed the whole report
+    # at build time. Verify the file opens here instead.
+    ok = False
+    try:
+        if path and os.path.exists(path):
+            with Image.open(path) as probe:
+                probe.verify()
+            ok = True
+    except Exception:
+        ok = False
 
-    story.append(Paragraph("<b>Adjoining / Neighboring CTS Parcels (Spatial Cluster):</b>", ParagraphStyle('H2', parent=bold_style, fontSize=10, textColor=colors.HexColor('#1A237E'))))
-    story.append(Spacer(1, 4))
+    try:
+        if not ok:
+            raise OSError(f"unreadable image: {path}")
+        img = RLImage(path, width=width, height=height)
+    except Exception:
+        box = Table([[Paragraph(f"Image unavailable: {_esc(os.path.basename(str(path)))}",
+                                st["fine"])]], colWidths=[width], rowHeights=[height * 0.25])
+        box.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor(PDF_HAIRLINE)),
+                                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                 ("ALIGN", (0, 0), (-1, -1), "CENTER")]))
+        img = box
+    out = [img]
+    if caption:
+        out += [Spacer(1, 4), Paragraph(_esc(caption), st["fine"])]
+    return out
 
-    adj_table_data = [[Paragraph("<b>Adjoining CTS No.</b>", bold_style), Paragraph("<b>Village</b>", bold_style), Paragraph("<b>Plot Area (sq m)</b>", bold_style)]]
-    for n in neighbors[:8]:
-        adj_table_data.append([
-            Paragraph(f"CTS {_esc(n['cts_no'])}", body_style),
-            Paragraph(_esc(n['village'].upper()), body_style),
-            Paragraph(f"{_esc(n['area_sqm'])} sq m" if n['area_sqm'] != 'N/A' else "N/A", body_style)
-        ])
-    if not neighbors:
-        adj_table_data.append([Paragraph("No immediate adjoining CTS polygons detected in buffer", body_style), Paragraph("-", body_style), Paragraph("-", body_style)])
 
-    adj_table = Table(adj_table_data, colWidths=[180, 180, 180])
-    adj_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#ECEFF1')),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CFD8DC')),
-        ('PADDING', (0,0), (-1,-1), 3.5),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-    ]))
-    story.append(adj_table)
+def build_pdf_doc(pdf_path, result, dp_snapshot_path, sat_snapshot_path, qr_bytes,
+                  branding=None):
+    """
+    Two-page verdict-first DP remark docket.
 
-    doc.build(story)
+    Takes the result dict the caller already holds. The previous signature took
+    21 positional arguments, which made adding anything to the layout painful.
+    """
+    st = _pdf_styles()
+    pi = result["plot_identity"]
+    rg = result["regulatory_and_infrastructure"]
+    meta = result["metadata"]
+    files = result.get("export_files", {})
+    ref = _report_ref(pi.get("village"), pi.get("cts_no"))
+    when = str(meta.get("lookup_datetime", ""))[:16]
+
+    doc = SimpleDocTemplate(pdf_path, pagesize=letter, leftMargin=36, rightMargin=36,
+                            topMargin=34, bottomMargin=30,
+                            title=f"DP Remark {ref}", author=(branding or {}).get("firm", ""))
+    s = []
+
+    # ---- page 1: the decision page ----
+    s += _header(st, "DP REMARK DOCKET", ref, when, branding)
+    s += _verdict_band(st, result)
+    s += _constraint_cards(st, result)
+    s += _detail_table(st, result)
+    s += _image_block(st, dp_snapshot_path,
+                      "MCGM Development Plan 2034 — zoning, reservations and road widths.",
+                      width=540, height=318)
+    s.append(Spacer(1, 8))
+
+    qr_cell = []
+    try:
+        qr_cell = [RLImage(qr_bytes, width=54, height=54)]
+    except Exception:
+        pass
+    foot = Table([[
+        [Paragraph("<b>Indicative only.</b> Compiled from MCGM public map services. "
+                   "Not an official DP Remark and not certified by MCGM. Obtain the "
+                   "official remark before any legal, financial or development decision.",
+                   st["fine"])],
+        qr_cell,
+    ]], colWidths=[478, 62])
+    foot.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                              ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
+    s += [_rule(), Spacer(1, 6), foot]
+
+    # ---- page 2: the evidence page ----
+    s.append(PageBreak())
+    s += _header(st, "SITE CONTEXT", ref, f"CTS {pi.get('cts_no')} · {pi.get('village')}")
+    s += _image_block(st, sat_snapshot_path,
+                      "Esri World Imagery. Plot boundary overlaid in yellow.",
+                      width=540, height=340)
+    s.append(Spacer(1, 13))
+
+    neighbours = result["spatial_cluster"].get("adjoining_cts_plots", [])
+    s.append(Paragraph("ADJOINING PARCELS", st["sec"]))
+    s.append(Spacer(1, 5))
+    if neighbours:
+        rows = [[Paragraph("CTS", st["k"]), Paragraph("Village", st["k"]),
+                 Paragraph("Area", st["k"])]]
+        for n in neighbours[:8]:
+            a = n.get("area_sqm")
+            rows.append([Paragraph(_esc(n.get("cts_no")), st["v2"]),
+                         Paragraph(_esc(str(n.get("village", "")).upper()), st["body"]),
+                         Paragraph(f"{_esc(a)} m²" if a not in (None, "N/A") else "—",
+                                   st["body"])])
+        t = Table(rows, colWidths=[110, 240, 190], hAlign="LEFT")
+        t.setStyle(TableStyle([
+            ("LINEBELOW", (0, 0), (-1, 0), 0.6, colors.HexColor(PDF_HAIRLINE)),
+            ("LINEBELOW", (0, 1), (-1, -2), 0.4, colors.HexColor(PDF_HAIRLINE)),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        s.append(t)
+    else:
+        s.append(Paragraph("No adjoining CTS parcels detected within the search buffer.",
+                           st["body"]))
+    s.append(Spacer(1, 14))
+
+    # what the reader actually received
+    s.append(Paragraph("FILES IN THIS BUNDLE", st["sec"]))
+    s.append(Spacer(1, 5))
+    manifest = [
+        (".dxf", "AutoCAD base for massing — plot boundary, setbacks, road, neighbours, "
+                 "layer legend. 1 unit = 1 metre."),
+        (".geojson", "QGIS / ArcGIS polygon, EPSG:4326."),
+        (".kml", "Google Earth placemark."),
+        (".png ×2", "DP zoning map and satellite view."),
+    ]
+    rows = [[Paragraph(f"<b>{k}</b>", st["body"]), Paragraph(v, st["body"])]
+            for k, v in manifest]
+    t = Table(rows, colWidths=[70, 470], hAlign="LEFT")
+    t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                           ("TOPPADDING", (0, 0), (-1, -1), 3),
+                           ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                           ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
+    s.append(t)
+    s.append(Spacer(1, 14))
+
+    s.append(Paragraph("METHOD & LIMITS", st["sec"]))
+    s.append(Spacer(1, 5))
+    lat = pi.get("coordinates_wgs84", {}).get("latitude")
+    lon = pi.get("coordinates_wgs84", {}).get("longitude")
+    limits = (
+        f"Source: {_esc(meta.get('source'))} via MCGM ArcGIS map services, retrieved "
+        f"{_esc(when)}. Centroid {lat}, {lon} (WGS84). "
+        "Setback lines in the CAD file are indicative geometry, not a DCPR compliance "
+        "check — actual requirements vary with building height, plot size and road "
+        "width under DCPR 2034. No FSI or buildable area is calculated. "
+        "Plot boundaries reflect MCGM's digitisation; where they differ from a site "
+        "survey, trust the survey."
+    )
+    s.append(Paragraph(limits, st["fine"]))
+    if meta.get("notes"):
+        s.append(Spacer(1, 5))
+        for n in meta["notes"]:
+            s.append(Paragraph(f"Note: {_esc(n)}", st["fine"]))
+    if not meta.get("complete", True):
+        s.append(Spacer(1, 5))
+        s.append(Paragraph("<b>This report is incomplete.</b> " +
+                           _esc("; ".join(meta.get("warnings", []))), st["fine"]))
+
+    doc.build(s)
+
 
 async def lookup_plot_pro(
     village: str,
@@ -1553,7 +1821,7 @@ async def lookup_plot_pro(
         draw_dp.text((lx0+60, ly0+20), f"Plot Boundary (CTS {cts_number})", fill=(0, 0, 0, 255), font_size=18)
         draw_dp.text((lx0+20, ly0+55), f"Village: {village.upper()} | Ward: {attrs['WARD']}", fill=(0, 0, 0, 255), font_size=16)
         draw_dp.text((lx0+20, ly0+85), f"Zone: {zone} | Area: {attrs['AREA_APP_SQ_MTRS']} sq m", fill=(0, 0, 0, 255), font_size=16)
-        draw_dp.text((lx0+20, ly0+115), f"Status: {status_badge[:30]}", fill=(0, 0, 0, 255), font_size=16)
+        draw_dp.text((lx0+20, ly0+115), f"Status: {_plain(status_badge)[:30]}", fill=(0, 0, 0, 255), font_size=16)
 
         final_dp_img = Image.alpha_composite(dp_img, dp_overlay)
 
@@ -1615,12 +1883,15 @@ async def lookup_plot_pro(
         qr_img.save(qr_bytes, format="PNG")
         qr_bytes.seek(0)
         
+        # The builder now takes the result dict rather than 21 positional arguments.
         await asyncio.to_thread(
             build_pdf_doc,
-            pdf_path, status_badge, status_summary, village, attrs, cts_number, zone, des_desc, des_code, mod_approval, mod_label, crz_buffer_flag, metro_buffer_flag, road_name, road_width, dp_snapshot_path, qr_bytes, map_link, sat_snapshot_path, neighbors,
-            ("Approved cadastral area (MCGM record)"
-             if area_source.startswith("approved")
-             else "DERIVED from plot boundary - no approved area on MCGM record")
+            pdf_path,
+            _compose_result(round((time.perf_counter() - t_start) * 1000, 1), pending=False),
+            dp_snapshot_path,
+            sat_snapshot_path,
+            qr_bytes,
+            None,  # branding: optional {"firm": ..., "logo": ...}
         )
 
         now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
