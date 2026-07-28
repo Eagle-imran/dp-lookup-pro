@@ -82,7 +82,8 @@ def save_disk_cache(output_dir: str) -> None:
     except OSError as exc:
         # Surface rather than swallow: a read-only or full disk silently
         # disabling the cache used to be invisible.
-        print(f"[dp-lookup-pro] WARNING: could not write cache store {path}: {exc}")
+        print(f"[dp-lookup-pro] WARNING: could not write cache store {path}: {exc}",
+              file=sys.stderr)
 
 
 def bundle_is_intact(result: Dict[str, Any]) -> bool:
@@ -939,7 +940,7 @@ async def lookup_plot_pro(
         safe_village = sanitize_query_value(village, _VILLAGE_RE, "village", 64)
         safe_cts = sanitize_query_value(cts_number, _CTS_RE, "cts_number", 32)
     except ValueError as exc:
-        return {"error": str(exc)}
+        return {"error": str(exc), "suggestions": suggest_villages(village)}
 
     village_upper = safe_village.upper()
     cache_key = f"{village_upper}:{safe_cts}"
@@ -959,7 +960,8 @@ async def lookup_plot_pro(
             print(
                 f"[dp-lookup-pro] Serving cached report from "
                 f"{cached_res['metadata'].get('cached_at')} ({age} days old). "
-                f"Use --no-cache for a fresh check."
+                f"Use --no-cache for a fresh check.",
+                file=sys.stderr,
             )
             return cached_res
 
@@ -1005,13 +1007,21 @@ async def lookup_plot_pro(
             }
 
         if not data.get("features"):
-            return {
-                "error": (
-                    f"Plot not found for CTS '{cts_number}' in village '{village}'. "
-                    "Village must be one of the 128 exact MCGM names "
-                    "(e.g. BANDRA-A, not BANDRA) - see START-HERE.md."
+            if village_upper in MCGM_VILLAGES:
+                msg = (
+                    f"Village '{village_upper}' is valid, but it has no plot "
+                    f"numbered '{cts_number}'. Check the CTS number - suffixes and "
+                    "slashes matter ('748A' and '748' are different plots, as are "
+                    "'16/738' and '16-738')."
                 )
-            }
+            else:
+                hints = suggest_villages(village_upper)
+                msg = f"'{village}' is not a valid MCGM village name."
+                if hints:
+                    msg += " Did you mean: " + ", ".join(hints) + "?"
+                msg += (" Village names are cadastral, not locality names - run "
+                        "--list-villages to see all 128.")
+            return {"error": msg, "suggestions": suggest_villages(village_upper)}
 
         feature = data["features"][0]
         attrs = feature["attributes"]
@@ -1617,14 +1627,134 @@ async def lookup_plot_pro(
         # Only a clean run earns a cache entry. Caching a degraded result used to
         # freeze a transient network failure into a permanent authoritative answer.
         if warnings:
-            print(f"[dp-lookup-pro] WARNING: result incomplete, not cached - {'; '.join(warnings)}")
+            print(f"[dp-lookup-pro] WARNING: result incomplete, not cached - {'; '.join(warnings)}",
+                  file=sys.stderr)
         else:
             write_cache_entry(output_dir, cache_key, result_dict)
 
         return result_dict
 
 
-USAGE = """Usage: dp-lookup-pro <VILLAGE_NAME> <CTS_NUMBER> [OUTPUT_DIR] [--no-cache]
+# The 128 valid MCGM revenue village names, read from layer 13 on 2026-07-28.
+# These are cadastral survey names and are effectively static - layer 13 has not
+# been edited since 2019-01-23. Kept local so name help costs no network call.
+# Refresh with:
+#   GET {SERVER_URL}/13/query?where=1%3D1&outFields=VILLAGE
+#       &returnDistinctValues=true&returnGeometry=false&f=json
+MCGM_VILLAGES = (
+    "AAKSE", "AAREY", "AKURLI", "AMBIVALI", "ANDHERI", "ANIK", "ASALPE", "BANDIVALI",
+    "BANDRA-A", "BANDRA-B", "BANDRA-C", "BANDRA-D", "BANDRA-E", "BANDRA-EAST",
+    "BANDRA-F", "BANDRA-G", "BANDRA-H", "BANDRA-I", "BAPNALA", "BHANDUP-E", "BHANDUP-W",
+    "BHULESHWAR", "BORIVALI", "BORLA", "BRAMHANWADA", "BYCULLA", "CHAKALA", "CHANDIVALI",
+    "CHARKOP", "CHEMBUR", "CHINCHAVALI", "COLABA", "DADAR-NAIGAON", "DAHISAR", "DARAVALI",
+    "DEONAR", "DHARAVI", "DINDOSHI", "EKSAR", "ERANGAL", "FORT", "GHATKOPAR",
+    "GHATKOPAR KIROL", "GIRGAUM", "GORAI", "GOREGAON", "GUNDAVALI", "GUNDHGAON",
+    "HARIYALI-E", "HARIYALI-W", "ISMALIA", "JUHU", "KANDIVALI", "KANHERI", "KANJUR-E",
+    "KANJUR-W", "KIROL", "KLERABAD", "KOLEKALYAN", "KOLEKALYAN UNIVERSITY", "KONDIVATE",
+    "KOPRI", "KURAR", "KURLA - 1", "KURLA - 2", "KURLA - 3", "KURLA - 4", "LOWER PAREL",
+    "MADH", "MAGATHANE", "MAHIM", "MAHUL", "MAJAS", "MALABAR HILL", "MALAD", "MALAD-E",
+    "MALAD-NORTH", "MALAD-SOUTH", "MALVANI", "MANDALE", "MANDPESHWAR-M", "MANDPESHWAR-N",
+    "MANDPESHWAR-S", "MANDVI", "MANKHURD", "MANORI", "MARAVALI", "MAROL", "MAROL MAROSHI",
+    "MARVE", "MATUNGA", "MAZAGAON", "MOGRA", "MOHILI", "MULGAON", "MULUND-E", "MULUND-W",
+    "NAHUR", "OSHIWARA", "PAHADI EKSAR", "PAHADI GOREGAON-E", "PAHADI GOREGAON-W",
+    "PAREL-SEWERI", "PARIGHIKARI", "PASPOLI", "POISAR", "POWAI", "PRAJAPUR",
+    "PRINCESS DOCK", "SAAI", "SAHAR", "SAKI", "SALT PAN", "SHIMPAWALI", "SION", "TARDEO",
+    "TIRANDAZ", "TULSI", "TUNGWE", "TURBHE", "VALNAI", "VERSOVA", "VIKHROLI", "VILE PARLE",
+    "VYARAVLI", "WADHAVALI", "WADHWAN", "WORLI",
+)
+
+
+def suggest_villages(name: Any, limit: int = 8) -> List[str]:
+    """
+    Nearest valid village names for a mistyped one.
+
+    The commonest failure by far is a modern locality name that is not a
+    cadastral village: BANDRA is not valid (it is BANDRA-A..BANDRA-I plus
+    BANDRA-EAST), KURLA is not valid (KURLA - 1..4), BHANDUP is not valid
+    (BHANDUP-E/W). Prefix matches are checked before fuzzy ones so those
+    families surface first.
+    """
+    import difflib
+
+    query = str(name or "").strip().upper()
+    if not query:
+        return []
+    hits = [v for v in MCGM_VILLAGES if v == query]
+    hits += [v for v in MCGM_VILLAGES if v.startswith(query) and v not in hits]
+    hits += [v for v in MCGM_VILLAGES if query in v and v not in hits]
+    for v in difflib.get_close_matches(query, MCGM_VILLAGES, n=limit, cutoff=0.6):
+        if v not in hits:
+            hits.append(v)
+    return hits[:limit]
+
+
+def format_result_human(result: Dict[str, Any]) -> str:
+    """Readable summary of a lookup. Raw JSON stays available behind --json."""
+    if "error" in result:
+        lines = ["", f"  Could not complete the lookup:", f"  {result['error']}", ""]
+        return "\n".join(lines)
+
+    ident = result["plot_identity"]
+    plan = result["planning_remarks"]
+    reg = result["regulatory_and_infrastructure"]
+    cluster = result["spatial_cluster"]
+    files = result["export_files"]
+    meta = result["metadata"]
+
+    area = ident.get("area_sqm")
+    area_txt = f"{area:,.2f} m\u00b2" if isinstance(area, (int, float)) else "not on record"
+    if "derived" in str(ident.get("area_source", "")):
+        area_txt += "  (derived from boundary, not MCGM-approved)"
+
+    rows = [
+        ("Plot area", area_txt),
+        ("Zone", plan.get("zone")),
+        ("Reservation", plan["reservation"].get("type") if plan["reservation"].get("code") != "None" else "None"),
+        ("Designation", plan["designation"].get("description")),
+        ("DP modification", plan["dp_modification"].get("approval_no")),
+        ("CRZ", reg.get("crz_status")),
+        ("Metro buffer", reg.get("metro_buffer")),
+        ("Abutting road", f"{reg['abutting_road'].get('name')} ({reg['abutting_road'].get('width')})"),
+        ("Adjoining plots", str(cluster.get("adjoining_plots_count"))),
+    ]
+
+    out = ["", f"  {plan.get('status_badge')}",
+           f"  {ident.get('village')}  ·  CTS {ident.get('cts_no')}  ·  Ward {ident.get('ward')}", ""]
+    for label, value in rows:
+        out.append(f"    {label:<17} {value}")
+
+    neighbours = [n.get("cts_no") for n in cluster.get("adjoining_cts_plots", [])][:6]
+    if neighbours:
+        out.append(f"    {'Neighbours':<17} CTS " + ", ".join(str(n) for n in neighbours))
+
+    out += ["", f"    Files            {files.get('bundle_folder')}  (6 files)",
+            f"    Report           {files.get('pdf_report')}",
+            f"    Register         {files.get('master_excel_register')}"]
+
+    if meta.get("cached_result"):
+        out.append(f"\n    Cached result from {meta.get('cached_at')} "
+                   f"({meta.get('cache_age_days')} days old). Use --no-cache to refetch.")
+    else:
+        out.append(f"\n    Fetched in {meta.get('execution_time_ms', 0) / 1000:.1f}s")
+
+    for note in meta.get("notes") or []:
+        out.append(f"    Note: {note}")
+    if not meta.get("complete", True):
+        out.append("\n    INCOMPLETE - this report is missing data:")
+        for w in meta.get("warnings") or []:
+            out.append(f"      - {w}")
+        out.append("    Re-run before relying on it.")
+
+    out.append("")
+    return "\n".join(out)
+
+
+USAGE = """Usage: dp-lookup-pro <VILLAGE_NAME> <CTS_NUMBER> [OUTPUT_DIR] [options]
+
+Options:
+  --json            print the full JSON response instead of a summary
+  --no-cache        force a fresh lookup, ignoring any cached report
+  --list-villages   print all 128 valid village names and exit
 
 Examples:
   dp-lookup-pro WORLI 947
@@ -1638,6 +1768,20 @@ Village must be one of the 128 exact MCGM revenue village names
 def main(argv: Optional[List[str]] = None) -> int:
     """Console entry point. Returns a process exit code."""
     args = list(sys.argv[1:] if argv is None else argv)
+
+    if "--list-villages" in args or "--villages" in args:
+        print(f"\n{len(MCGM_VILLAGES)} valid MCGM village names:\n")
+        for i in range(0, len(MCGM_VILLAGES), 3):
+            print("  " + "".join(f"{v:<26}" for v in MCGM_VILLAGES[i:i + 3]).rstrip())
+        print("\nNames are exact. BANDRA, KURLA and BHANDUP alone are NOT valid -")
+        print("use BANDRA-A..BANDRA-I, KURLA - 1..4, BHANDUP-E/W.\n")
+        return 0
+
+    as_json = False
+    for flag in ("--json", "--raw"):
+        if flag in args:
+            args.remove(flag)
+            as_json = True
 
     use_cache = True
     for flag in ("--no-cache", "--fresh"):
@@ -1656,10 +1800,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     village, cts_number = args[0], args[1]
     output_dir = args[2] if len(args) > 2 else "./output"
 
-    print(
-        f"[dp-lookup-pro] Looking up village '{village}', CTS '{cts_number}'"
-        f"{' (cache bypassed)' if not use_cache else ''}..."
-    )
+    if not as_json:
+        print(f"  Looking up {village} CTS {cts_number}"
+              f"{' (fresh)' if not use_cache else ''}...")
     result = asyncio.run(
         lookup_plot_pro(
             village=village,
@@ -1668,7 +1811,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             use_cache=use_cache,
         )
     )
-    print("\n" + json.dumps(result, indent=2, ensure_ascii=False))
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(format_result_human(result))
     return 1 if "error" in result else 0
 
 

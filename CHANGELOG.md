@@ -6,6 +6,60 @@ All notable changes to this project. Newest first.
 
 ---
 
+## [3.9.0] — 2026-07-28
+
+Makes the tool usable without an AI assistant, and turns the commonest failure
+into a self-correcting one.
+
+### 📖 Readable output by default
+
+The CLI printed 60 lines of raw JSON, which meant a non-technical user needed an
+AI just to interpret the result. It now prints a summary:
+
+```
+  🟢 CLEAR (No Reservation)
+  WORLI  ·  CTS 733  ·  Ward G/S
+
+    Plot area         1,317.74 m²
+    Zone              R
+    CRZ               YES (CRZ II)
+    Abutting road     Exisiting Road (N/A)
+    Adjoining plots   3
+
+    Files            ./output/worli_cts_733  (6 files)
+    Fetched in 7.1s
+```
+
+An incomplete result says so in plain words and lists what is missing. A derived
+area is marked as such. `--json` still prints the full response — now clean on
+stdout, with progress and cache notices moved to stderr so `--json | jq` works.
+
+**An LLM is now genuinely optional**, not a workaround for unreadable output.
+
+### 🗺️ Village name help
+
+`BANDRA` is not a valid village and never was — it is `BANDRA-A`…`BANDRA-I` plus
+`BANDRA-EAST`. Same trap with `KURLA` and `BHANDUP`. This was the single most
+likely thing to make a new user think the tool was broken.
+
+- **`--list-villages`** prints all 128 valid names.
+- A wrong name now suggests the right one:
+
+```
+'BANDRA' is not a valid MCGM village name.
+Did you mean: BANDRA-A, BANDRA-B, BANDRA-C, BANDRA-D, BANDRA-E, BANDRA-EAST...?
+```
+
+- A *valid* village with a bad plot number gets a different message, so you know
+  which half was wrong: *"Village 'WORLI' is valid, but it has no plot numbered
+  '999999'. Suffixes and slashes matter."*
+
+The list is held locally, so name help costs no network call.
+
+68 tests, up from 57.
+
+---
+
 ## [3.8.1] — 2026-07-28
 
 Second review pass over the satellite-to-DXF pipeline. One layout defect found

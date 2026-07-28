@@ -207,6 +207,14 @@ VYARAVLI · WADHAVALI · WADHWAN · WORLI
 > 💡 **Easiest option:** just ask your AI — *"which village is this plot in?"* —
 > and paste the list above, or point it at this file.
 
+**Ask the tool for the list:**
+
+```bash
+uv run python dp-lookup-pro --list-villages
+```
+
+And if you get the name wrong, it will suggest the right one.
+
 **Where to find your plot's village name:**
 
 - Your **Property Register Card (PRC)** or **7/12 extract** — it's printed on it

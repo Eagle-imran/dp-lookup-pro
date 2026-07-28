@@ -435,6 +435,86 @@ def test_exports_do_not_crash_on_none_area(tmp_path):
 # CLI argument handling
 # --------------------------------------------------------------------------
 
+def test_village_list_is_complete_and_sorted():
+    assert len(dp.MCGM_VILLAGES) == 128
+    assert list(dp.MCGM_VILLAGES) == sorted(dp.MCGM_VILLAGES)
+    for known in ("BANDRA-A", "WORLI", "MALABAR HILL", "KURLA - 1", "BHANDUP-E", "MOHILI"):
+        assert known in dp.MCGM_VILLAGES
+
+
+@pytest.mark.parametrize("typo,expected", [
+    ("BANDRA", "BANDRA-A"),      # the commonest mistake of all
+    ("KURLA", "KURLA - 1"),
+    ("BHANDUP", "BHANDUP-E"),
+    ("MALABAR", "MALABAR HILL"),
+    ("worli", "WORLI"),
+])
+def test_suggestions_catch_the_common_locality_mistakes(typo, expected):
+    assert expected in dp.suggest_villages(typo)
+
+
+def test_suggestions_are_empty_for_nonsense():
+    assert dp.suggest_villages("") == []
+    assert dp.suggest_villages("ZZZZQQQQ") == []
+
+
+def test_list_villages_flag(capsys):
+    assert dp.main(["--list-villages"]) == 0
+    out = capsys.readouterr().out
+    assert "128 valid MCGM village names" in out
+    assert "BANDRA-A" in out
+    assert "NOT valid" in out
+
+
+def test_human_summary_reads_cleanly():
+    result = {
+        "plot_identity": {"village": "WORLI", "cts_no": "733", "ward": "G/S",
+                          "area_sqm": 1317.74, "area_source": "approved (MCGM AREA_APP_SQ_MTRS)"},
+        "planning_remarks": {"status_badge": "CLEAR", "zone": "R",
+                             "reservation": {"code": "None", "type": "None"},
+                             "designation": {"description": "None"},
+                             "dp_modification": {"approval_no": "None"}},
+        "regulatory_and_infrastructure": {"crz_status": "YES (CRZ II)", "metro_buffer": "NO",
+                                          "abutting_road": {"name": "B G KHER", "width": "18.30 M"}},
+        "spatial_cluster": {"adjoining_plots_count": 3, "adjoining_cts_plots": [{"cts_no": "734"}]},
+        "export_files": {"bundle_folder": "./output/x", "pdf_report": "./output/x/r.pdf",
+                         "master_excel_register": "./output/dp-lookups.xlsx"},
+        "metadata": {"execution_time_ms": 7100, "cached_result": False, "complete": True,
+                     "warnings": [], "notes": []},
+    }
+    text = dp.format_result_human(result)
+    for token in ("WORLI", "CTS 733", "1,317.74", "YES (CRZ II)", "B G KHER", "7.1s"):
+        assert token in text
+    assert "{" not in text, "summary should not leak raw JSON"
+
+
+def test_human_summary_flags_a_derived_area_and_incompleteness():
+    result = {
+        "plot_identity": {"village": "TARDEO", "cts_no": "264", "ward": "D",
+                          "area_sqm": 2539.25, "area_source": "derived from plot geometry"},
+        "planning_remarks": {"status_badge": "CLEAR", "zone": "R",
+                             "reservation": {"code": "None", "type": "None"},
+                             "designation": {"description": "None"},
+                             "dp_modification": {"approval_no": "None"}},
+        "regulatory_and_infrastructure": {"crz_status": "NO", "metro_buffer": "NO",
+                                          "abutting_road": {"name": "None", "width": "None"}},
+        "spatial_cluster": {"adjoining_plots_count": 0, "adjoining_cts_plots": []},
+        "export_files": {"bundle_folder": "./o", "pdf_report": "./o/r.pdf",
+                         "master_excel_register": "./o/x.xlsx"},
+        "metadata": {"execution_time_ms": 900, "cached_result": False, "complete": False,
+                     "warnings": ["3 of 9 road probes failed"], "notes": ["area derived"]},
+    }
+    text = dp.format_result_human(result)
+    assert "derived from boundary" in text
+    assert "INCOMPLETE" in text
+    assert "road probes failed" in text
+
+
+def test_human_summary_renders_an_error_without_traceback():
+    text = dp.format_result_human({"error": "'BANDRA' is not a valid MCGM village name."})
+    assert "BANDRA" in text and "Could not complete" in text
+
+
 def test_cli_usage_exits_nonzero_without_args(capsys):
     assert dp.main([]) == 1
     assert "Usage:" in capsys.readouterr().out
