@@ -95,19 +95,20 @@ uv run python dp-lookup-pro BANDRA-A 409
 ```
 
 This looks up a real plot on Bazar Road, Bandra. Within a few seconds you should
-see a report beginning like this:
+see this:
 
-```json
-"plot_identity": {
-    "village": "BANDRA-A",
-    "cts_no": "409",
-    "ward": "H/W",
-    "area_sqm": 115.58
-},
-"planning_remarks": {
-    "status_badge": "🟢 CLEAR (No Reservation)",
-    "zone": "R"
-}
+```
+  🟢 CLEAR (No Reservation)
+  BANDRA-A  ·  CTS 409  ·  Ward H/W
+
+    Plot area         115.58 m²
+    Zone              R
+    CRZ               YES (CRZ II)
+    Abutting road     Bazar Road
+    Adjoining plots   4
+
+    Files            ./output/bandra-a_cts_409  (6 files)
+    Fetched in 7.4s
 ```
 
 If you see that, you're done. ✅ Your files are in `output/bandra-a_cts_409/`
