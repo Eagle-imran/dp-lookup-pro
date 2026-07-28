@@ -219,6 +219,24 @@ VYARAVLI · WADHAVALI · WADHWAN · WORLI
 
 ---
 
+## 🔄 Getting fresh data
+
+Reports are saved and reused for **30 days**, so repeat lookups are instant.
+Every cached result tells you how old it is:
+
+```
+[dp-lookup-pro] Serving cached report from 2026-07-28 18:06 (3.4 days old).
+Use --no-cache for a fresh check.
+```
+
+If a plot matters right now — a transaction, a submission — force a fresh check:
+
+```bash
+uv run python dp-lookup-pro WORLI 947 --no-cache
+```
+
+---
+
 ## ⚠️ Important — read this
 
 This tool reads MCGM's public map service and formats what it finds. Its output is **indicative only**.
@@ -232,6 +250,9 @@ before making any legal, financial or development decision.
 ## 📜 Licence
 
 Proprietary software. © 2026 Imran Patel. All rights reserved.
+
+*Version 3.7.0 — see [CHANGELOG.md](CHANGELOG.md). If an update ever breaks
+something, [ROLLBACK.md](ROLLBACK.md) explains how to go back.*
 
 Free for personal evaluation and testing. Commercial use, redistribution and
 modification are not permitted without written permission — see [LICENSE](LICENSE).

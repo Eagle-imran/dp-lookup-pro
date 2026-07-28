@@ -11,6 +11,8 @@ The rest of this README is the technical reference for developers.
 > ⚖️ **Proprietary software** — © 2026 Imran Patel. All rights reserved. Not open-source.
 > Free for personal evaluation; commercial use requires a licence. See [LICENSE](LICENSE).
 
+**v3.7.0** · [What changed](CHANGELOG.md) · [How to roll back](ROLLBACK.md) · [System flow map](APP_FLOW.html)
+
 ---
 
 `dp-lookup-pro` is an enterprise-grade AI agent skill and standalone CLI tool that queries the official **MCGM Development Plan (DP) 2034 MapServer** to instantly retrieve zoning, land reservations, modification orders, CRZ restrictions, Metro rail buffers, road access widths, and adjoining plot clusters for any City Survey (CTS/CS) land parcel in Mumbai.
@@ -66,11 +68,12 @@ git clone https://github.com/Eagle-imran/dp-lookup-pro.git
 cd dp-lookup-pro
 ```
 
-### Step 2: Make the Script Executable
-Give execution permissions to the main CLI wrapper:
+### Step 2: (Optional) Install as a command
 ```bash
-chmod +x dp-lookup-pro
+uv pip install -e .
 ```
+This provides a `dp-lookup-pro` command that works from any folder. You can skip
+this and use `uv run python dp-lookup-pro ...` instead.
 
 ### Step 3: Install Dependencies
 Automatic installation using `uv`:
@@ -85,9 +88,9 @@ pip install "httpx[http2]>=0.28.0" pillow openpyxl reportlab qrcode ezdxf
 ### Step 4: Execute a Plot Lookup Query
 Run the command by passing the **Village Name** and **CTS Number**:
 ```bash
-./dp-lookup-pro WORLI 748A
+uv run python dp-lookup-pro WORLI 748A
 ```
-*(The CLI will display progress and output a clean 6-section JSON response in under 1 second!)*
+*(A fresh lookup takes about 5–13 seconds; a cached one is instant. See [CHANGELOG.md](CHANGELOG.md) for what changed in v3.7.0.)*
 
 ### Step 5: Inspect the Generated Output Bundle
 Navigate to the newly created subfolder `./output/worli_cts_748A/` to access all generated assets:
@@ -238,6 +241,7 @@ The tool outputs a structured, intuitive JSON object containing 6 logical sectio
     "ward": "<WARD_LETTER>",
     "type": "CTS",
     "area_sqm": 1250.0,
+    "area_source": "approved (MCGM AREA_APP_SQ_MTRS)",
     "coordinates_wgs84": {
       "latitude": 19.000000,
       "longitude": 72.800000
@@ -283,8 +287,13 @@ The tool outputs a structured, intuitive JSON object containing 6 logical sectio
   "metadata": {
     "source": "MCGM SDP 2014-34",
     "lookup_datetime": "2026-07-28 12:00:00",
-    "execution_time_ms": 12.0,
+    "execution_time_ms": 0.15,
     "cached_result": true,
+    "complete": true,
+    "warnings": [],
+    "notes": [],
+    "cache_age_days": 3.4,
+    "cache_expires_in_days": 26.6,
     "interactive_web_map": "https://mcgm.maps.arcgis.com/..."
   }
 }

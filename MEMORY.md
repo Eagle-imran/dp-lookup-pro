@@ -35,9 +35,12 @@
 
 ## 📜 Key Problems Solved & Evolution History
 
-### 1. 🌊 Coastal Regulation Zone (CRZ) Precision Fix
-* **Issue**: General district boundary Layer `2238` (*Coastal Districts having CRZ*) was causing every land parcel in Mumbai City and Suburban districts to incorrectly report `CRZ Status: YES`.
-* **Resolution**: Filtered CRZ queries strictly to plot-specific restriction layers (`[31, 1118, 2212, 2213, 2214, 2240, 2241, 2242, 2243]`). Excluded Layer 2238.
+### 1. 🌊 Coastal Regulation Zone (CRZ) — two bugs, both now fixed
+* **Bug 1 (false positive)**: District boundary Layer `2238` (*Coastal Districts having CRZ*) covers all of Mumbai City and Suburban, so every parcel reported `CRZ: YES`.
+* **First attempt**: Swapped to `[31, 1118, 2212, 2213, 2214, 2240, 2241, 2242, 2243]`. This silenced the false positives — but **every one of those layers is a boundary LINE** (High Tide Line, Low Tide Line, CRZ Lines & Boundaries, Hazard Line).
+* **Bug 2 (false negative, 2026-07-28)**: A point-identify at a plot centroid can never intersect a line, so the check became structurally incapable of returning `YES`. **Every plot in Mumbai reported `CRZ: NO`.** It looked correct precisely because it was silent.
+* **Resolution**: Use the CRZ **zone polygons** `[14, 1264, 1548]`, reading the sub-tier from `category` / `Category` / `CLASS` to report `YES (CRZ II)`. Layer `2238` remains excluded.
+* **Verified both directions**: coastal plots (WORLI 886/947, BANDRA-A 409) return `YES (CRZ II)`; inland plots (BYCULLA 1605, TARDEO 264) correctly stay `NO`.
 
 ### 2. 🛰️ Satellite Aerial Engine Refactoring
 * **Issue**: Direct Esri MapServer export server endpoints (`services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export`) threw HTTP 500 errors when queried with unaligned bounding boxes.
@@ -45,7 +48,8 @@
 
 ### 3. ⚡ Single-Batch HTTP/2 Async Concurrency
 * **Issue**: Sequential API querying caused fresh lookups to take 3.5 – 5.0 seconds.
-* **Resolution**: Pipelined all 18 network tasks (Identify, DP Map Export, 7 Road Queries, 5 Neighbor Identifies, 9 Satellite Tiles) into a single `asyncio.gather` execution block over HTTP/2 connection pooling.
+* **Resolution**: Pipelined the network tasks into a single `asyncio.gather` block over HTTP/2 pooling. As of v3.7.0 this is **25 requests** per cold lookup: 1 parcel query (sequential) + 24 concurrent (1 identify, 1 map export, 9 road probes, 4 neighbour probes, 9 satellite tiles).
+* **Measured reality (2026-07-28)**: a cold lookup takes **5–13 s**, and ~95% of that is the single `/export` map-image request. Earlier sub-second claims were not reproducible.
 
 ### 4. 📁 Query-Specific Bundle Folder Isolation
 * **Issue**: Flat output files in `./output/` created file collisions when multiple plots were queried.
@@ -54,6 +58,25 @@
 ### 5. 📐 Native AutoCAD `.dxf` Drawing Exporter
 * **Issue**: Users required direct AutoCAD drawing files without needing manual GeoJSON conversion.
 * **Resolution**: Integrated `ezdxf` to output native AutoCAD `.dxf` files with pre-styled layers (`PLOT_BOUNDARY` in Red, `ANNOTATION` in Cyan) and plot text metadata placed at the centroid.
+
+### 6. 🛣️ Road Detection — two dead queries (2026-07-28)
+* **Issue**: Two `/query` calls against layers `193`/`194` sent a polygon geometry. Those layers have spatial querying disabled server-side and answer **HTTP 200 carrying `{"error":{"code":400}}`** for every geometry type. The parser read `.get('features', [])`, saw an empty list, and reported "no road". They had never worked.
+* **Resolution**: Both removed. Road probes now sample the midpoints of the longest boundary edges **in addition to** the original centroid and bbox corners. MOHILI 732 went from `None` to `21.35 m`.
+* **⚠️ Caution**: the probe sets are additive on purpose. An attempt that *replaced* the corner probes regressed WORLI 947.
+
+### 7. 🤫 Silent Failure Elimination (2026-07-28)
+* **Issue**: `return_exceptions=True` plus a 10 s timeout meant a slow server produced `zone='Unknown'`, `road=None`, 0 neighbours and `CRZ='NO'` — **and still wrote a PDF, appended to the Excel register, and cached it permanently.**
+* **Root cause**: ArcGIS reports errors as HTTP 200 with an `error` key; `.get('features', [])` on such a body is indistinguishable from a genuine no-match. This one pattern caused three separate silent failures.
+* **Resolution**: All parsing routed through `usable_json()`. A failed identify aborts the run. Partial failures become `metadata.warnings` with a `metadata.complete` flag, and are never cached. Timeout 10 s → 20 s.
+
+### 8. 📐 Blank Plot Areas (2026-07-28)
+* **Issue**: `AREA_APP_SQ_MTRS` is null for some parcels (MALABAR HILL 518, TARDEO 264), so area rendered blank.
+* **Resolution**: Fall back to `SHAPE.AREA`, which is populated and already in true ground square metres (verified: matches exactly where both exist). Labelled via `plot_identity.area_source` — it is the *digitised* area, not the approved one, and the two differ by up to 7%.
+
+### 9. 💾 Cache Policy (2026-07-28)
+* **Issue**: no expiry, no bypass, stored failures permanently, ignored `output_dir`, and returned paths to files that no longer existed.
+* **Resolution**: 30-day TTL (chosen from measured data velocity — layer 13 carries `LAST_EDITED_DATE 2019-01-23` on every parcel), `--no-cache` bypass, store at `<output_dir>/.cache_store.json`, bundle-file verification on every hit, and `cache_age_days` reported so staleness is never silent.
+* **⚠️ Trap**: `LAST_EDITED_DATE` is identical across all parcels — it is the bulk load date, **not** a usable revalidation key. DP modifications do not appear on the parcel record either; they live in layer `192`.
 
 ---
 

@@ -4,7 +4,14 @@
     "generated": "2026-07-28",
     "engine_file": "cts_dp_lookup_pro.py",
     "line_numbers_valid_as_of": "2026-07-28 post issue-register sweep",
-    "line_numbers_caveat": "Line numbers drift with edits. Treat them as hints; confirm with grep before relying on them."
+    "line_numbers_caveat": "Line numbers drift with edits. Treat them as hints; confirm with grep before relying on them.",
+    "version": "3.7.0",
+    "related_docs": {
+      "changelog": "CHANGELOG.md",
+      "rollback": "ROLLBACK.md",
+      "user_guide": "START-HERE.md",
+      "visual_map": "APP_FLOW.html"
+    }
   },
   "project": {
     "name": "dp-lookup-pro",
@@ -572,6 +579,7 @@
   ],
   "guidance_for_next_agent": [
     "Run `uv run pytest -q` before and after any change - there are now 41 offline tests covering projection maths, validation, escaping, cache TTL and the exporters.",
+    "Before changing anything, read CHANGELOG.md 3.7.0 - it records which behaviours were deliberately corrected. Reverting one of them reintroduces a known bug; ROLLBACK.md documents the safe procedure.",
     "The engine is cts_dp_lookup_pro.py. lookup_plot_pro is the single entry function and is ~450 lines.",
     "Any change touching CRZ, roads or layer IDs MUST be regression-tested against verified_test_plots above, in BOTH directions - a coastal plot that should be YES and an inland plot that should be NO.",
     "Clear ./output/.cache_store.json before any retest. Cached results will silently replay the old behaviour and make a fix look like it failed.",
