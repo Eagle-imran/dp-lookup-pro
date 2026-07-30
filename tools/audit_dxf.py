@@ -231,6 +231,27 @@ def main(argv=None):
     else:
         say("  every layer carries an explicit lineweight")
 
+    # ---- frontage present when one is claimed ------------------------------
+    # This audit reported 27/27 clean while AMBIVALI 807 had no road drawn at all.
+    # Absence is not something the collision and containment checks can see, so it
+    # has to be asserted directly: if PLOT DATA names an abutting road, the road
+    # layer must carry geometry. The frontage governs the front setback, so a sheet
+    # that names a road but does not draw it is worse than one that admits neither.
+    say("\n=== abutting road ===")
+    road_row = next((entity_text(e) for e, _ in texts if "ABUTTING ROAD" in entity_text(e)), "")
+    claimed = road_row.split(":", 1)[-1].strip() if road_row else ""
+    has_name = bool(claimed) and claimed.lower() not in ("n/a", "none", "none (none)", "")
+    road_polys = [e for e in msp if e.dxf.layer == "C-ROAD-ALIGN"
+                  and e.dxftype() == "LWPOLYLINE"]
+    say(f"  PLOT DATA says   : {claimed[:60]!r}")
+    say(f"  road polylines   : {len(road_polys)}")
+    if has_name and not road_polys:
+        faults.append(
+            f"PLOT DATA names a frontage ({claimed[:40]!r}) but no road geometry is "
+            "drawn, so the front setback cannot be identified")
+    elif not has_name:
+        say("  -> no frontage named by MCGM; nothing to draw")
+
     hatches = list(msp.query("HATCH"))
     for h in hatches:
         opaque = h.dxf.solid_fill and not h.dxf.hasattr("transparency")
