@@ -1340,3 +1340,27 @@ def test_setback_marker_and_road_label_do_not_collide(tmp_path):
     for i, (t1, b1) in enumerate(below):
         for t2, b2 in below[i + 1:]:
             assert not dp.boxes_overlap(b1, b2), f"{t1!r} overlaps {t2!r}"
+
+
+def test_nearest_road_geoms_ranks_by_proximity_not_arrival_order():
+    """Regression: `road_geoms[:6]` took the first six in arrival order. MCGM's road
+    polygon layers return hundreds of rings per probe (552 for layer 44 at AMBIVALI
+    807), so the frontage was pushed out of the slice -- the six that survived were
+    910-2082 m away while the real frontage sat 8.7 m from the boundary."""
+    ring = [[[72.8200, 18.9700], [72.8210, 18.9700],
+             [72.8210, 18.9710], [72.8200, 18.9710], [72.8200, 18.9700]]]
+    far = [[72.90, 19.05], [72.91, 19.06]]          # ~10 km away
+    frontage = [[72.8205, 18.96999], [72.8206, 18.96999]]   # metres from the edge
+    # Frontage arrives last, behind a wall of distant rings.
+    geoms = [far] * 20 + [frontage]
+
+    picked = dp.nearest_road_geoms(geoms, ring, limit=6)
+    assert len(picked) == 6
+    assert frontage in picked, "the nearest road must survive the cut"
+    assert picked[0] is frontage, "the nearest road must rank first"
+
+
+def test_nearest_road_geoms_survives_missing_geometry():
+    ring = [[[72.8200, 18.9700], [72.8210, 18.9700], [72.8200, 18.9700]]]
+    assert dp.nearest_road_geoms([], ring) == []
+    assert dp.nearest_road_geoms([[[72.82, 18.97]]], []) == [[[72.82, 18.97]]]

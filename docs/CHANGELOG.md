@@ -86,8 +86,24 @@ Now clipped with Liang-Barsky on each **segment**, so a segment that crosses the
 window is kept and trimmed to it. Trimming matters as much as keeping: retaining a
 whole 1.1 km segment would have dragged the sheet border out with it.
 
-This one matters for the deliverable — the frontage is what governs the front
-setback, and an architect had no way to tell which edge faced the road.
+### 🔴 …and the actual reason AMBIVALI 807 had no road was a different bug
+
+The clipping fix above is real and was worth making, but it did **not** fix
+AMBIVALI 807. After it shipped, that plot still had an empty `C-ROAD-ALIGN`.
+Tracing what actually reached `export_dxf` showed the six road paths passed were
+**910–2082 m away**, while `Jay Prakash Road Part II Dadabhai Road` sat **8.7 m
+from the boundary** and never arrived at all.
+
+The cause was `road_geoms[:6]` — the first six geometries in **arrival order**,
+with no regard to proximity. MCGM's road *polygon* layers return hundreds of rings
+per probe (552 for layer 44 here, across nine probes), so the real frontage was
+routinely pushed out of the slice by distant rings that happened to be parsed
+first. `nearest_road_geoms()` now ranks by distance to the plot before cutting.
+
+AMBIVALI 807 went from **0 road polylines to 8**, with the frontage label restored.
+
+This matters for the deliverable rather than the sheet — the frontage governs the
+front setback, and an architect had no way to tell which edge faced the road.
 
 ### 🟠 Two areas are now printed, and the gap is named
 

@@ -497,6 +497,41 @@ def clip_path_to_window(path: list, x_lo: float, y_lo: float,
     return runs
 
 
+def nearest_road_geoms(road_geoms: list, wgs_rings: list, limit: int = 8) -> list:
+    """
+    The `limit` road paths closest to the plot.
+
+    Was `road_geoms[:6]` - the first six in arrival order, with no regard to
+    proximity. MCGM's road *polygon* layers return hundreds of rings per probe
+    (552 for layer 44 at AMBIVALI 807, across nine probes), so the actual frontage
+    was routinely pushed out of the slice. On AMBIVALI 807 the six that survived
+    were 910-2082 m away while 'Jay Prakash Road Part II Dadabhai Road' sat 8.7 m
+    from the boundary and was discarded - which is why C-ROAD-ALIGN was empty on a
+    plot with a named 27.4 m frontage.
+
+    Ranking happens before clipping because clipping a 5,701-vertex network is the
+    expensive part, and only paths that come near the plot can survive it anyway.
+    """
+    if not road_geoms or not wgs_rings or not wgs_rings[0]:
+        return road_geoms[:limit]
+    ring = wgs_rings[0]
+    lon0 = sum(p[0] for p in ring) / len(ring)
+    lat0 = sum(p[1] for p in ring) / len(ring)
+    # Longitude degrees are shorter than latitude degrees; scale so ranking is by
+    # real distance rather than raw degrees.
+    lon_scale = math.cos(math.radians(lat0))
+
+    def nearest_sq(path):
+        best = float("inf")
+        for pt in path:
+            dx = (pt[0] - lon0) * lon_scale
+            dy = pt[1] - lat0
+            best = min(best, dx * dx + dy * dy)
+        return best
+
+    return sorted(road_geoms, key=nearest_sq)[:limit]
+
+
 def fit_label_to_width(template: str, value: str, max_width: float, char_h: float,
                        min_value_chars: int = 8) -> str:
     """
@@ -2164,7 +2199,8 @@ async def lookup_plot_pro(
         # Vector exports need geometry and attributes only - no imagery - so they
         # are written now rather than behind the map fetch.
         export_geojson(wgs_rings, export_props, geojson_path)
-        export_dxf(wgs_rings, export_props, dxf_path, neighbors=neighbors, roads=road_geoms[:6])
+        export_dxf(wgs_rings, export_props, dxf_path, neighbors=neighbors,
+                   roads=nearest_road_geoms(road_geoms, wgs_rings))
         export_kml(wgs_rings, export_props, kml_path)
 
         def _compose_result(exec_ms: float, pending: bool) -> Dict[str, Any]:
