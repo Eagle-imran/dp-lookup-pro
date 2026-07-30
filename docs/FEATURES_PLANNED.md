@@ -64,9 +64,33 @@ This roadmap outlines planned enterprise upgrades for **`dp-lookup-pro`** design
 
 ## ⚡ 4. Speed & Computational Performance Optimizations
 
-### 4.1. Local Offline SQLite / DuckDB Spatial Database (~800ms Savings)
-* **Pre-baked Database**: Package a local, pre-indexed SQLite/SpatiaLite database file (`./data/mumbai_sdp_2034.sqlite` — ~18 MB) containing all ~15,000 Mumbai CTS parcel boundaries and metadata.
-* **Speed Impact**: Reduces initial parcel boundary lookup latency from **~500 ms (network call) down to ~2 ms (local SQLite query)**.
+### 4.1. Local Spatial Cache — 📋 **SPECCED**, ready to build
+> **Full spec: [SPEC-LOCAL-SPATIAL-CACHE.md](SPEC-LOCAL-SPATIAL-CACHE.md).** The
+> original proposal below is kept for the record; two of its numbers were measured
+> against the live server on 2026-07-30 and were wrong.
+
+* **⚠️ Corrections to the original estimates**:
+  * Mumbai has **135,337** parcels on layer 13, not ~15,000 (`returnCountOnly`).
+  * A pre-baked file is **~90 MB** (geometry + 5 attributes + R-Tree) or **~126 MB**
+    with all 33 fields — not 18–25 MB. Measured from 400 real WORLI parcels: median
+    189 B of WKB geometry, median 11 vertices. It cannot be shrunk by simplifying,
+    because the DXF's 4.6 cm dimensional accuracy is the product promise.
+  * Bulk extraction is **easy**, not hard: `maxRecordCount: 50000` with pagination.
+* **Revised shape**: cache **grows as the tool is used** rather than shipping
+  pre-baked — 0 MB installed, no redistribution question. A per-village opt-in
+  pre-bake is Phase 2.
+* **The governing rule**: geometry is cached, **planning status is always live**.
+  Layer 13 carries geometry and identity but no zone, reservation, CRZ or DP
+  modification. Caching status is how you ship a confident wrong answer.
+* **The real prize is correctness, not speed**: adjoining parcels are currently found
+  with 4 fixed point-probes — a guess. An R-Tree plus shapely gives actual adjacency,
+  which is what amalgamation studies depend on.
+* **Honest speed impact**: the parcel fetch is the one *sequential* request, so
+  removing it is real — but the answer still cannot beat the planning identify, which
+  measures 414 ms–4,470 ms. Roughly 500 ms off a 900–5,000 ms answer.
+* **No new dependencies**: `sqlite3` R-Tree is in the stdlib and `shapely` is already
+  a dependency. SpatiaLite is explicitly rejected — a native library works against the
+  "simple install" goal.
 
 ### 4.2. ✅ SHIPPED (v3.10.0) — Non-Blocking Document Pipeline
 * **Delivered differently, and better**: rather than detaching background threads (which risks a killed process leaving a half-written bundle), the *wait* is split. All 25 requests still dispatch at once, but only the planning half is awaited before reporting. GeoJSON/DXF/KML are written in that half too, since they need geometry only.
@@ -101,16 +125,18 @@ This roadmap outlines planned enterprise upgrades for **`dp-lookup-pro`** design
 | **Phase 1 (Feasibility)** | FSI & BUA Calculator, Height & Setback Scorecard | Direct urban feasibility numbers | 0 ms (Pure math calculations) |
 | **Phase 2 (Deliverables)** | Interactive HTML Report, ZIP Bundle, SVG Vector | Client-ready presentation assets | Single-click delivery |
 | **Phase 3 (Regulatory)** | Heritage Layer 1540, ✅ CRZ Tiering, Aviation Funnel | Complete legal & environmental due-diligence | Enhanced risk management |
-| **Phase 4 (Speed)** | Local SQLite Database, ✅ Split-wait pipeline | Answer without waiting on imagery | ✅ **Answer ~0.7s** |
+| **Phase 4 (Speed)** | 📋 Local spatial cache, ✅ Split-wait pipeline | Answer without waiting on imagery; **computed** adjacency instead of 4 probes | ✅ **Answer ~0.7s**, → ~0.2–0.5s warm |
 | **Phase 5 (Tokens)** | `--slim` & `--cad-only` execution flags | Context window optimization | **~150 tokens per query** |
 
 ---
 
 ---
 
-## 🔭 Next up (as of v3.10.0)
+## 🔭 Next up (as of v3.12.0)
 
+0. **Local spatial cache** — 📋 specced and ready to build: [SPEC-LOCAL-SPATIAL-CACHE.md](SPEC-LOCAL-SPATIAL-CACHE.md). Replaces the 4-probe neighbour guess with computed adjacency, and takes the one sequential network hop off the critical path. No new dependencies, ships at 0 MB.
 1. **Basic FSI / buildable area** — permissible basic FSI from zone, plot area and road width. Scope to *basic* FSI only and label it indicative; the incentive regulations (33(7)/33(10)/33(11)) are legally intricate and a wrong buildable-area figure is worse than none.
+   > ⚠️ **Blocked on the area question.** MCGM's record and MCGM's own digitised polygon disagree by 6.10% on AMBIVALI 807 and −7.82% on BANDRA-A 409, and the Property Card is a third figure again. FSI computed off an unreconciled plot area is wrong by that margin before any regulation is applied. Decide which area governs before building this.
 2. **Web app with logins** — the commercialisation path. `lookup_plot_pro` is already standalone and importable, so a service can wrap it directly.
 3. **Road probe tuning** — 9 probes means more chances to draw a slow request. Needs measuring against road-detection accuracy, not guessing.
 4. **Multi-ring plots** — `export_dxf` treats every ring as an outer boundary, so a plot with an interior hole would have that ring's setback offset the wrong way. None seen in 14 samples.
