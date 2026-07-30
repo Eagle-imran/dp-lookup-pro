@@ -260,7 +260,7 @@ before making any legal, financial or development decision.
 
 Proprietary software. © 2026 Imran Patel. All rights reserved.
 
-*Version 3.10.0 — see [docs/CHANGELOG.md](docs/CHANGELOG.md). If an update ever breaks
+*Version 3.12.0 — see [docs/CHANGELOG.md](docs/CHANGELOG.md). If an update ever breaks
 something, [docs/ROLLBACK.md](docs/ROLLBACK.md) explains how to go back.*
 
 Free for personal evaluation and testing. Commercial use, redistribution and

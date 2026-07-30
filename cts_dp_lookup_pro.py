@@ -360,19 +360,26 @@ def offset_polygon_inward(ring: list, distance: float) -> list:
 # Layer table and the local projection, lifted out of export_dxf (420 lines).
 
 # name -> (ACI colour, linetype). Order is the order they appear in the legend.
+# name, ACI colour, linetype, lineweight.
+#
+# Lineweight is in 1/100 mm and must be one of AutoCAD's discrete values. Every
+# layer previously carried the default (-3), so a plotted sheet rendered the
+# metric grid at the same weight as the plot boundary and read completely flat.
+# The boundary is the heaviest line on the sheet, setbacks sit below it, and
+# reference material (grid, neighbours, annotation) sits below that.
 DXF_LAYERS = (
-    ("0_GRID_AXIS", 8, "DASHED"),
-    ("C-PLOT-BDY", 1, None),
-    ("C-PROP-HATCH", 252, None),
-    ("C-SETBACK-3M", 3, "DASHED"),
-    ("C-SETBACK-6M", 70, "DASHED"),
-    ("C-ADJN-PLOTS", 2, None),
-    ("C-ROAD-ALIGN", 4, "DASHED"),
-    ("C-RESTRICT-ZONE", 6, "PHANTOM"),
-    ("C-ANNO-TEXT", 7, None),
-    ("C-ANNO-DIMS", 5, None),
-    ("C-NORTH-ARROW", 7, None),
-    ("C-TITLE-BLOCK", 4, None),
+    ("0_GRID_AXIS", 8, "DASHED", 9),
+    ("C-PLOT-BDY", 1, None, 50),
+    ("C-PROP-HATCH", 252, None, 9),
+    ("C-SETBACK-3M", 3, "DASHED", 25),
+    ("C-SETBACK-6M", 70, "DASHED", 25),
+    ("C-ADJN-PLOTS", 2, None, 13),
+    ("C-ROAD-ALIGN", 4, "DASHED", 35),
+    ("C-RESTRICT-ZONE", 6, "PHANTOM", 35),
+    ("C-ANNO-TEXT", 7, None, 13),
+    ("C-ANNO-DIMS", 5, None, 13),
+    ("C-NORTH-ARROW", 7, None, 18),
+    ("C-TITLE-BLOCK", 4, None, 18),
 )
 
 # Degrees to metres at Mumbai's latitude. Longitude scales with cos(lat);
@@ -392,11 +399,11 @@ def new_dxf_document():
     except Exception:
         # A document that already defines them is fine; the layers below still work.
         pass
-    for name, colour, linetype in DXF_LAYERS:
+    for name, colour, linetype, lineweight in DXF_LAYERS:
+        attrs = {"name": name, "color": colour, "lineweight": lineweight}
         if linetype:
-            doc.layers.add(name=name, color=colour, linetype=linetype)
-        else:
-            doc.layers.add(name=name, color=colour)
+            attrs["linetype"] = linetype
+        doc.layers.add(**attrs)
     return doc
 
 
@@ -428,99 +435,309 @@ def to_local_metres(points: list, lon0: float, lat0: float,
     return [((p[0] - lon0) * mpd_lon, (p[1] - lat0) * mpd_lat) for p in points]
 
 
+def text_extents(entity) -> Optional[tuple]:
+    """
+    (x0, y0, x1, y1) of a TEXT entity as it will actually render.
+
+    Placement arithmetic cannot tell you whether a label overruns its frame or
+    collides with another label - only the rendered width can, and that depends
+    on the font. Every text fault found when WORLI 733 was opened in AutoCAD was
+    invisible to coordinate checks for exactly this reason: legend rows escaping
+    the panel, the UTM tie-in lying across a dimension, two grid labels stacked
+    at the corner.
+
+    Rotation is applied to the corners so rotated dimension labels measure
+    correctly. Returns None when the font engine is unavailable, so callers must
+    treat measurement as best-effort rather than guaranteed.
+    """
+    try:
+        from ezdxf.tools.text_size import text_size
+        size = text_size(entity)
+        w, h = size.width, size.cap_height
+    except Exception:
+        try:
+            h = float(entity.dxf.height)
+            w = len(entity.dxf.text) * h * 0.72
+        except Exception:
+            return None
+    try:
+        x, y = float(entity.dxf.insert[0]), float(entity.dxf.insert[1])
+    except Exception:
+        return None
+    rot = math.radians(float(getattr(entity.dxf, "rotation", 0.0) or 0.0))
+    if not rot:
+        return (x, y, x + w, y + h)
+    cos_r, sin_r = math.cos(rot), math.sin(rot)
+    pts = [(x + dx * cos_r - dy * sin_r, y + dx * sin_r + dy * cos_r)
+           for dx, dy in ((0.0, 0.0), (w, 0.0), (w, h), (0.0, h))]
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def boxes_overlap(a: Optional[tuple], b: Optional[tuple], slack: float = 0.0) -> bool:
+    """True when two (x0, y0, x1, y1) boxes intersect. Unmeasurable text never collides."""
+    if a is None or b is None:
+        return False
+    return not (a[2] + slack < b[0] or b[2] + slack < a[0]
+                or a[3] + slack < b[1] or b[3] + slack < a[1])
+
+
+def nudge_text_clear(entity, obstacles: list, step: float,
+                     direction: tuple = (0.0, 1.0), limit: int = 10) -> bool:
+    """
+    Shift a label along `direction` until it stops overlapping anything in `obstacles`.
+
+    Adjoining-parcel labels sit at the parcel centroid and boundary dimensions at
+    the edge midpoints; on WORLI 733 'CTS 733A' landed squarely on the '10.23m'
+    dimension, and on AMBIVALI 807 the '6.20m' and '3.47m' dimensions of two short
+    adjacent edges landed on each other. Neither placement is wrong in isolation,
+    so the label that moves is the one added later. Dimensions push outward along
+    the edge normal so they stay associated with their edge.
+
+    Returns True once clear, False if it never cleared within `limit` steps.
+    """
+    if step <= 0:
+        return True
+    dx, dy = direction
+    for _ in range(limit + 1):
+        box = text_extents(entity)
+        if box is None:
+            return True
+        if not any(boxes_overlap(box, other) for other in obstacles):
+            return True
+        ins = entity.dxf.insert
+        entity.set_placement((float(ins[0]) + dx * step, float(ins[1]) + dy * step))
+    return False
+
+
+# One source of truth for the legend rows. This list used to live inside the
+# drawing function while the sheet-sizing code carried its own hardcoded count of
+# 12, so the two could drift apart silently.
+DXF_LEGEND_ROWS = (
+    ('C-PLOT-BDY',      'PLOT BOUNDARY - gross plot area'),
+    ('C-PROP-HATCH',    'Gross plot area (fill)'),
+    ('C-ROAD-ALIGN',    'Abutting road alignment / frontage'),
+    ('C-SETBACK-3M',    '3.0 m setback line (true parallel offset)'),
+    ('C-SETBACK-6M',    '6.0 m setback line (true parallel offset)'),
+    # This layer carries advisory text only. CRZ status comes from a point
+    # identify, not a polygon, so there is no zone boundary to draw and the row
+    # must not imply one.
+    ('C-RESTRICT-ZONE', 'CRZ / Metro restriction (advisory note)'),
+    ('C-ADJN-PLOTS',    'Adjoining CTS plots'),
+    ('C-ANNO-DIMS',     'Boundary segment dimensions (m)'),
+    ('C-ANNO-TEXT',     'Plot metadata'),
+    ('C-NORTH-ARROW',   'True north'),
+    ('0_GRID_AXIS',     'Metric grid, 0,0 at plot centroid'),
+    ('C-TITLE-BLOCK',   'Sheet border, legend, title block'),
+)
+
+# Rows of vertical padding the panel needs beyond its content rows: the heading
+# gaps above LAYER LEGEND and PLOT DATA, and the margin below the last row.
+LEGEND_PAD_ROWS = 4.15
+
+
+def dxf_title_block_lines(properties: Dict[str, Any],
+                          utm_cx: float, utm_cy: float) -> List[str]:
+    """
+    The sheet's title block.
+
+    The Property Card caution is here rather than in PLOT DATA because it applies
+    to the drawing as a whole. MCGM's record and MCGM's own digitised polygon are
+    already both printed in the panel; the Property Card is a third source this
+    tool cannot read, and on WORLI 733 the owner measured it 5-7% away from the
+    MCGM figure.
+    """
+    return [
+        "MCGM DEVELOPMENT PLAN 2034 - CAD BASE",
+        f"PLOT: CTS {properties.get('cts_no')} ({properties.get('village')})",
+        "PURPOSE: Architectural concept & massing base",
+        "SCALE: 1:1 METRIC (1 CAD unit = 1 metre)",
+        "ORIGIN: Plot centroid (0.00, 0.00)",
+        f"UTM 43N CENTROID: E {utm_cx:.2f} / N {utm_cy:.2f}",
+        "SETBACKS ARE INDICATIVE - confirm against DCPR 2034",
+        "PLOT AREA PER PROPERTY CARD MAY DIFFER FROM THE MCGM",
+        "RECORD - reconcile both before any FSI calculation",
+    ]
+
+
+def title_block_height(lg_row: float, n_lines: int) -> float:
+    """Height the title block needs for `n_lines` of MTEXT plus its top margin."""
+    return lg_row * (n_lines + 1.2)
+
+
+def legend_column_height(lg_row: float, n_legend: int, n_data: int) -> float:
+    """
+    Height the legend panel needs to actually contain its rows.
+
+    Was `lg_row * (n_legend + 9.5)`, which never accounted for the PLOT DATA
+    rows at all - the panel border cut across the last three entries on every
+    drawing ever generated.
+    """
+    return lg_row * (n_legend + n_data + LEGEND_PAD_ROWS)
+
+
+# Longest value a PLOT DATA row carries before it wraps onto a continuation line.
+LEGEND_VALUE_MAX_CHARS = 34
+
+
+def legend_data_row(label: str, value: Any) -> List[str]:
+    """
+    One PLOT DATA row, wrapped onto continuation lines when the value is long.
+
+    AMBIVALI 807's frontage is 'Jay Prakash Road Part II Dadabhai Road to Versova
+    Metro.' - long enough to push that single row 19.8 m past the panel edge and
+    16.7 m outside the sheet border. Widening the panel to fit it would make the
+    panel wider than the plot, so the value wraps instead.
+    """
+    text = str(value)
+    if len(text) <= LEGEND_VALUE_MAX_CHARS:
+        return [f"{label:<16}: {text}"]
+    lines, current = [], ""
+    for word in text.split():
+        if current and len(current) + 1 + len(word) > LEGEND_VALUE_MAX_CHARS:
+            lines.append(current)
+            current = word
+        else:
+            current = f"{current} {word}".strip()
+    if current:
+        lines.append(current)
+    return [f"{label:<16}: {lines[0]}"] + [f"{'':<16}  {ln}" for ln in lines[1:]]
+
+
+def legend_data_rows(properties: Dict[str, Any], setback_status: Dict[float, bool],
+                     measured_area_sqm: Optional[float] = None) -> List[str]:
+    """
+    The PLOT DATA rows.
+
+    Both areas are printed on purpose. MCGM's approved record, MCGM's own
+    digitised parcel polygon and the Property Card are three independent sources
+    that do not agree: on WORLI 733 the record and the polygon differ by 0.30%,
+    but on AMBIVALI 807 they differ by 6.10% - 123 sq m. Printing a single figure
+    invites an FSI calculation off a number nobody reconciled, so the sheet shows
+    the record, shows what the drawn boundary actually measures, and names the
+    gap.
+    """
+    sb3 = "drawn" if setback_status.get(3.0) else "NOT VIABLE - plot too narrow"
+    sb6 = "drawn" if setback_status.get(6.0) else "NOT VIABLE - plot too narrow"
+    area_note = properties.get('area_source') or ''
+    derived = 'derived' in area_note
+    record_area = properties.get('area_sqm')
+
+    rows = legend_data_row("GROSS PLOT AREA", f"{record_area} sq m")
+    rows += legend_data_row(
+        "AREA SOURCE", "DERIVED from boundary" if derived else "MCGM approved record")
+    if measured_area_sqm:
+        delta = ""
+        if not derived and isinstance(record_area, (int, float)) and record_area:
+            pct = (measured_area_sqm - record_area) / record_area * 100.0
+            delta = f"  ({pct:+.2f}% vs record)"
+        rows += legend_data_row("MEASURED (BDY)", f"{measured_area_sqm:.2f} sq m{delta}")
+    rows += legend_data_row(
+        "CTS / VILLAGE", f"{properties.get('cts_no')} / {properties.get('village')}")
+    rows += legend_data_row(
+        "WARD / ZONE", f"{properties.get('ward')} / {properties.get('zone')}")
+    rows += legend_data_row(
+        "ABUTTING ROAD",
+        f"{properties.get('abutting_road')} ({properties.get('road_width')})")
+    # The drawing carries a short 'CRZ: ...' marker because a sentence does not fit
+    # on a small plot; the instruction that goes with it belongs here.
+    crz_value = properties.get('crz_buffer_flag')
+    if str(crz_value or '').upper().startswith('YES'):
+        crz_value = f"{crz_value} - verify with MCGM/MCZMA"
+    rows += legend_data_row("CRZ STATUS", crz_value)
+    rows += legend_data_row("METRO BUFFER", properties.get('metro_buffer_flag'))
+    rows += legend_data_row("3.0 m SETBACK", sb3)
+    rows += legend_data_row("6.0 m SETBACK", sb6)
+    return rows
+
+
 def draw_dxf_legend_column(msp, properties: Dict[str, Any], setback_status: Dict[float, bool],
                            utm_cx: float, utm_cy: float,
                            lg_x0: float, lg_w: float, b_max_y: float, b_min_y: float,
-                           char_h: float, dim_char_h: float, scale: float) -> None:
+                           char_h: float, dim_char_h: float, scale: float,
+                           data_rows: Optional[List[str]] = None) -> float:
     """
     Legend, plot-data panel and title block, stacked down the right-hand column.
 
     Legend swatches are drawn ON their own layers, so each sample line carries
     that layer's real colour and linetype - the swatch is the layer rather than
     a picture of one.
-    """
-    # ---- LEGEND ----------------------------------------------------------
-    lg_row = max(char_h * 1.9, 2.2)
-    legend_rows = [
-        ('C-PLOT-BDY',      'PLOT BOUNDARY - gross plot area'),
-        ('C-PROP-HATCH',    'Gross plot area (fill)'),
-        ('C-ROAD-ALIGN',    'Abutting road alignment / frontage'),
-        ('C-SETBACK-3M',    '3.0 m setback line (true parallel offset)'),
-        ('C-SETBACK-6M',    '6.0 m setback line (true parallel offset)'),
-        ('C-RESTRICT-ZONE', 'CRZ / Metro development restriction'),
-        ('C-ADJN-PLOTS',    'Adjoining CTS plots'),
-        ('C-ANNO-DIMS',     'Boundary segment dimensions (m)'),
-        ('C-ANNO-TEXT',     'Plot metadata'),
-        ('C-NORTH-ARROW',   'True north'),
-        ('0_GRID_AXIS',     'Metric grid, 0,0 at plot centroid'),
-        ('C-TITLE-BLOCK',   'Sheet border, legend, title block'),
-    ]
-    lg_h = lg_row * (len(legend_rows) + 9.5)
-    lg_y1 = b_max_y - scale * 0.05
-    lg_y0 = lg_y1 - lg_h
-    msp.add_lwpolyline(
-        [(lg_x0, lg_y0), (lg_x0 + lg_w, lg_y0), (lg_x0 + lg_w, lg_y1), (lg_x0, lg_y1)],
-        dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
 
+    Both panel frames are drawn LAST and sized from the measured extents of the
+    text inside them. Sizing them first from a row count is what let four legend
+    rows overrun the panel edge and three fall outside it entirely. Returns the
+    rightmost x reached, so the caller can put the sheet border outside it.
+    """
+    if data_rows is None:
+        data_rows = legend_data_rows(properties, setback_status)
+
+    lg_row = max(char_h * 1.9, 2.2)
+    left = lg_x0 + lg_row * 0.4
+    lg_y1 = b_max_y - scale * 0.05
+    right_edge = lg_x0 + lg_w
+    emitted = []
+
+    def place(text: str, height: float, x: float, y: float):
+        entity = msp.add_text(
+            text, dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': height})
+        entity.set_placement((x, y))
+        emitted.append(entity)
+        return entity
+
+    # ---- LEGEND ----------------------------------------------------------
     y = lg_y1 - lg_row * 1.2
-    msp.add_text("LAYER LEGEND", dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': char_h * 0.95}) \
-        .set_placement((lg_x0 + lg_row * 0.4, y))
+    place("LAYER LEGEND", char_h * 0.95, left, y)
     y -= lg_row * 1.3
 
     swatch_w = lg_row * 1.5
-    for layer_name, meaning in legend_rows:
+    for layer_name, meaning in DXF_LEGEND_ROWS:
         # sample line drawn ON its own layer, so it carries that layer's colour
         # and linetype - the swatch is the layer, not a picture of it.
-        msp.add_line((lg_x0 + lg_row * 0.4, y + lg_row * 0.22),
-                     (lg_x0 + lg_row * 0.4 + swatch_w, y + lg_row * 0.22),
+        msp.add_line((left, y + lg_row * 0.22),
+                     (left + swatch_w, y + lg_row * 0.22),
                      dxfattribs={'layer': layer_name})
-        msp.add_text(f"{layer_name}  -  {meaning}",
-                     dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': dim_char_h * 0.92}) \
-            .set_placement((lg_x0 + lg_row * 0.4 + swatch_w + lg_row * 0.5, y))
+        place(f"{layer_name}  -  {meaning}", dim_char_h * 0.92,
+              left + swatch_w + lg_row * 0.5, y)
         y -= lg_row
 
     # ---- PLOT DATA (what an architect needs before massing) --------------
     y -= lg_row * 0.6
-    msp.add_text("PLOT DATA", dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': char_h * 0.95}) \
-        .set_placement((lg_x0 + lg_row * 0.4, y))
+    place("PLOT DATA", char_h * 0.95, left, y)
     y -= lg_row * 1.25
 
-    sb3 = "drawn" if setback_status.get(3.0) else "NOT VIABLE - plot too narrow"
-    sb6 = "drawn" if setback_status.get(6.0) else "NOT VIABLE - plot too narrow"
-    area_note = properties.get('area_source') or ''
-    data_rows = [
-        f"GROSS PLOT AREA : {properties.get('area_sqm')} sq m",
-        f"AREA SOURCE     : {'DERIVED from boundary' if 'derived' in area_note else 'MCGM approved record'}",
-        f"CTS / VILLAGE   : {properties.get('cts_no')} / {properties.get('village')}",
-        f"WARD / ZONE     : {properties.get('ward')} / {properties.get('zone')}",
-        f"ABUTTING ROAD   : {properties.get('abutting_road')} ({properties.get('road_width')})",
-        f"CRZ STATUS      : {properties.get('crz_buffer_flag')}",
-        f"METRO BUFFER    : {properties.get('metro_buffer_flag')}",
-        f"3.0 m SETBACK   : {sb3}",
-        f"6.0 m SETBACK   : {sb6}",
-    ]
     for row in data_rows:
-        msp.add_text(row, dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': dim_char_h * 0.92}) \
-            .set_placement((lg_x0 + lg_row * 0.4, y))
+        place(row, dim_char_h * 0.92, left, y)
         y -= lg_row
 
-    # ---- TITLE BLOCK (bottom of the legend column) -----------------------
-    tb_h = lg_row * 7.2
-    tb_y0 = b_min_y + scale * 0.05
+    # Frame sized to what is actually inside it, in both axes.
+    measured_right = right_edge
+    for entity in emitted:
+        box = text_extents(entity)
+        if box:
+            measured_right = max(measured_right, box[2])
+    lg_x1 = measured_right + lg_row * 0.4
+    lg_y0 = min(y + lg_row - lg_row * 0.8,
+                lg_y1 - legend_column_height(lg_row, len(DXF_LEGEND_ROWS), len(data_rows)))
     msp.add_lwpolyline(
-        [(lg_x0, tb_y0), (lg_x0 + lg_w, tb_y0), (lg_x0 + lg_w, tb_y0 + tb_h), (lg_x0, tb_y0 + tb_h)],
+        [(lg_x0, lg_y0), (lg_x1, lg_y0), (lg_x1, lg_y1), (lg_x0, lg_y1)],
         dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
-    title_meta = (
-        f"MCGM DEVELOPMENT PLAN 2034 - CAD BASE\n"
-        f"PLOT: CTS {properties.get('cts_no')} ({properties.get('village')})\n"
-        f"PURPOSE: Architectural concept & massing base\n"
-        f"SCALE: 1:1 METRIC (1 CAD unit = 1 metre)\n"
-        f"ORIGIN: Plot centroid (0.00, 0.00)\n"
-        f"UTM 43N CENTROID: E {utm_cx:.2f} / N {utm_cy:.2f}\n"
-        f"SETBACKS ARE INDICATIVE - confirm against DCPR 2034"
-    )
-    msp.add_mtext(title_meta, dxfattribs={'layer': 'C-TITLE-BLOCK', 'char_height': dim_char_h * 0.92}) \
-        .set_location((lg_x0 + lg_row * 0.4, tb_y0 + tb_h - lg_row * 0.5))
+
+    # ---- TITLE BLOCK (bottom of the legend column) -----------------------
+    title_lines = dxf_title_block_lines(properties, utm_cx, utm_cy)
+    tb_char_h = dim_char_h * 0.92
+    tb_h = title_block_height(lg_row, len(title_lines))
+    tb_y0 = b_min_y + scale * 0.05
+    tb_x1 = lg_x1
+    mtext = msp.add_mtext(
+        "\n".join(title_lines),
+        dxfattribs={'layer': 'C-TITLE-BLOCK', 'char_height': tb_char_h})
+    mtext.set_location((left, tb_y0 + tb_h - lg_row * 0.5))
+    msp.add_lwpolyline(
+        [(lg_x0, tb_y0), (tb_x1, tb_y0), (tb_x1, tb_y0 + tb_h), (lg_x0, tb_y0 + tb_h)],
+        dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
+
+    return lg_x1
 
 
 
@@ -586,7 +803,11 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
     gy = g_min_y
     while gy <= g_max_y:
         msp.add_line((g_min_x, gy), (g_max_x, gy), dxfattribs={'layer': '0_GRID_AXIS'})
-        msp.add_text(f"{int(gy)}m", dxfattribs={'layer': '0_GRID_AXIS', 'height': dim_char_h * 0.8}).set_placement((g_min_x + 0.5, gy + 0.5))
+        # The bottom-left corner is where the X label row and the Y label column
+        # meet: both emitted a label at exactly the same point, so the two sat
+        # stacked on top of each other. The corner's Y value is redundant there.
+        if gy > g_min_y:
+            msp.add_text(f"{int(gy)}m", dxfattribs={'layer': '0_GRID_AXIS', 'height': dim_char_h * 0.8}).set_placement((g_min_x + 0.5, gy + 0.5))
         gy += grid_step
 
     # 3. C-PLOT-BDY: Primary Plot Boundary (Closed Polyline)
@@ -594,10 +815,13 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
         poly = msp.add_lwpolyline(loc_ring, dxfattribs={'layer': 'C-PLOT-BDY', 'closed': True})
         poly.dxf.const_width = max(0.15, scale * 0.005)
         
-        # Solid Hatch inside plot boundary
+        # Plot fill. Deliberately transparent: as an opaque solid it hid anything
+        # an architect placed underneath - a survey underlay, a satellite image,
+        # an imported DP extract - which is most of what this drawing is for.
         try:
             hatch = msp.add_hatch(color=252, dxfattribs={'layer': 'C-PROP-HATCH'})
             hatch.paths.add_polyline_path(loc_ring, is_closed=True)
+            hatch.transparency = 0.65
         except Exception:
             pass
 
@@ -616,12 +840,21 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
                 drawn += 1
         setback_status[spec_dist] = drawn > 0
         if not drawn:
+            # A marker, not a sentence. The full wording lives in the PLOT DATA
+            # panel; spelled out here it ran 3.8x the width of an 8 m plot, which
+            # is exactly the size of plot that triggers this message.
             msp.add_text(
-                f"{spec_dist:.1f}m SETBACK NOT VIABLE - PLOT TOO NARROW",
+                f"{spec_dist:.1f}m SETBACK N/A",
                 dxfattribs={'layer': spec_layer, 'height': dim_char_h}
             ).set_placement((min_x, min_y - dim_char_h * (2.5 if spec_dist == 3.0 else 4.0)))
 
     # 5. C-ANNO-DIMS: Automated Boundary Side Dimension Lines in Meters
+    #
+    # Two short adjacent edges put their labels close enough to overlap - AMBIVALI
+    # 807's '6.20m' and '3.47m' landed on each other. Each label is pushed further
+    # out along its own edge normal until it clears the ones already placed, so it
+    # stays associated with the edge it measures.
+    placed_boxes = []
     for loc_ring in local_rings:
         n_pts = len(loc_ring)
         for i in range(n_pts):
@@ -653,6 +886,11 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
                     'rotation': angle_deg
                 })
                 txt_elem.set_placement((tx, ty))
+                nudge_text_clear(txt_elem, placed_boxes, dim_char_h * 1.1,
+                                 direction=(nx, ny), limit=4)
+                box = text_extents(txt_elem)
+                if box:
+                    placed_boxes.append(box)
 
     # 6. C-ADJN-PLOTS: Adjoining CTS Plot Boundaries
     if neighbors:
@@ -665,10 +903,19 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
                 if n_loc_ring:
                     ncx = sum(p[0] for p in n_loc_ring) / len(n_loc_ring)
                     ncy = sum(p[1] for p in n_loc_ring) / len(n_loc_ring)
-                    msp.add_text(f"CTS {n_cts}", dxfattribs={
+                    label = msp.add_text(f"CTS {n_cts}", dxfattribs={
                         'layer': 'C-ADJN-PLOTS',
                         'height': dim_char_h * 0.9
-                    }).set_placement((ncx, ncy))
+                    })
+                    label.set_placement((ncx, ncy))
+                    # A neighbour's centroid can coincide with one of our own
+                    # boundary dimensions ('CTS 733A' over '10.23m' on WORLI 733).
+                    # The dimension is load-bearing for the architect; the
+                    # neighbour label is reference, so the label moves.
+                    nudge_text_clear(label, placed_boxes, dim_char_h * 1.2, limit=6)
+                    box = text_extents(label)
+                    if box:
+                        placed_boxes.append(box)
 
     # 6b. C-ROAD-ALIGN: abutting road centreline(s).
     # This layer was declared but never populated - an architect had no idea
@@ -707,26 +954,61 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
                 road_drawn += 1
 
     if road_drawn:
-        msp.add_text(
-            f"ABUTTING ROAD: {properties.get('abutting_road')} ({properties.get('road_width')})",
-            dxfattribs={'layer': 'C-ROAD-ALIGN', 'height': dim_char_h}
-        ).set_placement((min_x, min_y - dim_char_h * 1.2))
+        # Shortened on purpose. AMBIVALI 807's frontage name runs to 56
+        # characters, which on the drawing is wider than the plot itself; the
+        # full name and width are in the PLOT DATA panel.
+        road_label = str(properties.get('abutting_road') or 'N/A')
+        if len(road_label) > 24:
+            road_label = road_label[:23].rstrip(" ,.") + "..."
+        road_text = msp.add_text(
+            f"ABUTTING ROAD: {road_label} ({properties.get('road_width')})",
+            dxfattribs={'layer': 'C-ROAD-ALIGN', 'height': dim_char_h})
+        road_text.set_placement((min_x, min_y - dim_char_h * 1.2))
+        # Sits below the plot, so it clears downward - pushing it up would move it
+        # onto the geometry it is annotating.
+        nudge_text_clear(road_text, placed_boxes, dim_char_h * 1.3,
+                         direction=(0.0, -1.0), limit=6)
+        box = text_extents(road_text)
+        if box:
+            placed_boxes.append(box)
 
     # 7. C-RESTRICT-ZONE: CRZ and Metro development restrictions.
+    # Markers, not sentences. Spelled out in full these ran 3.3x the width of an
+    # 8 m plot; the full wording is in the PLOT DATA panel, which has room for it.
     restrict_notes = []
     crz_flag = str(properties.get("crz_buffer_flag") or "")
     if crz_flag.upper().startswith("YES"):
-        restrict_notes.append(f"COASTAL REGULATION ZONE: {crz_flag}")
-        restrict_notes.append("Development restricted under CRZ Notification - verify with MCGM/MCZMA")
-    if properties.get("metro_buffer_flag") == "YES":
+        restrict_notes.append(f"CRZ: {crz_flag}")
+        restrict_notes.append("DEVELOPMENT RESTRICTED")
+    # Prefix test, not equality. The lookup sets this to "YES (Metro Buffer Zone)",
+    # so `== "YES"` never matched and the metro restriction was silently absent
+    # from every drawing ever generated - AMBIVALI 807 is in a metro buffer and its
+    # DXF said nothing. Same failure mode as the CRZ check above, which is why both
+    # now share the shape.
+    if str(properties.get("metro_buffer_flag") or "").upper().startswith("YES"):
         msp.add_circle((cx, cy), radius=scale * 0.6, dxfattribs={'layer': 'C-RESTRICT-ZONE'})
-        restrict_notes.append("METRO RAIL INFLUENCE BUFFER")
-    # Stacked above the plot with real line spacing. At 1.4x these overlapped
-    # each other and the top boundary edge - visible only once rendered.
-    for i, note in enumerate(restrict_notes):
-        msp.add_text(note, dxfattribs={
-            'layer': 'C-RESTRICT-ZONE', 'height': dim_char_h
-        }).set_placement((min_x, max_y + dim_char_h * (3.4 + i * 2.1)))
+        restrict_notes.append("METRO RAIL BUFFER")
+    # Stacked above the plot, clear of the dimension band. The dimension labels
+    # sit dim_char_h * 1.8 outside the boundary plus their own cap height, so a
+    # note placed nearer than that lands on top of the top-edge dimensions - which
+    # is what put 'PLOT CENTROID' across '3.30m' on WORLI 733 and across two
+    # dimensions on AMBIVALI 807.
+    # Notes are the last annotation placed, so they clear everything already on
+    # the sheet and then stack upward from wherever each one landed. Placing them
+    # at fixed offsets put 'Development restricted...' straight through the
+    # 'CTS 732A' neighbour label on WORLI 733.
+    note_y = max_y + dim_char_h * 4.4
+    for note in restrict_notes:
+        note_text = msp.add_text(note, dxfattribs={
+            'layer': 'C-RESTRICT-ZONE', 'height': dim_char_h})
+        note_text.set_placement((min_x, note_y))
+        nudge_text_clear(note_text, placed_boxes, dim_char_h * 1.2, limit=14)
+        box = text_extents(note_text)
+        if box:
+            placed_boxes.append(box)
+            note_y = box[3] + dim_char_h * 1.1
+        else:
+            note_y += dim_char_h * 2.1
 
     # 8. C-ANNO-TEXT: plot identity only, at the centroid.
     #
@@ -740,11 +1022,11 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
         dxfattribs={'layer': 'C-ANNO-TEXT', 'height': char_h}
     ).set_placement((cx, cy), align=TextEntityAlignment.MIDDLE_CENTER)
 
-    # UTM tie-in point, kept off the plot so the interior stays clean.
-    msp.add_text(
-        f"PLOT CENTROID (0,0) = UTM 43N  E {utm_cx:.2f}  N {utm_cy:.2f}",
-        dxfattribs={'layer': 'C-ANNO-TEXT', 'height': dim_char_h * 0.9}
-    ).set_placement((min_x, max_y + dim_char_h * 1.2))
+    # The UTM tie-in used to be printed here as a 56-character string above the
+    # plot. It was the widest annotation on every sheet (0.91x the plot width on
+    # AMBIVALI 807, ~6x on a small plot), it collided with the top-edge
+    # dimensions, and it is already in the title block verbatim as
+    # "UTM 43N CENTROID". Carrying it twice bought nothing but the collision.
 
     # 8b. C-NORTH-ARROW: orientation. Local +Y is true north because the metric
     # projection maps latitude straight onto Y.
@@ -778,6 +1060,14 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
                 ctr, rad = entity.dxf.center, entity.dxf.radius
                 content_x += [ctr.x - rad, ctr.x + rad]
                 content_y += [ctr.y - rad, ctr.y + rad]
+            elif entity.dxftype() == 'TEXT':
+                # Text was invisible to this scan, which is precisely why labels
+                # ended up outside the border - the thing sizing the border could
+                # not see them.
+                box = text_extents(entity)
+                if box:
+                    content_x += [box[0], box[2]]
+                    content_y += [box[1], box[3]]
         except Exception:
             continue
     if not content_x:
@@ -789,28 +1079,40 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
     b_min_y = min(content_y) - pad
     b_max_y = max(content_y) + pad
 
+    # What the drawn boundary actually measures, which is not always what MCGM's
+    # record says: AMBIVALI 807 differs by 123 sq m (6.10%). Both go on the sheet.
+    measured_area = sum(abs(polygon_signed_area(r)) for r in local_rings) or None
+    data_rows = legend_data_rows(properties, setback_status, measured_area)
+
     # The legend column carries the legend rows, the plot-data rows and the title
     # block. On a small plot that stack is taller than the drawing, so grow the
-    # sheet downward rather than letting the legend run off the bottom.
+    # sheet downward rather than letting the legend run off the bottom. Both
+    # heights are derived from the row lists themselves - the old figures were
+    # magic constants that had never counted the PLOT DATA rows at all.
     _lg_row = max(char_h * 1.9, 2.2)
-    _legend_rows_n = 12
-    _needed = _lg_row * (_legend_rows_n + 9.5) + _lg_row * 7.2 + pad * 3
+    _needed = (legend_column_height(_lg_row, len(DXF_LEGEND_ROWS), len(data_rows))
+               + title_block_height(_lg_row, len(dxf_title_block_lines(properties, utm_cx, utm_cy)))
+               + pad * 3)
     if (b_max_y - b_min_y) < _needed:
         b_min_y = b_max_y - _needed
 
     # Legend panel sits to the right of all geometry, so it never covers anything.
     lg_w = max(scale * 0.95, 26.0)
     lg_x0 = plot_right + scale * 0.06
-    b_max_x = lg_x0 + lg_w + scale * 0.06
+
+    # The legend is drawn BEFORE the border and reports how far right it actually
+    # reached, so the border can contain it. Sized the other way round, four
+    # legend rows overran the panel and one escaped the sheet entirely.
+    lg_x1 = draw_dxf_legend_column(
+        msp, properties, setback_status, utm_cx, utm_cy,
+        lg_x0, lg_w, b_max_y, b_min_y, char_h, dim_char_h, scale,
+        data_rows=data_rows,
+    )
+    b_max_x = max(lg_x0 + lg_w, lg_x1) + scale * 0.06
 
     msp.add_lwpolyline(
         [(b_min_x, b_min_y), (b_max_x, b_min_y), (b_max_x, b_max_y), (b_min_x, b_max_y)],
         dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
-
-    draw_dxf_legend_column(
-        msp, properties, setback_status, utm_cx, utm_cy,
-        lg_x0, lg_w, b_max_y, b_min_y, char_h, dim_char_h, scale,
-    )
 
     # Set Header Extents & Active Modelspace Viewport Zoom Framing for AutoCAD 2024
     doc.header['$EXTMIN'] = (b_min_x, b_min_y, 0)

@@ -867,3 +867,290 @@ def test_satellite_survives_corrupt_tile_bytes():
 def test_renderers_accept_a_multi_ring_plot():
     two = [*MERC_SQUARE, [[10.0, 10.0], [20.0, 10.0], [20.0, 20.0], [10.0, 20.0]]]
     assert dp.render_dp_map(None, two, (0, 0, 100, 100), (300, 300), DP_LABELS)
+
+
+# --------------------------------------------------------------------------
+# Text metrics, and the sheet faults that only AutoCAD revealed
+#
+# WORLI 733 and AMBIVALI 807 both passed every geometry check while carrying 16
+# faults each: legend rows outside their panel, the UTM tie-in lying across a
+# dimension, two grid labels stacked at the sheet corner. Whether text collides
+# depends on the rendered width of a glyph, so none of it was reachable without
+# measuring the text.
+# --------------------------------------------------------------------------
+
+def _dxf_texts(msp):
+    """(entity, measured box) for every TEXT that can be measured."""
+    return [(e, dp.text_extents(e)) for e in msp.query("TEXT")
+            if dp.text_extents(e) is not None]
+
+
+def _title_block_rects(msp):
+    rects = []
+    for e in msp.query("LWPOLYLINE[layer=='C-TITLE-BLOCK']"):
+        pts = e.get_points("xy")
+        if len(pts) == 4:
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            rects.append((min(xs), min(ys), max(xs), max(ys)))
+    rects.sort(key=lambda r: (r[2] - r[0]) * (r[3] - r[1]), reverse=True)
+    return rects
+
+
+def test_text_extents_measures_width_and_respects_rotation():
+    ezdxf = pytest.importorskip("ezdxf")
+    doc = ezdxf.new("R2010")
+    msp = doc.modelspace()
+    flat = msp.add_text("MMMMMMMMMM", dxfattribs={"height": 2.0})
+    flat.set_placement((0.0, 0.0))
+    box = dp.text_extents(flat)
+    assert box is not None
+    assert box[2] - box[0] > 4.0, "ten characters cannot be narrower than two heights"
+    assert box[3] - box[1] == pytest.approx(2.0, abs=0.6)
+
+    turned = msp.add_text("MMMMMMMMMM", dxfattribs={"height": 2.0, "rotation": 90.0})
+    turned.set_placement((0.0, 0.0))
+    tbox = dp.text_extents(turned)
+    # Rotated ninety degrees, the long axis has to become the vertical one.
+    assert tbox[3] - tbox[1] > tbox[2] - tbox[0]
+
+
+def test_boxes_overlap_and_unmeasurable_text_never_collides():
+    assert dp.boxes_overlap((0, 0, 2, 2), (1, 1, 3, 3))
+    assert not dp.boxes_overlap((0, 0, 2, 2), (2.5, 0, 4, 2))
+    assert not dp.boxes_overlap(None, (0, 0, 1, 1))
+    assert not dp.boxes_overlap((0, 0, 1, 1), None)
+
+
+def test_nudge_text_clear_moves_a_label_out_of_the_way():
+    ezdxf = pytest.importorskip("ezdxf")
+    doc = ezdxf.new("R2010")
+    msp = doc.modelspace()
+    label = msp.add_text("CTS 733A", dxfattribs={"height": 1.0})
+    label.set_placement((0.0, 0.0))
+    obstacle = dp.text_extents(label)
+    start_y = float(label.dxf.insert[1])
+
+    assert dp.nudge_text_clear(label, [obstacle], step=1.5, limit=10)
+    assert float(label.dxf.insert[1]) > start_y
+    assert not dp.boxes_overlap(dp.text_extents(label), obstacle)
+
+
+def test_nudge_text_clear_reports_failure_rather_than_looping():
+    ezdxf = pytest.importorskip("ezdxf")
+    doc = ezdxf.new("R2010")
+    msp = doc.modelspace()
+    label = msp.add_text("X", dxfattribs={"height": 1.0})
+    label.set_placement((0.0, 0.0))
+    # An obstacle taller than the nudge budget can never be escaped.
+    assert not dp.nudge_text_clear(label, [(-50, -50, 50, 50)], step=0.1, limit=3)
+
+
+def test_legend_height_accounts_for_the_plot_data_rows():
+    """Regression: the height was `lg_row * (n_legend + 9.5)`, which counted none
+    of the PLOT DATA rows, so the panel border cut across the last three."""
+    lg_row = 3.5
+    tall = dp.legend_column_height(lg_row, 12, 10)
+    assert tall > lg_row * (12 + 9.5), "must exceed the old under-count"
+    # Adding a data row must make the panel taller by exactly that row.
+    assert dp.legend_column_height(lg_row, 12, 11) - tall == pytest.approx(lg_row)
+
+
+def test_long_road_name_wraps_instead_of_escaping_the_panel():
+    """AMBIVALI 807's frontage overran the panel by 19.8 m as a single row."""
+    rows = dp.legend_data_row(
+        "ABUTTING ROAD",
+        "Jay Prakash Road Part II Dadabhai Road to Versova Metro. (27.4 M.)")
+    assert len(rows) > 1, "a 65-character value has to wrap"
+    assert all(len(r) <= 16 + 2 + dp.LEGEND_VALUE_MAX_CHARS for r in rows)
+    assert rows[0].startswith("ABUTTING ROAD   : ")
+    # Continuation lines are indented under the value, not under the label.
+    assert rows[1].startswith(" " * 16)
+    assert "Versova" in " ".join(rows), "wrapping must not drop words"
+
+
+def test_plot_data_prints_both_areas_and_names_the_gap():
+    """AMBIVALI 807: MCGM's record says 2019.00 but its own polygon measures
+    2142.25. Printing one figure invites an FSI calculation off an unreconciled
+    number."""
+    props = dict(PROPS, area_sqm=2019.0, area_source="approved (MCGM AREA_APP_SQ_MTRS)")
+    rows = dp.legend_data_rows(props, {3.0: True, 6.0: True}, measured_area_sqm=2142.25)
+    joined = " ".join(rows)
+    assert "2019.0" in joined
+    assert "2142.25" in joined
+    assert "+6.10%" in joined, f"the gap must be stated, got: {joined}"
+
+
+def test_plot_data_omits_the_delta_when_the_area_is_derived():
+    """A derived area IS the boundary measurement; a delta against itself is noise."""
+    props = dict(PROPS, area_source="derived from boundary")
+    rows = dp.legend_data_rows(props, {3.0: True}, measured_area_sqm=462.28)
+    assert "% vs record" not in " ".join(rows)
+
+
+def test_dxf_keeps_every_label_inside_the_sheet_border(tmp_path):
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    props = dict(PROPS, crz_buffer_flag="YES (CRZ II)", metro_buffer_flag="YES",
+                 abutting_road="Jay Prakash Road Part II Dadabhai Road to Versova Metro.",
+                 road_width="27.4 M.")
+    roads = [[[72.8195, 18.9698], [72.8220, 18.9698]]]
+    neighbours = [{"cts_no": "948", "rings": [[[72.8210, 18.9700], [72.8219, 18.9700],
+                                               [72.8219, 18.9709], [72.8210, 18.9700]]]}]
+    dp.export_dxf(RING, props, str(out), neighbors=neighbours, roads=roads)
+
+    msp = ezdxf.readfile(str(out)).modelspace()
+    rects = _title_block_rects(msp)
+    assert rects, "the sheet border is missing"
+    sheet = rects[0]
+    for entity, box in _dxf_texts(msp):
+        assert box[0] >= sheet[0] - 0.01 and box[2] <= sheet[2] + 0.01, \
+            f"{entity.dxf.text!r} escapes the border horizontally"
+        assert box[1] >= sheet[1] - 0.01 and box[3] <= sheet[3] + 0.01, \
+            f"{entity.dxf.text!r} escapes the border vertically"
+
+
+def test_dxf_legend_rows_stay_inside_their_panel(tmp_path):
+    """Regression: four rows overran the panel edge and three fell below it."""
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    props = dict(PROPS, abutting_road="KHAN ABDUL GAFFAR KHAN MARG", road_width="N/A")
+    dp.export_dxf(RING, props, str(out), neighbors=[])
+
+    msp = ezdxf.readfile(str(out)).modelspace()
+    rects = _title_block_rects(msp)
+    panels = rects[1:]
+    assert panels, "the legend panel is missing"
+    for entity, box in _dxf_texts(msp):
+        for panel in panels:
+            if panel[0] - 0.01 <= box[0] <= panel[2] + 0.01 and box[1] <= panel[3]:
+                assert box[2] <= panel[2] + 0.01, \
+                    f"{entity.dxf.text!r} overruns the panel by {box[2] - panel[2]:.2f}"
+                assert box[1] >= panel[1] - 0.01, \
+                    f"{entity.dxf.text!r} falls {panel[1] - box[1]:.2f} below the panel"
+                break
+
+
+def test_dxf_drawing_labels_do_not_collide(tmp_path):
+    """The three WORLI 733 / AMBIVALI 807 collisions, in one drawing: stacked grid
+    corner labels, a neighbour label on a dimension, and two dimensions on each
+    other."""
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    # A ring with two deliberately short adjacent edges, which is what put
+    # AMBIVALI 807's '6.20m' and '3.47m' on top of one another.
+    ring = [[[72.8200, 18.9700], [72.8210, 18.9700], [72.8210, 18.9706],
+             [72.82093, 18.97064], [72.82086, 18.97067], [72.8200, 18.9710],
+             [72.8200, 18.9700]]]
+    props = dict(PROPS, crz_buffer_flag="YES (CRZ II)", metro_buffer_flag="YES")
+    neighbours = [{"cts_no": "733A", "rings": [[[72.8210, 18.9701], [72.8214, 18.9701],
+                                                [72.8214, 18.9705], [72.8210, 18.9701]]]}]
+    dp.export_dxf(ring, props, str(out), neighbors=neighbours)
+
+    msp = ezdxf.readfile(str(out)).modelspace()
+    panels = _title_block_rects(msp)[1:]
+
+    def in_panel(box):
+        return any(p[0] - 0.01 <= box[0] <= p[2] + 0.01 for p in panels)
+
+    drawing = [(e, b) for e, b in _dxf_texts(msp) if not in_panel(b)]
+    for i, (e1, b1) in enumerate(drawing):
+        for e2, b2 in drawing[i + 1:]:
+            assert not dp.boxes_overlap(b1, b2), \
+                f"{e1.dxf.text!r} [{e1.dxf.layer}] overlaps {e2.dxf.text!r} [{e2.dxf.layer}]"
+
+
+def test_dxf_grid_does_not_label_the_corner_twice(tmp_path):
+    """The X label row and the Y label column both emitted a label at the
+    bottom-left corner, at identical coordinates."""
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    dp.export_dxf(RING, PROPS, str(out), neighbors=[])
+    msp = ezdxf.readfile(str(out)).modelspace()
+    points = [(round(e.dxf.insert[0], 4), round(e.dxf.insert[1], 4))
+              for e in msp.query("TEXT[layer=='0_GRID_AXIS']")]
+    assert len(points) == len(set(points)), "two grid labels share an insertion point"
+
+
+def test_dxf_layers_carry_lineweights_so_the_sheet_plots_with_hierarchy(tmp_path):
+    """Every layer defaulted to -3, so a plotted sheet rendered the metric grid at
+    the same weight as the plot boundary."""
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    dp.export_dxf(RING, PROPS, str(out), neighbors=[])
+    doc = ezdxf.readfile(str(out))
+    weights = {lay.dxf.name: lay.dxf.lineweight for lay in doc.layers
+               if lay.dxf.name not in ("0", "Defpoints")}
+    assert weights and all(w > 0 for w in weights.values()), \
+        f"layers still on the default weight: {[k for k, v in weights.items() if v <= 0]}"
+    assert weights["C-PLOT-BDY"] > weights["0_GRID_AXIS"], \
+        "the plot boundary must plot heavier than the reference grid"
+
+
+def test_dxf_plot_fill_is_transparent_so_an_underlay_shows_through(tmp_path):
+    """An opaque solid fill hid survey underlays and satellite images - most of
+    what an architect puts under this drawing."""
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    dp.export_dxf(RING, PROPS, str(out), neighbors=[])
+    hatches = list(ezdxf.readfile(str(out)).modelspace().query("HATCH"))
+    assert hatches, "the plot fill is missing"
+    for hatch in hatches:
+        assert hatch.transparency > 0.0
+
+
+def test_dxf_annotation_is_readable_on_a_very_small_plot(tmp_path):
+    """BANDRA-A 409 is 7.6 x 16.4 m. The UTM tie-in string used to render roughly
+    six times the plot width across it."""
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    # ~8 x 16 m
+    ring = [[[72.8200, 18.9700], [72.820076, 18.9700],
+             [72.820076, 18.970144], [72.8200, 18.970144], [72.8200, 18.9700]]]
+    dp.export_dxf(ring, dict(PROPS, area_sqm=125.0), str(out), neighbors=[])
+
+    msp = ezdxf.readfile(str(out)).modelspace()
+    panels = _title_block_rects(msp)[1:]
+    bdy = next(iter(msp.query("LWPOLYLINE[layer=='C-PLOT-BDY']")))
+    xs = [p[0] for p in bdy.get_points("xy")]
+    plot_w = max(xs) - min(xs)
+
+    for entity, box in _dxf_texts(msp):
+        if any(p[0] - 0.01 <= box[0] <= p[2] + 0.01 for p in panels):
+            continue
+        assert (box[2] - box[0]) < plot_w * 2.5, (
+            f"{entity.dxf.text!r} is {(box[2] - box[0]) / plot_w:.1f}x the plot width")
+
+
+def test_metro_buffer_restriction_is_actually_drawn(tmp_path):
+    """Regression: the lookup sets this flag to 'YES (Metro Buffer Zone)' but the
+    DXF tested `== "YES"`, so the metro restriction was silently missing from every
+    drawing. AMBIVALI 807 is in a metro buffer and its DXF said nothing."""
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    props = dict(PROPS, crz_buffer_flag="NO (Outside CRZ Buffer)",
+                 metro_buffer_flag="YES (Metro Buffer Zone)")
+    dp.export_dxf(RING, props, str(out), neighbors=[])
+
+    msp = ezdxf.readfile(str(out)).modelspace()
+    circles = list(msp.query("CIRCLE[layer=='C-RESTRICT-ZONE']"))
+    assert circles, "no metro influence circle drawn"
+    notes = [e.dxf.text for e in msp.query("TEXT[layer=='C-RESTRICT-ZONE']")]
+    assert any("METRO" in n for n in notes), f"no metro note drawn, got {notes}"
+
+
+def test_restriction_layer_carries_geometry_not_just_a_legend_swatch(tmp_path):
+    """`C-RESTRICT-ZONE` counted as non-empty purely because the legend draws a
+    sample line on it, which hid the metro bug from the empty-layer test."""
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    props = dict(PROPS, crz_buffer_flag="YES (CRZ II)",
+                 metro_buffer_flag="YES (Metro Buffer Zone)")
+    dp.export_dxf(RING, props, str(out), neighbors=[])
+
+    msp = ezdxf.readfile(str(out)).modelspace()
+    # The legend swatch is a single short LINE inside the panel. Real content is
+    # the notes and the influence circle.
+    real = [e for e in msp if e.dxf.layer == "C-RESTRICT-ZONE"
+            and e.dxftype() in ("TEXT", "CIRCLE")]
+    assert len(real) >= 2, "restriction layer carries only its legend swatch"

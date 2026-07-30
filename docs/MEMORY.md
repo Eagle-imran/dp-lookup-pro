@@ -10,7 +10,7 @@
 * **Repository**: [https://github.com/Eagle-imran/dp-lookup-pro](https://github.com/Eagle-imran/dp-lookup-pro)
 * **Local Workspace Path**: `/Users/imranpatel/Developer/dp-lookup-pro-IP`
 * **Primary Executable**: `uv run python dp-lookup-pro` (or `dp-lookup-pro` after `uv pip install -e .`)
-* **Current Version**: 3.11.0 — merged to `main` 2026-07-30
+* **Current Version**: 3.12.0 — 2026-07-30
 * **Skill Metadata File**: `SKILL.md`
 * **Purpose**: Automated Real Estate Spatial Querying, GIS CAD Exporter & DP Remark Docket Generator for Mumbai Land Parcels under MCGM Development Plan (SDP) 2014-34.
 
@@ -124,6 +124,39 @@
 ### 12. 📖 Readable Output & Village Help (2026-07-28, v3.9.0)
 * CLI prints a plain summary instead of 60 lines of JSON (`--json` for raw, now clean on stdout). An LLM became optional rather than a workaround.
 * `--list-villages` plus did-you-mean suggestions. `BANDRA` is not a valid village — the 128 names ship locally, so suggestions cost no network call.
+
+### 13. 📏 DXF Text Must Be Measured, Not Positioned (2026-07-30, v3.12.0)
+
+The DXF was opened in AutoCAD for the first time. Every geometry check had been
+passing; WORLI 733 and AMBIVALI 807 each carried **16 faults**.
+
+> 🤖 **RULE FOR AGENTS**: never size a frame or place a label from a row count or a
+> character count. Whether text overruns a frame or collides with another label
+> depends on the **rendered width of a glyph**. Use `text_extents()` (ezdxf font
+> engine, rotation-aware), `boxes_overlap()` and `nudge_text_clear()`. Draw panel
+> frames **last**, sized from measured contents. Verify with
+> `uv run python tools/audit_dxf.py <file.dxf>` — it exits non-zero on any fault.
+
+* **Panel height was a magic constant** — `lg_row * (n_legend + 9.5)` never counted the PLOT DATA rows, so 3 rows fell outside the border on every drawing ever generated. A duplicate row count lived in a second function and could drift.
+* **The sheet-border extent scan never read `TEXT`** — only `LWPOLYLINE`/`LINE`/`CIRCLE`. Labels were invisible to the code sizing the border meant to contain them.
+* **Metro buffer restriction was never drawn, on any plot, ever** — the lookup sets `metro_buffer_flag` to `"YES (Metro Buffer Zone)"` while `export_dxf` tested `== "YES"`. Same failure mode as the CRZ false negative: exact match against data carrying a qualifier. It hid behind the empty-layer test because the legend draws a sample line *on* `C-RESTRICT-ZONE`, so the layer counted as populated on its own swatch.
+* Long values wrap rather than widen the panel — AMBIVALI 807's frontage name is 56 characters and overran the panel by 19.83 m. Long in-drawing notes became short markers; spelled out, the setback notice ran 3.8× the width of an 8 m plot.
+* Explicit lineweights per layer, so the boundary no longer plots at the same weight as the grid. Plot fill is 65% transparent so a survey or satellite underlay shows through.
+
+### ⚠️ Plot area: three sources, three answers
+
+`GROSS PLOT AREA` is MCGM's `AREA_APP_SQ_MTRS`. It is **not** guaranteed to match
+MCGM's own digitised polygon, and neither matches the Property Card:
+
+| Plot | MCGM record | Drawn boundary | Gap |
+| :--- | ---: | ---: | ---: |
+| WORLI 733 | 1317.74 m² | 1321.74 m² | +0.30% |
+| AMBIVALI 807 | 2019.00 m² | **2142.25 m²** | **+6.10%** (123 m²) |
+
+Owner measured 5–7% against the Property Card on WORLI 733. The sheet now prints
+both figures it can see with the delta, and states that the Property Card may
+differ and must be reconciled before any FSI calculation. **Never present a single
+plot area as authoritative.**
 
 ---
 

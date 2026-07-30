@@ -4,6 +4,104 @@ All notable changes to this project. Newest first.
 
 > **If something breaks after an update, see [ROLLBACK.md](ROLLBACK.md).**
 
+## [3.12.0] — 2026-07-30
+
+The DXF was opened in AutoCAD for the first time. Every geometry check had been
+passing; the drawing carried **16 faults per sheet** anyway.
+
+### 🔴 Why none of this was caught before
+
+Whether a label overruns a frame or lands on another label depends on the
+**rendered width of a glyph**, not on where its insertion point sits. Nothing in
+the codebase had ever measured text. Two root causes:
+
+* The legend panel height was `lg_row * (n_legend + 9.5)` — a magic constant that
+  **never counted the PLOT DATA rows at all**. Three rows fell outside the panel
+  border on every drawing ever generated. A second copy of the row count
+  (`_legend_rows_n = 12`) lived in a different function and could drift freely.
+* The sheet-border extent scan read `LWPOLYLINE`, `LINE` and `CIRCLE` — **never
+  `TEXT`**. Labels were invisible to the code sizing the border meant to contain
+  them.
+
+### ✅ Added — text measurement
+
+`text_extents()` measures a `TEXT` entity through ezdxf's font engine, applying
+rotation to the corners so rotated dimensions measure correctly.
+`boxes_overlap()` and `nudge_text_clear()` build on it. Panel frames are now
+drawn **last** and sized from their measured contents; `legend_column_height()`
+derives the height from the row lists themselves.
+
+`tools/audit_dxf.py` runs the whole check and exits non-zero on any fault.
+
+### 🔴 Fixed
+
+| Fault | Detail |
+| :--- | :--- |
+| Panel border cut across PLOT DATA | 3 rows outside the frame, worst 10.21 m below |
+| Legend rows overran the panel | 4 rows on WORLI 733; **19.83 m** on AMBIVALI 807 |
+| A row escaped the sheet border | +0.35 m (WORLI), **+16.66 m** (AMBIVALI) |
+| UTM tie-in lay across dimensions | removed — it was already in the title block verbatim, and was the widest annotation on every sheet |
+| Two grid labels stacked at the corner | X-row and Y-column both labelled the origin corner |
+| Neighbour label on a dimension | `CTS 733A` over `10.23m` |
+| Two dimensions on each other | `6.20m` over `3.47m` on short adjacent edges |
+| CRZ note over a neighbour label | notes now clear everything already placed |
+| Opaque plot fill | hid survey underlays and satellite images; now 65% transparent |
+| No plot hierarchy | all 12 layers were on default lineweight, so the grid plotted as heavy as the boundary |
+| Legend overpromised a CRZ polygon | `C-RESTRICT-ZONE` carries advisory text only — CRZ comes from a point identify, not a polygon |
+
+### 🔴 Metro buffer restriction was never drawn — on any plot, ever
+
+Found while checking why `C-RESTRICT-ZONE` held only its legend swatch on
+AMBIVALI 807, a plot that **is** in a Metro Buffer Zone.
+
+The lookup sets the flag to `"YES (Metro Buffer Zone)"`. `export_dxf` tested
+`== "YES"`. That comparison has never once been true, so the metro influence
+circle and its note were silently absent from every DXF this tool has produced.
+
+This is the same failure mode as the CRZ false negative fixed in 3.7 — an exact
+string match where the data carries a qualifier. The CRZ check already used
+`.upper().startswith("YES")`; both now share that shape.
+
+It survived the empty-layer test because the legend draws a sample line *on*
+`C-RESTRICT-ZONE`, so the layer counted as populated on the strength of its own
+swatch. There is now a test that requires real geometry, not a swatch.
+
+### 🟠 Two areas are now printed, and the gap is named
+
+MCGM's approved record, MCGM's **own** digitised polygon, and the Property Card
+are three independent sources that do not agree:
+
+| Plot | MCGM record | Drawn boundary | Gap |
+| :--- | ---: | ---: | ---: |
+| WORLI 733 | 1317.74 m² | 1321.74 m² | +0.30% |
+| AMBIVALI 807 | 2019.00 m² | **2142.25 m²** | **+6.10%** (123 m²) |
+
+The sheet printed one figure and labelled it `MCGM approved record`, so an
+architect measuring the polyline got a number that appeared nowhere on the
+drawing. PLOT DATA now carries `MEASURED (BDY)` with the percentage delta, and the
+title block states that the Property Card may differ and must be reconciled
+before any FSI calculation. The owner measured 5–7% against the Property Card on
+WORLI 733.
+
+### 🟢 Small plots
+
+Long strings were shortened to markers where the panel already carries the full
+wording — the setback-not-viable notice ran **3.8×** the width of an 8 m plot, and
+the CRZ notice 3.3×. Long road names wrap in the panel instead of widening it
+(AMBIVALI 807's frontage is 56 characters).
+
+### 🧪 Tests: 115 → 130
+
+Covers text measurement and rotation, the nudge loop including its failure case,
+the legend height regression, road-name wrapping, dual-area disclosure, and
+generated-drawing assertions for border containment, panel containment, zero
+collisions, unique grid labels, lineweights, fill transparency, and annotation
+scale on an 8 × 16 m plot.
+
+**Verified:** WORLI 733 and AMBIVALI 807 both go 16 faults → 0.
+
+---
+
 ## [3.11.0] — 2026-07-30
 
 ### 📁 Repository Folder Structure & Documentation Hierarchy Cleanup

@@ -11,7 +11,7 @@ The rest of this README is the technical reference for developers.
 > ⚖️ **Proprietary software** — © 2026 Imran Patel. All rights reserved. Not open-source.
 > Free for personal evaluation; commercial use requires a licence. See [LICENSE](LICENSE).
 
-**v3.10.0** · [What changed](docs/CHANGELOG.md) · [Reading the DXF](docs/DXF-GUIDE.md) · [How to roll back](docs/ROLLBACK.md) · [System flow map](docs/APP_FLOW.html)
+**v3.12.0** · [What changed](docs/CHANGELOG.md) · [Reading the DXF](docs/DXF-GUIDE.md) · [How to roll back](docs/ROLLBACK.md) · [System flow map](docs/APP_FLOW.html)
 
 ---
 
