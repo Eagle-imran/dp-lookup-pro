@@ -10,9 +10,37 @@
 * **Repository**: [https://github.com/Eagle-imran/dp-lookup-pro](https://github.com/Eagle-imran/dp-lookup-pro)
 * **Local Workspace Path**: `/Users/imranpatel/Developer/dp-lookup-pro-IP`
 * **Primary Executable**: `uv run python dp-lookup-pro` (or `dp-lookup-pro` after `uv pip install -e .`)
-* **Current Version**: 3.10.0 — merged to `main` 2026-07-29 (`9bc0f2e`)
+* **Current Version**: 3.11.0 — merged to `main` 2026-07-30
 * **Skill Metadata File**: `SKILL.md`
 * **Purpose**: Automated Real Estate Spatial Querying, GIS CAD Exporter & DP Remark Docket Generator for Mumbai Land Parcels under MCGM Development Plan (SDP) 2014-34.
+
+---
+
+## 📁 Repository Folder Structure & Agent Guidance (v3.11.0)
+
+> 🤖 **NOTE FOR AI AGENTS & DEVELOPERS**:
+> The repository layout was reorganized in v3.11.0 to declutter the root directory and reduce context window overhead.
+>
+> ### **Root Directory Policy**:
+> Keep the root directory minimal. Only user-facing entry points and primary configurations live in the root:
+> - `README.md`: Primary developer reference & overview.
+> - `START-HERE.md`: Plain-English 5-minute setup guide for end users & non-technical clients.
+> - `SKILL.md`: Antigravity / Claude Code agent skill definition.
+> - `LICENSE`: Proprietary license terms.
+> - `pyproject.toml`: Build & dependency configuration.
+> - `cts_dp_lookup_pro.py`: Core application script & CLI entry point.
+>
+> ### **Documentation Hierarchy (`docs/`)**:
+> All technical reference specifications, architectural diagrams, guides, and version tracking live inside `docs/`:
+> - `docs/DXF-GUIDE.md`: Architect reference guide for DXF CAD layers, linetypes, and setback math.
+> - `docs/CHANGELOG.md`: Detailed release history & bug fix records.
+> - `docs/FEATURES_PLANNED.md`: Product roadmap & planned feasibility calculator specs.
+> - `docs/ROLLBACK.md`: Operational recovery & rollback instructions.
+> - `docs/MEMORY.md`: (This file) Architectural decision records, benchmarks, and agent sitemap.
+> - `docs/APP_FLOW.html`: Self-contained interactive visual flow map.
+> - `docs/APP_FLOW.json`: Machine-readable flow graph dataset.
+>
+> **Rule for new documentation**: When creating new architectural guides, specs, or reference documents, place them inside `docs/` and update relative markdown links accordingly. Do not add raw `.md` files directly to the root directory.
 
 ---
 

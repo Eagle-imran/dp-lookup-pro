@@ -33,7 +33,7 @@ One request creates a folder containing **six files**:
 | File | Who it's for | What you do with it |
 | :--- | :--- | :--- |
 | 📄 **PDF Report** | Your client | 2-page DP remark docket — email it, print it, attach it to a proposal |
-| 📐 **AutoCAD `.dxf`** | Your architect | Opens in AutoCAD to scale, with the road, setback lines, neighbouring plots and a layer legend. Send them [DXF-GUIDE.md](DXF-GUIDE.md) with it. |
+| 📐 **AutoCAD `.dxf`** | Your architect | Opens in AutoCAD to scale, with the road, setback lines, neighbouring plots and a layer legend. Send them [docs/DXF-GUIDE.md](docs/DXF-GUIDE.md) with it. |
 | 🗺️ **HD Zoning Map** | You | Zone, reservations and road widths at a glance |
 | 📸 **Satellite View** | You | What's actually built on the ground today |
 | 🌍 **Google Earth `.kml`** | Site visits | Double-click → flies you to the plot in 3D |
@@ -260,8 +260,8 @@ before making any legal, financial or development decision.
 
 Proprietary software. © 2026 Imran Patel. All rights reserved.
 
-*Version 3.10.0 — see [CHANGELOG.md](CHANGELOG.md). If an update ever breaks
-something, [ROLLBACK.md](ROLLBACK.md) explains how to go back.*
+*Version 3.10.0 — see [docs/CHANGELOG.md](docs/CHANGELOG.md). If an update ever breaks
+something, [docs/ROLLBACK.md](docs/ROLLBACK.md) explains how to go back.*
 
 Free for personal evaluation and testing. Commercial use, redistribution and
 modification are not permitted without written permission — see [LICENSE](LICENSE).

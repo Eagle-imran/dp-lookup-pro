@@ -4,6 +4,16 @@ All notable changes to this project. Newest first.
 
 > **If something breaks after an update, see [ROLLBACK.md](ROLLBACK.md).**
 
+## [3.11.0] — 2026-07-30
+
+### 📁 Repository Folder Structure & Documentation Hierarchy Cleanup
+
+Reorganized project layout to declutter the root directory and streamline navigation for developers and AI agents.
+
+* **Root Directory Minimization**: Kept root clean with only core entry files (`README.md`, `START-HERE.md`, `SKILL.md`, `LICENSE`, `pyproject.toml`, `cts_dp_lookup_pro.py`).
+* **Documentation Hierarchy (`docs/`)**: Moved all technical reference specs, architectural guides, version logs, and flow maps into `docs/` (`DXF-GUIDE.md`, `CHANGELOG.md`, `FEATURES_PLANNED.md`, `ROLLBACK.md`, `MEMORY.md`, `APP_FLOW.html`, `APP_FLOW.json`).
+* **Agent Guidance**: Updated `docs/MEMORY.md` with explicit repository layout rules and documentation policies for future AI coding agents.
+
 ---
 
 ## [3.10.1] — 2026-07-29

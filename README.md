@@ -11,7 +11,7 @@ The rest of this README is the technical reference for developers.
 > ⚖️ **Proprietary software** — © 2026 Imran Patel. All rights reserved. Not open-source.
 > Free for personal evaluation; commercial use requires a licence. See [LICENSE](LICENSE).
 
-**v3.10.0** · [What changed](CHANGELOG.md) · [Reading the DXF](DXF-GUIDE.md) · [How to roll back](ROLLBACK.md) · [System flow map](APP_FLOW.html)
+**v3.10.0** · [What changed](docs/CHANGELOG.md) · [Reading the DXF](docs/DXF-GUIDE.md) · [How to roll back](docs/ROLLBACK.md) · [System flow map](docs/APP_FLOW.html)
 
 ---
 
@@ -93,7 +93,7 @@ Run the command by passing the **Village Name** and **CTS Number**:
 ```bash
 uv run python dp-lookup-pro WORLI 748A
 ```
-*(The answer appears in about a second; the PDF, maps and CAD files finish a few seconds later. A cached lookup is instant. See [CHANGELOG.md](CHANGELOG.md).)*
+*(The answer appears in about a second; the PDF, maps and CAD files finish a few seconds later. A cached lookup is instant. See [docs/CHANGELOG.md](docs/CHANGELOG.md).)*
 
 ### Step 5: Inspect the Generated Output Bundle
 Navigate to the newly created subfolder `./output/worli_cts_748A/` to access all generated assets:
