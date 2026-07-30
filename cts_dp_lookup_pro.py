@@ -497,6 +497,27 @@ def clip_path_to_window(path: list, x_lo: float, y_lo: float,
     return runs
 
 
+def fit_label_to_width(template: str, value: str, max_width: float, char_h: float,
+                       min_value_chars: int = 8) -> str:
+    """
+    `template.format(value)`, with `value` truncated so the result fits `max_width`.
+
+    In-drawing annotation is budgeted against the plot it annotates rather than a
+    fixed character count. BANDRA-A 409 is 7.6 m wide, where even a 24-character
+    road name rendered three times the plot width. Never truncates below
+    `min_value_chars`, because a label shortened to nothing identifies nothing -
+    the full value is in the PLOT DATA panel either way.
+    """
+    # Mean glyph advance for the default CAD font at a given cap height. Close
+    # enough to budget with; text_extents() measures the result exactly.
+    per_char = max(char_h, 1e-6) * 0.72
+    budget = int(max_width / per_char) - len(template.format(""))
+    if budget >= len(value):
+        return template.format(value)
+    keep = max(min_value_chars, budget - 3)
+    return template.format(value[:keep].rstrip(" ,.") + "...")
+
+
 def text_extents(entity) -> Optional[tuple]:
     """
     (x0, y0, x1, y1) of a TEXT entity as it will actually render.
@@ -522,16 +543,34 @@ def text_extents(entity) -> Optional[tuple]:
             w = len(entity.dxf.text) * h * 0.72
         except Exception:
             return None
+    # Anchor point. Aligned text (anything other than left/baseline) stores its
+    # anchor in align_point, and the box grows around that anchor rather than right
+    # and up from it. Reading `insert` unconditionally reported the centred
+    # `CTS <n>` label half a width to the right and half a height too high.
+    halign = int(getattr(entity.dxf, "halign", 0) or 0)
+    valign = int(getattr(entity.dxf, "valign", 0) or 0)
     try:
-        x, y = float(entity.dxf.insert[0]), float(entity.dxf.insert[1])
+        if (halign or valign) and entity.dxf.hasattr("align_point"):
+            anchor = entity.dxf.align_point
+        else:
+            anchor = entity.dxf.insert
+        x, y = float(anchor[0]), float(anchor[1])
     except Exception:
         return None
+
+    # Box offset from the anchor, per alignment.
+    # halign: 0 LEFT, 1 CENTER, 2 RIGHT, 3 ALIGNED, 4 MIDDLE, 5 FIT
+    # valign: 0 BASELINE, 1 BOTTOM, 2 MIDDLE, 3 TOP
+    ox = -w * {1: 0.5, 2: 1.0, 4: 0.5}.get(halign, 0.0)
+    oy = -h * (0.5 if halign == 4 else {2: 0.5, 3: 1.0}.get(valign, 0.0))
+
     rot = math.radians(float(getattr(entity.dxf, "rotation", 0.0) or 0.0))
     if not rot:
-        return (x, y, x + w, y + h)
+        return (x + ox, y + oy, x + ox + w, y + oy + h)
+    # Rotation is about the anchor, so the alignment offset rotates with the box.
     cos_r, sin_r = math.cos(rot), math.sin(rot)
     pts = [(x + dx * cos_r - dy * sin_r, y + dx * sin_r + dy * cos_r)
-           for dx, dy in ((0.0, 0.0), (w, 0.0), (w, h), (0.0, h))]
+           for dx, dy in ((ox, oy), (ox + w, oy), (ox + w, oy + h), (ox, oy + h))]
     xs = [p[0] for p in pts]
     ys = [p[1] for p in pts]
     return (min(xs), min(ys), max(xs), max(ys))
@@ -887,6 +926,22 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
         except Exception:
             pass
 
+    # Every label placed from here on is registered in `placed_boxes`, and each new
+    # one clears everything already in it. The order matters: whatever is placed
+    # first wins its position, so the list runs from most to least load-bearing.
+    placed_boxes = []
+
+    # 3b. The plot identifier, placed before the annotation that must avoid it.
+    # Left until last it was never checked against anything, so a boundary
+    # dimension could land on it ('12.00m' over 'CTS 1862').
+    cts_label = msp.add_text(
+        f"CTS {properties.get('cts_no')}",
+        dxfattribs={'layer': 'C-ANNO-TEXT', 'height': char_h})
+    cts_label.set_placement((cx, cy), align=TextEntityAlignment.MIDDLE_CENTER)
+    cts_box = text_extents(cts_label)
+    if cts_box:
+        placed_boxes.append(cts_box)
+
     # 4. C-SETBACK-3M & C-SETBACK-6M: true parallel setback lines.
     #
     # Each is a genuine perpendicular offset from every boundary edge (miter
@@ -905,18 +960,34 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
             # A marker, not a sentence. The full wording lives in the PLOT DATA
             # panel; spelled out here it ran 3.8x the width of an 8 m plot, which
             # is exactly the size of plot that triggers this message.
-            msp.add_text(
+            marker = msp.add_text(
                 f"{spec_dist:.1f}m SETBACK N/A",
-                dxfattribs={'layer': spec_layer, 'height': dim_char_h}
-            ).set_placement((min_x, min_y - dim_char_h * (2.5 if spec_dist == 3.0 else 4.0)))
+                dxfattribs={'layer': spec_layer, 'height': dim_char_h})
+            marker.set_placement((min_x, min_y - dim_char_h * (2.5 if spec_dist == 3.0 else 4.0)))
+            # Stacks below the plot alongside the road label, which is why it has
+            # to clear downward rather than up into the geometry.
+            nudge_text_clear(marker, placed_boxes, dim_char_h * 1.3,
+                             direction=(0.0, -1.0), limit=6)
+            box = text_extents(marker)
+            if box:
+                placed_boxes.append(box)
 
     # 5. C-ANNO-DIMS: Automated Boundary Side Dimension Lines in Meters
     #
-    # Two short adjacent edges put their labels close enough to overlap - AMBIVALI
-    # 807's '6.20m' and '3.47m' landed on each other. Each label is pushed further
-    # out along its own edge normal until it clears the ones already placed, so it
-    # stays associated with the edge it measures.
-    placed_boxes = []
+    # Adjacent short edges crowd their labels together. Pushing outward along the
+    # edge normal separates them when the edges turn, but on a run of near-collinear
+    # slivers the normals are nearly parallel, so the labels travel together and
+    # never separate - DADAR-NAIGAON 98 produced seven mutual collisions among
+    # labels of 1.07-1.34 m.
+    #
+    # Two rules resolve it. Longest edges are labelled first, so the dimensions an
+    # architect actually needs win their position. Any label that still cannot be
+    # placed clear is removed rather than left overlapping: an unreadable pair of
+    # numbers conveys nothing and can be misread, the edge itself is still drawn,
+    # and the length is always recoverable by measuring in CAD. This is the rule
+    # already applied to sub-metre slivers, extended to the case where crowding is
+    # established by measurement instead of assumed from a length threshold.
+    segments = []
     for loc_ring in local_rings:
         n_pts = len(loc_ring)
         for i in range(n_pts):
@@ -924,35 +995,43 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
             p2 = loc_ring[(i + 1) % n_pts]
             dx = p2[0] - p1[0]
             dy = p2[1] - p1[1]
-            seg_len = math.sqrt(dx*dx + dy*dy)
-            # Sub-metre slivers are digitisation noise and their labels overlap
-            # into an unreadable cluster; the segment itself is still drawn.
+            seg_len = math.sqrt(dx * dx + dy * dy)
+            # Sub-metre slivers are digitisation noise rather than real frontage;
+            # the segment itself is still drawn.
             if seg_len > 1.0:
-                mx = (p1[0] + p2[0]) / 2.0
-                my = (p1[1] + p2[1]) / 2.0
-                # Outward normal
-                nx = -dy / seg_len
-                ny = dx / seg_len
-                if (mx + nx - cx)**2 + (my + ny - cy)**2 < (mx - cx)**2 + (my - cy)**2:
-                    nx = -nx
-                    ny = -ny
-                tx = mx + nx * (dim_char_h * 1.8)
-                ty = my + ny * (dim_char_h * 1.8)
-                angle_deg = math.degrees(math.atan2(dy, dx))
-                if angle_deg > 90 or angle_deg < -90:
-                    angle_deg += 180
-                
-                txt_elem = msp.add_text(f"{seg_len:.2f}m", dxfattribs={
-                    'layer': 'C-ANNO-DIMS',
-                    'height': dim_char_h,
-                    'rotation': angle_deg
-                })
-                txt_elem.set_placement((tx, ty))
-                nudge_text_clear(txt_elem, placed_boxes, dim_char_h * 1.1,
-                                 direction=(nx, ny), limit=4)
-                box = text_extents(txt_elem)
-                if box:
-                    placed_boxes.append(box)
+                segments.append((seg_len, dx, dy, p1, p2))
+    segments.sort(key=lambda s: -s[0])
+
+    dims_dropped = 0
+    for seg_len, dx, dy, p1, p2 in segments:
+        mx = (p1[0] + p2[0]) / 2.0
+        my = (p1[1] + p2[1]) / 2.0
+        # Outward normal
+        nx = -dy / seg_len
+        ny = dx / seg_len
+        if (mx + nx - cx)**2 + (my + ny - cy)**2 < (mx - cx)**2 + (my - cy)**2:
+            nx = -nx
+            ny = -ny
+        tx = mx + nx * (dim_char_h * 1.8)
+        ty = my + ny * (dim_char_h * 1.8)
+        angle_deg = math.degrees(math.atan2(dy, dx))
+        if angle_deg > 90 or angle_deg < -90:
+            angle_deg += 180
+
+        txt_elem = msp.add_text(f"{seg_len:.2f}m", dxfattribs={
+            'layer': 'C-ANNO-DIMS',
+            'height': dim_char_h,
+            'rotation': angle_deg
+        })
+        txt_elem.set_placement((tx, ty))
+        if nudge_text_clear(txt_elem, placed_boxes, dim_char_h * 1.2,
+                            direction=(nx, ny), limit=10):
+            box = text_extents(txt_elem)
+            if box:
+                placed_boxes.append(box)
+        else:
+            msp.delete_entity(txt_elem)
+            dims_dropped += 1
 
     # 6. C-ADJN-PLOTS: Adjoining CTS Plot Boundaries
     if neighbors:
@@ -1002,11 +1081,14 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
         # Shortened on purpose. AMBIVALI 807's frontage name runs to 56
         # characters, which on the drawing is wider than the plot itself; the
         # full name and width are in the PLOT DATA panel.
-        road_label = str(properties.get('abutting_road') or 'N/A')
-        if len(road_label) > 24:
-            road_label = road_label[:23].rstrip(" ,.") + "..."
+        # Budgeted against the plot, not a fixed character count. BANDRA-A 409 is
+        # 7.6 m wide, where even a 24-character name rendered 3x the plot width.
+        # The full name and width are always in the PLOT DATA panel.
         road_text = msp.add_text(
-            f"ABUTTING ROAD: {road_label} ({properties.get('road_width')})",
+            fit_label_to_width(
+                "ABUTTING ROAD: {}",
+                f"{properties.get('abutting_road') or 'N/A'} ({properties.get('road_width')})",
+                max_width=max(width, height) * 1.2, char_h=dim_char_h),
             dxfattribs={'layer': 'C-ROAD-ALIGN', 'height': dim_char_h})
         road_text.set_placement((min_x, min_y - dim_char_h * 1.2))
         # Sits below the plot, so it clears downward - pushing it up would move it
@@ -1062,10 +1144,7 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
     # an architect needs clear to draw in. Rendering the DXF made that obvious
     # in a way no geometry check could. The full metadata already lives in the
     # PLOT DATA panel beside the legend, so only the identifier stays here.
-    msp.add_text(
-        f"CTS {properties.get('cts_no')}",
-        dxfattribs={'layer': 'C-ANNO-TEXT', 'height': char_h}
-    ).set_placement((cx, cy), align=TextEntityAlignment.MIDDLE_CENTER)
+    # (Drawn earlier, before the annotation that has to avoid it.)
 
     # The UTM tie-in used to be printed here as a 56-character string above the
     # plot. It was the widest annotation on every sheet (0.91x the plot width on

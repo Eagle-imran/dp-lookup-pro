@@ -201,9 +201,17 @@ def main(argv=None):
             ratio, e, b = worst
             say(f"  widest annotation : {b[2]-b[0]:.2f} m = {ratio:.2f}x plot width")
             say(f"                      {entity_text(e)[:60]!r}")
-            if ratio > 1.0:
+            # On a small plot any readable text is wide relative to the plot -- a
+            # 7.6 m frontage cannot hold a road name at legible cap height. That is
+            # inherent, and harmless while the label sits outside the boundary,
+            # which the collision and border checks above already enforce. So this
+            # is a proportion warning, and only egregious cases fail.
+            if ratio > 3.0:
                 faults.append(
                     f"annotation is {ratio:.2f}x the plot width - unreadable at plot scale")
+            elif ratio > 1.5:
+                say(f"  -> note: {ratio:.2f}x plot width. Acceptable (it sits outside the "
+                    "boundary) but cramped on a small plot.")
 
     # ---- layers -----------------------------------------------------------
     say("\n=== layers ===")

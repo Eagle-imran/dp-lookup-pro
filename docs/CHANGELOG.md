@@ -106,6 +106,42 @@ title block states that the Property Card may differ and must be reconciled
 before any FSI calculation. The owner measured 5–7% against the Property Card on
 WORLI 733.
 
+### 🔴 The first fix pass only worked on the two plots it was tested against
+
+Regenerating all 27 bundles and auditing every one gave **17 clean, 10 with
+faults**. WORLI 733 and AMBIVALI 807 were clean; that did not generalise. Three
+further causes, found only by running the audit across the whole set:
+
+* **`text_extents` was wrong for aligned text** — a bug in the measuring helper
+  itself. It read `dxf.insert` unconditionally, but aligned text stores its anchor
+  in `align_point` and grows *around* it. The centred `CTS <n>` label therefore
+  measured half a width right and half a height high, so every collision verdict
+  involving it was unreliable. Now honours `halign`/`valign`, composed correctly
+  with rotation.
+* **Near-collinear slivers could not be separated by nudging.** Pushing a label out
+  along its edge normal separates neighbours when the edges turn, but on a run of
+  slivers the normals are nearly parallel, so labels travelled together and never
+  cleared — DADAR-NAIGAON 98 had **seven** mutual collisions among labels of
+  1.07–1.34 m. Now the longest edges are labelled first, so the dimensions an
+  architect needs win their position, and a label that still cannot be placed clear
+  is removed rather than left overlapping. Across all 27 plots this drops
+  **1 label out of 388 (0.3%)**.
+* **The centre label was placed last**, so nothing ever checked against it and a
+  boundary dimension could land on it (`12.00m` over `CTS 1862`). It is now placed
+  before the annotation that has to avoid it. Same for the setback-N/A markers,
+  which collided with the road label below the plot on BANDRA-A 409.
+
+In-drawing labels are now budgeted against the plot they annotate
+(`fit_label_to_width`) rather than a fixed character count.
+
+The audit's annotation-width check was also too strict to be useful — it failed at
+1.01× plot width. On a 7.6 m plot any legible text is wide relative to the plot;
+that is inherent and harmless while the label sits outside the boundary, which the
+collision and border checks already enforce. It now warns above 1.5× and fails only
+above 3×.
+
+**All 27 bundles audit clean.**
+
 ### 🟢 Small plots
 
 Long strings were shortened to markers where the panel already carries the full

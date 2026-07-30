@@ -1215,3 +1215,128 @@ def test_a_long_road_does_not_drag_the_sheet_border_out(tmp_path):
     coords = [c for e in ezdxf.readfile(str(out)).modelspace().query("LWPOLYLINE")
               for p in e.get_points("xy") for c in (p[0], p[1])]
     assert max(abs(c) for c in coords) < 1000
+
+
+def test_text_extents_honours_alignment():
+    """Regression, and a bug in the measuring helper itself: it read dxf.insert
+    unconditionally, so the centred `CTS <n>` label measured half a width right and
+    half a height high. Every collision verdict involving it was suspect."""
+    ezdxf = pytest.importorskip("ezdxf")
+    from ezdxf.enums import TextEntityAlignment
+    msp = ezdxf.new("R2010").modelspace()
+
+    centred = msp.add_text("CTS 1862", dxfattribs={"height": 2.0})
+    centred.set_placement((0.0, 0.0), align=TextEntityAlignment.MIDDLE_CENTER)
+    x0, y0, x1, y1 = dp.text_extents(centred)
+    assert x0 < 0 < x1, "centred text must straddle its anchor horizontally"
+    assert y0 < 0 < y1, "middle-aligned text must straddle its anchor vertically"
+    assert x1 == pytest.approx(-x0, rel=1e-6)
+
+    # Left/baseline is unchanged: box grows right and up from the insertion point.
+    left = msp.add_text("CTS 1862", dxfattribs={"height": 2.0})
+    left.set_placement((0.0, 0.0))
+    lb = dp.text_extents(left)
+    assert lb[0] == pytest.approx(0.0) and lb[1] == pytest.approx(0.0)
+
+
+def test_text_extents_composes_alignment_with_rotation():
+    ezdxf = pytest.importorskip("ezdxf")
+    from ezdxf.enums import TextEntityAlignment
+    msp = ezdxf.new("R2010").modelspace()
+    e = msp.add_text("CTS 1862", dxfattribs={"height": 2.0, "rotation": 90.0})
+    e.set_placement((0.0, 0.0), align=TextEntityAlignment.MIDDLE_CENTER)
+    x0, y0, x1, y1 = dp.text_extents(e)
+    # Rotated about its anchor, so it still straddles the origin, long axis vertical.
+    assert x0 < 0 < x1 and y0 < 0 < y1
+    assert (y1 - y0) > (x1 - x0)
+
+
+def test_fit_label_to_width_budgets_against_the_plot():
+    wide = dp.fit_label_to_width("ABUTTING ROAD: {}", "Bazar Road (9.15 M.)",
+                                 max_width=200.0, char_h=1.0)
+    assert wide == "ABUTTING ROAD: Bazar Road (9.15 M.)", "no truncation when it fits"
+
+    tight = dp.fit_label_to_width("ABUTTING ROAD: {}", "Bazar Road (9.15 M.)",
+                                  max_width=20.0, char_h=1.0)
+    assert tight.endswith("...") and len(tight) < len(wide)
+
+    # Never truncated to nothing: a label identifying nothing is worse than a long one.
+    squeezed = dp.fit_label_to_width("ABUTTING ROAD: {}", "Jay Prakash Road Part II",
+                                     max_width=0.5, char_h=1.0)
+    assert "Jay Pras"[:4] in squeezed or len(squeezed) > len("ABUTTING ROAD: ")
+
+
+def test_dimension_labels_prefer_the_longest_edges(tmp_path):
+    """Where labels must compete for space, the dimensions an architect needs are
+    the ones that keep their position."""
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    # A long edge plus a run of near-collinear slivers, which is the DADAR-NAIGAON
+    # 98 shape: its normals are nearly parallel, so nudging cannot separate them.
+    ring = [[[72.8200, 18.9700], [72.8212, 18.9700],
+             [72.82118, 18.970012], [72.82116, 18.970025], [72.82114, 18.970037],
+             [72.8200, 18.9701], [72.8200, 18.9700]]]
+    dp.export_dxf(ring, PROPS, str(out), neighbors=[])
+    msp = ezdxf.readfile(str(out)).modelspace()
+    labels = [e.dxf.text for e in msp.query("TEXT[layer=='C-ANNO-DIMS']")]
+    lengths = sorted((float(t[:-1]) for t in labels), reverse=True)
+    assert lengths, "no dimensions drawn at all"
+    # The longest edge is ~127 m; it must never be the one sacrificed.
+    assert lengths[0] > 50.0, f"the longest edge lost its label: {labels}"
+
+
+def test_slivers_never_leave_overlapping_dimensions(tmp_path):
+    """DADAR-NAIGAON 98 had seven mutual collisions among 1.07-1.34 m labels. A
+    label that cannot be placed clear is dropped, not left unreadable."""
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    ring = [[[72.8200, 18.9700], [72.8212, 18.9700],
+             [72.82118, 18.970012], [72.82116, 18.970025], [72.82114, 18.970037],
+             [72.82112, 18.970049], [72.8200, 18.9701], [72.8200, 18.9700]]]
+    dp.export_dxf(ring, PROPS, str(out), neighbors=[])
+    msp = ezdxf.readfile(str(out)).modelspace()
+    boxes = [dp.text_extents(e) for e in msp.query("TEXT[layer=='C-ANNO-DIMS']")]
+    boxes = [b for b in boxes if b]
+    for i, a in enumerate(boxes):
+        for b in boxes[i + 1:]:
+            assert not dp.boxes_overlap(a, b), "two dimension labels still overlap"
+
+
+def test_centre_label_is_clear_of_boundary_dimensions(tmp_path):
+    """'12.00m' landed on 'CTS 1862' because the centre label was placed last and
+    never checked against anything."""
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    # Long and thin, so the edge dimensions reach in toward the centroid.
+    ring = [[[72.8200, 18.9700], [72.8215, 18.9700],
+             [72.8215, 18.970055], [72.8200, 18.970055], [72.8200, 18.9700]]]
+    dp.export_dxf(ring, dict(PROPS, cts_no="1862"), str(out), neighbors=[])
+    msp = ezdxf.readfile(str(out)).modelspace()
+    centre = [dp.text_extents(e) for e in msp.query("TEXT[layer=='C-ANNO-TEXT']")]
+    dims = [dp.text_extents(e) for e in msp.query("TEXT[layer=='C-ANNO-DIMS']")]
+    assert centre and centre[0]
+    for d in dims:
+        assert not dp.boxes_overlap(centre[0], d), "a dimension sits on the CTS label"
+
+
+def test_setback_marker_and_road_label_do_not_collide(tmp_path):
+    """Both stack below the plot at fixed offsets; on BANDRA-A 409 they overlapped."""
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    # 8 x 16 m: too narrow for either setback, so both markers are emitted.
+    ring = [[[72.8200, 18.9700], [72.820076, 18.9700],
+             [72.820076, 18.970144], [72.8200, 18.970144], [72.8200, 18.9700]]]
+    props = dict(PROPS, abutting_road="Bazar Road", road_width="9.15 M.")
+    roads = [[[72.8195, 18.96995], [72.8206, 18.96995]]]
+    dp.export_dxf(ring, props, str(out), neighbors=[], roads=roads)
+
+    msp = ezdxf.readfile(str(out)).modelspace()
+    below = []
+    for layer in ("C-SETBACK-3M", "C-SETBACK-6M", "C-ROAD-ALIGN"):
+        for e in msp.query(f"TEXT[layer=='{layer}']"):
+            b = dp.text_extents(e)
+            if b and b[1] < 0:          # below the plot, not a legend swatch label
+                below.append((e.dxf.text, b))
+    for i, (t1, b1) in enumerate(below):
+        for t2, b2 in below[i + 1:]:
+            assert not dp.boxes_overlap(b1, b2), f"{t1!r} overlaps {t2!r}"
