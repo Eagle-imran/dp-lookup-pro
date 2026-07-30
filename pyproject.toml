@@ -1,6 +1,6 @@
 [project]
 name = "dp-lookup-pro"
-version = "3.10.0"
+version = "3.12.0"
 description = "MCGM SDP 2014-34 DP Lookup Tool with PDF Reports, HD Maps, Satellite Aerial Views, GIS CAD Exports, and High-Speed Async Batching"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0"]
+dev = ["pytest>=8.0.0", "matplotlib>=3.8.0"]  # matplotlib powers tools/render_dxf.py
 
 [project.scripts]
 dp-lookup-pro = "cts_dp_lookup_pro:main"
@@ -33,5 +33,31 @@ include = ["cts_dp_lookup_pro.py"]
 [tool.hatch.build.targets.sdist]
 include = ["cts_dp_lookup_pro.py", "README.md", "START-HERE.md", "LICENSE", "tests"]
 
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+exclude = [".venv", "output", "docs"]
+
+[tool.ruff.lint]
+# Chosen for defects, not style. Deliberately excluded:
+#   UP/FA  - Dict->dict modernisation and __future__ annotations. Pure churn
+#            across 17 sites with no behaviour change, and the project still
+#            declares support back to 3.9.
+#   DTZ    - naive datetimes. These are local report timestamps shown to a
+#            human in one city; timezone-aware would add noise, not safety.
+#   S110   - try/except/pass. Several are deliberate (optional ezdxf linetypes);
+#            reviewed by hand rather than gated in CI.
+select = ["E", "F", "I", "B", "RUF"]
+# E501: the ArcGIS request payloads that originally caused these are now wrapped
+# (see identify_payload / map_export_params). The 34 that remain are inside
+# build_pdf_doc and export_dxf, which have not been split yet. Re-enable when
+# they are - the count should drop to zero rather than needing exclusions.
+ignore = ["E501"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.0",
+]

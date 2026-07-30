@@ -9,9 +9,38 @@
 * **Project Name**: `dp-lookup-pro`
 * **Repository**: [https://github.com/Eagle-imran/dp-lookup-pro](https://github.com/Eagle-imran/dp-lookup-pro)
 * **Local Workspace Path**: `/Users/imranpatel/Developer/dp-lookup-pro-IP`
-* **Primary Executable**: `./dp-lookup-pro`
+* **Primary Executable**: `uv run python dp-lookup-pro` (or `dp-lookup-pro` after `uv pip install -e .`)
+* **Current Version**: 3.12.0 — 2026-07-30
 * **Skill Metadata File**: `SKILL.md`
 * **Purpose**: Automated Real Estate Spatial Querying, GIS CAD Exporter & DP Remark Docket Generator for Mumbai Land Parcels under MCGM Development Plan (SDP) 2014-34.
+
+---
+
+## 📁 Repository Folder Structure & Agent Guidance (v3.11.0)
+
+> 🤖 **NOTE FOR AI AGENTS & DEVELOPERS**:
+> The repository layout was reorganized in v3.11.0 to declutter the root directory and reduce context window overhead.
+>
+> ### **Root Directory Policy**:
+> Keep the root directory minimal. Only user-facing entry points and primary configurations live in the root:
+> - `README.md`: Primary developer reference & overview.
+> - `START-HERE.md`: Plain-English 5-minute setup guide for end users & non-technical clients.
+> - `SKILL.md`: Antigravity / Claude Code agent skill definition.
+> - `LICENSE`: Proprietary license terms.
+> - `pyproject.toml`: Build & dependency configuration.
+> - `cts_dp_lookup_pro.py`: Core application script & CLI entry point.
+>
+> ### **Documentation Hierarchy (`docs/`)**:
+> All technical reference specifications, architectural diagrams, guides, and version tracking live inside `docs/`:
+> - `docs/DXF-GUIDE.md`: Architect reference guide for DXF CAD layers, linetypes, and setback math.
+> - `docs/CHANGELOG.md`: Detailed release history & bug fix records.
+> - `docs/FEATURES_PLANNED.md`: Product roadmap & planned feasibility calculator specs.
+> - `docs/ROLLBACK.md`: Operational recovery & rollback instructions.
+> - `docs/MEMORY.md`: (This file) Architectural decision records, benchmarks, and agent sitemap.
+> - `docs/APP_FLOW.html`: Self-contained interactive visual flow map.
+> - `docs/APP_FLOW.json`: Machine-readable flow graph dataset.
+>
+> **Rule for new documentation**: When creating new architectural guides, specs, or reference documents, place them inside `docs/` and update relative markdown links accordingly. Do not add raw `.md` files directly to the root directory.
 
 ---
 
@@ -26,6 +55,7 @@
 | **GIS & Projections** | WGS84 (`EPSG:4326`) & Mercator | Spherical Mercator (`EPSG:3857/102100`) to WGS84 coordinate transformation algorithms. |
 | **Canvas & Image Engine** | Pillow (PIL) | Retina HD DP 2034 map overlays with North Arrow ($N \uparrow$) and scale legend, plus 3x3 Esri tile stitching. |
 | **Document Compiler** | ReportLab | 2-Page Executive PDF DP Remark Docket builder with dynamic flowables, tables, and status banners. |
+| **Geometry** | `shapely` | True parallel polygon offsetting for setback lines. A hand-rolled miter offset self-intersected on concave plots. |
 | **CAD Exporters** | `ezdxf`, GeoJSON, KML | Native AutoCAD `.dxf` drawing files, OGC `.geojson` vectors, and 3D Google Earth `.kml` placemarks. |
 | **QR Code Engine** | `qrcode` | Dynamic scannable QR code linking physical PDF reports directly to live MCGM Web GIS Maps. |
 | **Audit Database** | `openpyxl` | Appends query audit records to central Excel workbook (`output/dp-lookups.xlsx`). |
@@ -48,8 +78,9 @@
 
 ### 3. ⚡ Single-Batch HTTP/2 Async Concurrency
 * **Issue**: Sequential API querying caused fresh lookups to take 3.5 – 5.0 seconds.
-* **Resolution**: Pipelined the network tasks into a single `asyncio.gather` block over HTTP/2 pooling. As of v3.7.0 this is **25 requests** per cold lookup: 1 parcel query (sequential) + 24 concurrent (1 identify, 1 map export, 9 road probes, 4 neighbour probes, 9 satellite tiles).
-* **Measured reality (2026-07-28)**: a cold lookup takes **5–13 s**, and ~95% of that is the single `/export` map-image request. Earlier sub-second claims were not reproducible.
+* **Resolution**: Pipelined the network tasks over HTTP/2 pooling. **25 requests** per cold lookup: 1 parcel query (sequential) + 24 concurrent (1 identify, 1 map export, 9 road probes, 4 neighbour probes, 9 satellite tiles). Since v3.10.0 the *wait* is split in two — see history entry 10 — though all 25 still dispatch together.
+* **Measured reality**: a cold lookup takes **5–13 s**. The `/export` map-image request is consistently the slowest single call (5.6–5.9 s), but it is **not** reliably 95% of runtime — an earlier note claiming that held for one measurement only. Identify calls range 414 ms–4,470 ms run to run. MCGM is slow *and variable* across every endpoint.
+* **v3.10.0**: the wait is split. Planning data and vector exports complete in the fast half (~0.7 s typical), then the map, satellite and PDF finish. See history entry 10.
 
 ### 4. 📁 Query-Specific Bundle Folder Isolation
 * **Issue**: Flat output files in `./output/` created file collisions when multiple plots were queried.
@@ -78,14 +109,66 @@
 * **Resolution**: 30-day TTL (chosen from measured data velocity — layer 13 carries `LAST_EDITED_DATE 2019-01-23` on every parcel), `--no-cache` bypass, store at `<output_dir>/.cache_store.json`, bundle-file verification on every hit, and `cache_age_days` reported so staleness is never silent.
 * **⚠️ Trap**: `LAST_EDITED_DATE` is identical across all parcels — it is the bulk load date, **not** a usable revalidation key. DP modifications do not appear on the parcel record either; they live in layer `192`.
 
+### 10. ⚡ Split-Wait Pipeline (2026-07-29, v3.10.0)
+* **Issue**: the answer waited on the map image, so a lookup that knew the zoning in 0.7 s stayed silent for 6.5 s.
+* **Resolution**: all 25 requests still dispatch at once, but only the planning half is awaited before reporting — parcel, identify, roads, neighbours. GeoJSON/DXF/KML need geometry only, so they are written there too. `lookup_plot_pro(on_data=...)` fires with `metadata.documents_pending: True`; the returned dict is still final.
+* **Measured (WORLI 733 ×3)**: answer at 4,746 / 700 / 635 ms against totals of 6,246 / 6,470 / 6,443 ms — **1.3× / 9.2× / 10.1×**. Typically ~10×.
+* **⚠️ Caveat**: the fast half is only as quick as its slowest call. Run 1's outlier was a stalled identify, not the map.
+
+### 11. 📐 Architect-Ready DXF (2026-07-28, v3.8.x)
+* **Setbacks were not setbacks**: vertices were pulled toward the centroid, so the "3 m" line measured 1.15–3.00 m. Now a true parallel offset via `shapely`, exact at 3.000/6.000 m, omitted and labelled when a plot is too small.
+* **Adjoining plots were drawn at ~8e11** — neighbour geometry arrives in Web Mercator but was treated as WGS84 degrees. Affected every DXF ever generated.
+* **`C-ROAD-ALIGN` was always empty** — geometry was not requested, and road layers return mixed types (193/194 `paths`, 44/45 `rings`) where only `paths` was read. Roads are clipped to the plot vicinity; one arrived 3.8 km long.
+* Added a layer legend, PLOT DATA panel, north arrow, and a sheet border sized from drawn content.
+
+### 12. 📖 Readable Output & Village Help (2026-07-28, v3.9.0)
+* CLI prints a plain summary instead of 60 lines of JSON (`--json` for raw, now clean on stdout). An LLM became optional rather than a workaround.
+* `--list-villages` plus did-you-mean suggestions. `BANDRA` is not a valid village — the 128 names ship locally, so suggestions cost no network call.
+
+### 13. 📏 DXF Text Must Be Measured, Not Positioned (2026-07-30, v3.12.0)
+
+The DXF was opened in AutoCAD for the first time. Every geometry check had been
+passing; WORLI 733 and AMBIVALI 807 each carried **16 faults**.
+
+> 🤖 **RULE FOR AGENTS**: never size a frame or place a label from a row count or a
+> character count. Whether text overruns a frame or collides with another label
+> depends on the **rendered width of a glyph**. Use `text_extents()` (ezdxf font
+> engine, rotation-aware), `boxes_overlap()` and `nudge_text_clear()`. Draw panel
+> frames **last**, sized from measured contents. Verify with
+> `uv run python tools/audit_dxf.py <file.dxf>` — it exits non-zero on any fault.
+
+* **Panel height was a magic constant** — `lg_row * (n_legend + 9.5)` never counted the PLOT DATA rows, so 3 rows fell outside the border on every drawing ever generated. A duplicate row count lived in a second function and could drift.
+* **The sheet-border extent scan never read `TEXT`** — only `LWPOLYLINE`/`LINE`/`CIRCLE`. Labels were invisible to the code sizing the border meant to contain them.
+* **Metro buffer restriction was never drawn, on any plot, ever** — the lookup sets `metro_buffer_flag` to `"YES (Metro Buffer Zone)"` while `export_dxf` tested `== "YES"`. Same failure mode as the CRZ false negative: exact match against data carrying a qualifier. It hid behind the empty-layer test because the legend draws a sample line *on* `C-RESTRICT-ZONE`, so the layer counted as populated on its own swatch.
+* Long values wrap rather than widen the panel — AMBIVALI 807's frontage name is 56 characters and overran the panel by 19.83 m. Long in-drawing notes became short markers; spelled out, the setback notice ran 3.8× the width of an 8 m plot.
+* **Roads were dropped when their vertices were far apart** - the clip that trims MCGM's kilometre-long road networks kept a road only if a *vertex* landed inside the window. MCGM centrelines can run a kilometre between vertices, so a road running along the plot edge was discarded: AMBIVALI 807 had the frontage name and a 27.4 m width but an empty `C-ROAD-ALIGN`. Now clipped per *segment* with Liang-Barsky (`clip_path_to_window`), trimmed to the window so a long segment cannot drag the sheet border out.
+* **The abutting road geometry was selected by arrival order, not proximity** - `road_geoms[:6]` took the first six geometries parsed. MCGM road *polygon* layers return hundreds of rings per probe (552 for layer 44 at AMBIVALI 807, across nine probes), so the real frontage was pushed out by distant rings: the six that reached `export_dxf` were 910-2082 m away while the frontage sat 8.7 m from the boundary. `nearest_road_geoms()` ranks by distance before cutting. Note this was a *separate* bug from the segment-clipping one above, and was the actual cause of the empty layer - the clipping fix alone did not resolve it.
+* Explicit lineweights per layer, so the boundary no longer plots at the same weight as the grid. Plot fill is 65% transparent so a survey or satellite underlay shows through.
+
+### ⚠️ Plot area: three sources, three answers
+
+`GROSS PLOT AREA` is MCGM's `AREA_APP_SQ_MTRS`. It is **not** guaranteed to match
+MCGM's own digitised polygon, and neither matches the Property Card:
+
+| Plot | MCGM record | Drawn boundary | Gap |
+| :--- | ---: | ---: | ---: |
+| WORLI 733 | 1317.74 m² | 1321.74 m² | +0.30% |
+| AMBIVALI 807 | 2019.00 m² | **2142.25 m²** | **+6.10%** (123 m²) |
+
+Owner measured 5–7% against the Property Card on WORLI 733. The sheet now prints
+both figures it can see with the delta, and states that the Property Card may
+differ and must be reconciled before any FSI calculation. **Never present a single
+plot area as authoritative.**
+
 ---
 
 ## ⚡ Performance Benchmarks
 
 | Query Execution Mode | Latency (ms) | Notes |
 | :--- | :--- | :--- |
-| **Repeat CLI Query (Persistent Disk Cache)** | ⚡ **`12.0 ms`** | Served instantly from `./output/.cache_store.json` |
-| **Cold Fresh Network Query** | **`6,900 ms – 13,000 ms`** | 25 requests, tile stitching, PDF & CAD export. Measured 2026-07-28; earlier sub-second figures were not reproducible. |
+| **Answer visible (v3.10.0 fast half)** | **`~700 ms`** | Planning data + GeoJSON/DXF/KML. Typical; a slow identify can push this to ~4.7 s. |
+| **Repeat Query (cache hit)** | **`~0.2 ms`** | In-process. ~390 ms for a full CLI run, dominated by Python startup. |
+| **Cold Fresh Query (all 6 files)** | **`5,000 ms – 13,000 ms`** | 25 requests, tile stitching, PDF & CAD export. Highly variable server-side. |
 
 ---
 
@@ -99,6 +182,7 @@
     "ward": "E",
     "type": "CTS",
     "area_sqm": 1877.87,
+    "area_source": "approved (MCGM AREA_APP_SQ_MTRS)",
     "coordinates_wgs84": {
       "latitude": 18.972385,
       "longitude": 72.82255
@@ -143,8 +227,13 @@
   "metadata": {
     "source": "MCGM SDP 2014-34",
     "lookup_datetime": "2026-07-28 00:37:59",
-    "execution_time_ms": 12.0,
+    "execution_time_ms": 0.15,
     "cached_result": true,
+    "complete": true,
+    "documents_pending": false,
+    "warnings": [],
+    "notes": [],
+    "cache_age_days": 3.4,
     "interactive_web_map": "https://mcgm.maps.arcgis.com/..."
   }
 }
@@ -157,9 +246,9 @@
 | Agent Harness | Invocation Command / Method |
 | :--- | :--- |
 | **Google Antigravity CLI** | `/dp-lookup-pro <VILLAGE_NAME> <CTS_NUMBER>` |
-| **Claude Code (Anthropic)** | Ask Claude: *"Run DP lookup for Worli CTS 748A"* or `./dp-lookup-pro WORLI 748A` |
+| **Claude Code (Anthropic)** | Ask Claude: *"Run DP lookup for Worli CTS 733"* or `uv run python dp-lookup-pro WORLI 733` |
 | **OpenAI Codex / Python LLMs** | `from cts_dp_lookup_pro import lookup_plot_pro` |
-| **Cursor / Windsurf / Roo Code** | Terminal execution `./dp-lookup-pro "<VILLAGE_NAME>" "<CTS_NUMBER>"` |
+| **Cursor / Windsurf / Roo Code** | Terminal `uv run python dp-lookup-pro "<VILLAGE>" "<CTS>" [--no-cache]` |
 
 ---
 

@@ -144,7 +144,7 @@
     <div class="titleblock-meta">
       <div class="metaline"><b>Engine</b>cts_dp_lookup_pro.py</div>
       <div class="metaline"><b>Entry</b>lookup_plot_pro()</div>
-      <div class="metaline"><b>Drawn</b>2026-07-28</div>
+      <div class="metaline"><b>Version</b>3.10.0</div>
       <div class="metaline"><b>Status</b>Proprietary</div>
     </div>
   </div>
@@ -154,7 +154,7 @@
   </div>
 
   <h2>Execution graph</h2>
-  <p class="sectionnote">One cold lookup, end to end. Everything is sequential except the shaded band, where 24 requests fire at once. Magenta nodes are the hardened control points &mdash; each carries explicit failure handling added 2026-07-28, and each is where a silent failure used to originate.</p>
+  <p class="sectionnote">One cold lookup, end to end. All 25 requests fire together in the shaded band, but only the <b>planning half</b> is awaited before the answer is reported &mdash; the map and satellite finish afterwards. Magenta nodes are the hardened control points, each carrying explicit failure handling, and each where a silent failure used to originate.</p>
 
   <div class="diagramwrap">
   <svg class="flow" viewBox="0 0 1080 1470" role="img" aria-label="Execution flow graph for dp-lookup-pro, from entry points through cache check, parcel resolve, a 24-request concurrent batch, parsing, rendering, exports and return.">
@@ -166,7 +166,7 @@
 
     <!-- ============ parallel band backdrop ============ -->
     <rect x="14" y="500" width="1052" height="170" fill="var(--rule-soft)" opacity="0.55" rx="4"/>
-    <text x="28" y="521" class="bandlabel">Concurrent batch · asyncio.gather · 24 requests · HTTP/2 · timeout 20 s</text>
+    <text x="28" y="521" class="bandlabel">All 25 dispatch together · HTTP/2 · timeout 20 s — but the WAIT is split</text>
 
     <!-- ============ ENTRY ROW ============ -->
     <g>
@@ -257,35 +257,35 @@
       <text x="120" y="592" text-anchor="middle" class="ncount">1</text>
       <text x="120" y="612" text-anchor="middle" class="ntitle">Planning identify</text>
       <text x="120" y="628" text-anchor="middle" class="nsub">layers 0 · 46 · 47</text>
-      <text x="120" y="642" text-anchor="middle" class="nsub">192 · 1550 · CRZ</text>
+      <text x="120" y="642" text-anchor="middle" class="nsub" fill="var(--ok)">FAST half</text>
     </g>
     <g>
       <rect class="nbox-net" x="237" y="565" width="186" height="88" rx="3"/>
       <text x="330" y="592" text-anchor="middle" class="ncount">1</text>
       <text x="330" y="612" text-anchor="middle" class="ntitle">DP map export</text>
       <text x="330" y="628" text-anchor="middle" class="nsub">1000 × 1000 · dpi 144</text>
-      <text x="330" y="642" text-anchor="middle" class="nsub" fill="var(--accent)">5–12 s · 95% of runtime</text>
+      <text x="330" y="642" text-anchor="middle" class="nsub" fill="var(--accent)">SLOW half · 5.6–5.9 s</text>
     </g>
     <g>
       <rect class="nbox-net" x="447" y="565" width="186" height="88" rx="3"/>
       <text x="540" y="592" text-anchor="middle" class="ncount">9</text>
       <text x="540" y="612" text-anchor="middle" class="ntitle">Road probes</text>
       <text x="540" y="628" text-anchor="middle" class="nsub">layers 193 · 194 · 44 · 45</text>
-      <text x="540" y="642" text-anchor="middle" class="nsub">centre + corners + edges</text>
+      <text x="540" y="642" text-anchor="middle" class="nsub" fill="var(--ok)">FAST half</text>
     </g>
     <g>
       <rect class="nbox-net" x="657" y="565" width="186" height="88" rx="3"/>
       <text x="750" y="592" text-anchor="middle" class="ncount">4</text>
       <text x="750" y="612" text-anchor="middle" class="ntitle">Neighbour probes</text>
       <text x="750" y="628" text-anchor="middle" class="nsub">layer 13</text>
-      <text x="750" y="642" text-anchor="middle" class="nsub">4 cardinal offsets</text>
+      <text x="750" y="642" text-anchor="middle" class="nsub" fill="var(--ok)">FAST half</text>
     </g>
     <g>
       <rect class="nbox-net" x="867" y="565" width="186" height="88" rx="3"/>
       <text x="960" y="592" text-anchor="middle" class="ncount">9</text>
       <text x="960" y="612" text-anchor="middle" class="ntitle">Satellite tiles</text>
       <text x="960" y="628" text-anchor="middle" class="nsub">Esri z18 · 3 × 3</text>
-      <text x="960" y="642" text-anchor="middle" class="nsub">stitched to 768²</text>
+      <text x="960" y="642" text-anchor="middle" class="nsub" fill="var(--accent)">SLOW half</text>
     </g>
 
     <!-- fan in -->
@@ -298,8 +298,8 @@
       <rect class="nbox-guard" x="380" y="715" width="320" height="56" rx="3"/>
       <text x="394" y="735" class="nnum">05</text>
       <text x="686" y="735" text-anchor="end" class="bang">&#10003;</text>
-      <text x="540" y="738" text-anchor="middle" class="ntitle">await asyncio.gather</text>
-      <text x="540" y="756" text-anchor="middle" class="nsub">timeout 20 s · failures classified</text>
+      <text x="540" y="738" text-anchor="middle" class="ntitle">await FAST half only</text>
+      <text x="540" y="756" text-anchor="middle" class="nsub">identify + roads + neighbours · ~0.7 s</text>
     </g>
     <path class="wire" d="M540 771 L540 813" marker-end="url(#ar)"/>
 
@@ -309,7 +309,7 @@
       <text x="394" y="835" class="nnum">06</text>
       <text x="686" y="835" text-anchor="end" class="bang">&#10003;</text>
       <text x="540" y="838" text-anchor="middle" class="ntitle">Response parsing</text>
-      <text x="540" y="856" text-anchor="middle" class="nsub">every body via usable_json()</text>
+      <text x="540" y="856" text-anchor="middle" class="nsub">usable_json() · then vectors + on_data</text>
     </g>
 
     <path class="wire" d="M540 871 L540 893 M405 893 L675 893"/>
@@ -420,7 +420,20 @@
   </div>
 
   <h2>Where the time actually goes</h2>
-  <p class="sectionnote">Measured on Malabar Hill CTS 518, 2026-07-28. One request dominates everything else.</p>
+  <p class="sectionnote">Since v3.10.0 the planning answer is reported without waiting on imagery. Measured on WORLI 733, three consecutive runs.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Run</th><th>Answer visible</th><th>All 6 files</th><th>Perceived</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td class="id">4,746 ms</td><td class="id">6,246 ms</td><td class="id">1.3&times;</td></tr>
+        <tr><td>2</td><td class="id">700 ms</td><td class="id">6,470 ms</td><td class="id"><b>9.2&times;</b></td></tr>
+        <tr><td>3</td><td class="id">635 ms</td><td class="id">6,443 ms</td><td class="id"><b>10.1&times;</b></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="sectionnote"><b>Typically ~10&times;.</b> Run 1 is the honest caveat: the fast half is only as quick as its slowest call, and one identify request stalled at 4,470 ms. The map export is the slowest <em>single</em> call (5.6&ndash;5.9 s) but is <b>not</b> reliably 95% of runtime &mdash; that held for one measurement only. MCGM is slow <em>and variable</em> across every endpoint.</p>
+
+  <h3 style="font-size:.9rem;color:var(--ink-soft);margin:28px 0 8px">Earlier single-run profile (Malabar Hill 518)</h3>
   <div class="tablewrap">
     <table>
       <thead><tr><th>Phase</th><th>Time</th><th>Note</th></tr></thead>
@@ -452,6 +465,7 @@
         <tr><td class="id">1548</td><td>CRZ</td><td>Corroborating polygon, <code>Category</code></td></tr>
         <tr><td class="id">193/194</td><td>Traffic / Survey RoadLines</td><td>Road name and width — <b>identify only</b></td></tr>
         <tr><td class="id">44/45</td><td>EXISITING_ROAD / PROPOSED_ROAD</td><td>Fallback road geometry</td></tr>
+        <tr><td class="id">44/45</td><td>EXISITING_ROAD / PROPOSED_ROAD</td><td>Road polygons &mdash; return <code>rings</code>, not <code>paths</code></td></tr>
         <tr><td class="id">2238</td><td>Coastal Districts having CRZ</td><td><b>Deliberately excluded</b> — district-wide, would mark every Mumbai plot as CRZ</td></tr>
       </tbody>
     </table>
@@ -511,9 +525,9 @@
     <p class="issuedesc">Two dead <code>/query</code> calls removed and boundary-edge probes added alongside the original centroid and corner probes. Mohili 732 went from <code>None</code> to 21.35 m. <b>The probes are additive on purpose</b> — an earlier attempt that replaced the corner probes regressed Worli 947.</p></div></div>
 
   <footer>
-    dp-lookup-pro system flow map · drawn 2026-07-28<br>
-    v3.7.0 · Machine-readable twin: APP_FLOW.json · Guide: START-HERE.md · Reference: README.md<br>
-    Update log: CHANGELOG.md · Rollback procedure: ROLLBACK.md<br>
+    dp-lookup-pro system flow map · v3.10.0 · updated 2026-07-29<br>
+    v3.10.0 · Machine-readable twin: APP_FLOW.json · Guide: START-HERE.md · Reference: README.md<br>
+    Update log: CHANGELOG.md · Rollback: ROLLBACK.md · For the architect: DXF-GUIDE.md<br>
     © 2026 Imran Patel. All rights reserved. Proprietary — not open source.
   </footer>
 

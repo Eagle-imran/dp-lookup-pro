@@ -1,24 +1,26 @@
+import asyncio
+import datetime
+import io
+import json
+import math
 import os
 import re
 import sys
-import json
-import math
-import asyncio
-import io
 import time
-import datetime
-from xml.sax.saxutils import escape as _xml_escape
 from typing import Any, Callable, Dict, List, Optional
-import httpx
-from PIL import Image, ImageDraw
-from openpyxl import Workbook, load_workbook
-import qrcode
-import ezdxf
+from xml.sax.saxutils import escape as _xml_escape
 
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, PageBreak
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+import ezdxf
+import httpx
+import qrcode
+from ezdxf.enums import TextEntityAlignment
+from openpyxl import Workbook, load_workbook
+from PIL import Image, ImageDraw
 from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.platypus import Image as RLImage
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 SERVER_URL = "https://agsmaps.mcgm.gov.in/server/rest/services/Development_Plan_2034/MapServer"
 SATELLITE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile"
@@ -354,8 +356,530 @@ def offset_polygon_inward(ring: list, distance: float) -> list:
     return out
 
 
-def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: list = None,
-               roads: list = None):
+# --- DXF construction --------------------------------------------------------
+# Layer table and the local projection, lifted out of export_dxf (420 lines).
+
+# name -> (ACI colour, linetype). Order is the order they appear in the legend.
+# name, ACI colour, linetype, lineweight.
+#
+# Lineweight is in 1/100 mm and must be one of AutoCAD's discrete values. Every
+# layer previously carried the default (-3), so a plotted sheet rendered the
+# metric grid at the same weight as the plot boundary and read completely flat.
+# The boundary is the heaviest line on the sheet, setbacks sit below it, and
+# reference material (grid, neighbours, annotation) sits below that.
+DXF_LAYERS = (
+    ("0_GRID_AXIS", 8, "DASHED", 9),
+    ("C-PLOT-BDY", 1, None, 50),
+    ("C-PROP-HATCH", 252, None, 9),
+    ("C-SETBACK-3M", 3, "DASHED", 25),
+    ("C-SETBACK-6M", 70, "DASHED", 25),
+    ("C-ADJN-PLOTS", 2, None, 13),
+    ("C-ROAD-ALIGN", 4, "DASHED", 35),
+    ("C-RESTRICT-ZONE", 6, "PHANTOM", 35),
+    ("C-ANNO-TEXT", 7, None, 13),
+    ("C-ANNO-DIMS", 5, None, 13),
+    ("C-NORTH-ARROW", 7, None, 18),
+    ("C-TITLE-BLOCK", 4, None, 18),
+)
+
+# Degrees to metres at Mumbai's latitude. Longitude scales with cos(lat);
+# latitude is effectively constant over a parcel.
+METRES_PER_DEG_LAT = 111132.0
+METRES_PER_DEG_LON_EQUATOR = 111319.5
+
+
+def new_dxf_document():
+    """R2010 document in metric units with the project's layer table."""
+    doc = ezdxf.new("R2010")
+    doc.header["$INSUNITS"] = 6      # metres
+    doc.header["$MEASUREMENT"] = 1   # ISO metric
+    try:
+        doc.linetypes.add("DASHED", pattern="A, 1.0, -0.5")
+        doc.linetypes.add("PHANTOM", pattern="A, 2.0, -0.5, 0.5, -0.5, 0.5, -0.5")
+    except Exception:
+        # A document that already defines them is fine; the layers below still work.
+        pass
+    for name, colour, linetype, lineweight in DXF_LAYERS:
+        attrs = {"name": name, "color": colour, "lineweight": lineweight}
+        if linetype:
+            attrs["linetype"] = linetype
+        doc.layers.add(**attrs)
+    return doc
+
+
+def project_rings_to_local_metres(wgs_rings: list) -> Dict[str, Any]:
+    """
+    WGS84 degrees to local metres with the plot centroid at (0, 0).
+
+    An architect wants 1 CAD unit = 1 metre and the plot at the origin, not
+    UTM coordinates in the millions. Accurate to well under a centimetre over a
+    parcel, which is finer than MCGM's own digitisation.
+    """
+    r0 = wgs_rings[0]
+    lon0 = sum(p[0] for p in r0) / len(r0)
+    lat0 = sum(p[1] for p in r0) / len(r0)
+    mpd_lon = METRES_PER_DEG_LON_EQUATOR * math.cos(math.radians(lat0))
+    mpd_lat = METRES_PER_DEG_LAT
+
+    return {
+        "lon0": lon0, "lat0": lat0,
+        "mpd_lon": mpd_lon, "mpd_lat": mpd_lat,
+        "local_rings": [[((p[0] - lon0) * mpd_lon, (p[1] - lat0) * mpd_lat) for p in ring]
+                        for ring in wgs_rings],
+    }
+
+
+def to_local_metres(points: list, lon0: float, lat0: float,
+                    mpd_lon: float, mpd_lat: float) -> list:
+    """Project an arbitrary WGS84 ring/path into the same local frame."""
+    return [((p[0] - lon0) * mpd_lon, (p[1] - lat0) * mpd_lat) for p in points]
+
+
+def clip_segment_to_box(p1: tuple, p2: tuple, x_lo: float, y_lo: float,
+                        x_hi: float, y_hi: float) -> Optional[tuple]:
+    """
+    The portion of segment p1-p2 that lies inside the box, or None.
+
+    Liang-Barsky. Clipping rather than keeping whole segments matters because MCGM
+    road centrelines run kilometres long; retaining an outside endpoint would drag
+    the sheet border out with it.
+    """
+    x1, y1 = float(p1[0]), float(p1[1])
+    x2, y2 = float(p2[0]), float(p2[1])
+    dx, dy = x2 - x1, y2 - y1
+    t0, t1 = 0.0, 1.0
+    for p, q in ((-dx, x1 - x_lo), (dx, x_hi - x1), (-dy, y1 - y_lo), (dy, y_hi - y1)):
+        if p == 0:
+            if q < 0:
+                return None          # parallel to this edge and outside it
+        else:
+            r = q / p
+            if p < 0:
+                if r > t1:
+                    return None
+                t0 = max(t0, r)
+            else:
+                if r < t0:
+                    return None
+                t1 = min(t1, r)
+    return ((x1 + t0 * dx, y1 + t0 * dy), (x1 + t1 * dx, y1 + t1 * dy))
+
+
+def clip_path_to_window(path: list, x_lo: float, y_lo: float,
+                        x_hi: float, y_hi: float) -> List[list]:
+    """
+    Contiguous runs of `path` clipped to the window.
+
+    A segment is kept when it CROSSES the window, not merely when one of its
+    vertices sits inside it. MCGM returns road centrelines whose vertices can be a
+    kilometre apart, so testing vertices alone dropped roads that ran straight past
+    the plot - AMBIVALI 807 has a named 27.4 m frontage and an empty
+    C-ROAD-ALIGN layer because of it.
+    """
+    runs: List[list] = []
+    run: list = []
+    for i in range(len(path) - 1):
+        seg = clip_segment_to_box(path[i], path[i + 1], x_lo, y_lo, x_hi, y_hi)
+        if seg is None:
+            if run:
+                runs.append(run)
+                run = []
+            continue
+        start, end = seg
+        if run and abs(run[-1][0] - start[0]) < 1e-9 and abs(run[-1][1] - start[1]) < 1e-9:
+            run.append(end)
+        else:
+            if run:
+                runs.append(run)
+            run = [start, end]
+    if run:
+        runs.append(run)
+    return runs
+
+
+def nearest_road_geoms(road_geoms: list, wgs_rings: list, limit: int = 8) -> list:
+    """
+    The `limit` road paths closest to the plot.
+
+    Was `road_geoms[:6]` - the first six in arrival order, with no regard to
+    proximity. MCGM's road *polygon* layers return hundreds of rings per probe
+    (552 for layer 44 at AMBIVALI 807, across nine probes), so the actual frontage
+    was routinely pushed out of the slice. On AMBIVALI 807 the six that survived
+    were 910-2082 m away while 'Jay Prakash Road Part II Dadabhai Road' sat 8.7 m
+    from the boundary and was discarded - which is why C-ROAD-ALIGN was empty on a
+    plot with a named 27.4 m frontage.
+
+    Ranking happens before clipping because clipping a 5,701-vertex network is the
+    expensive part, and only paths that come near the plot can survive it anyway.
+    """
+    if not road_geoms or not wgs_rings or not wgs_rings[0]:
+        return road_geoms[:limit]
+    ring = wgs_rings[0]
+    lon0 = sum(p[0] for p in ring) / len(ring)
+    lat0 = sum(p[1] for p in ring) / len(ring)
+    # Longitude degrees are shorter than latitude degrees; scale so ranking is by
+    # real distance rather than raw degrees.
+    lon_scale = math.cos(math.radians(lat0))
+
+    def nearest_sq(path):
+        best = float("inf")
+        for pt in path:
+            dx = (pt[0] - lon0) * lon_scale
+            dy = pt[1] - lat0
+            best = min(best, dx * dx + dy * dy)
+        return best
+
+    return sorted(road_geoms, key=nearest_sq)[:limit]
+
+
+def fit_label_to_width(template: str, value: str, max_width: float, char_h: float,
+                       min_value_chars: int = 8) -> str:
+    """
+    `template.format(value)`, with `value` truncated so the result fits `max_width`.
+
+    In-drawing annotation is budgeted against the plot it annotates rather than a
+    fixed character count. BANDRA-A 409 is 7.6 m wide, where even a 24-character
+    road name rendered three times the plot width. Never truncates below
+    `min_value_chars`, because a label shortened to nothing identifies nothing -
+    the full value is in the PLOT DATA panel either way.
+    """
+    # Mean glyph advance for the default CAD font at a given cap height. Close
+    # enough to budget with; text_extents() measures the result exactly.
+    per_char = max(char_h, 1e-6) * 0.72
+    budget = int(max_width / per_char) - len(template.format(""))
+    if budget >= len(value):
+        return template.format(value)
+    keep = max(min_value_chars, budget - 3)
+    return template.format(value[:keep].rstrip(" ,.") + "...")
+
+
+def text_extents(entity) -> Optional[tuple]:
+    """
+    (x0, y0, x1, y1) of a TEXT entity as it will actually render.
+
+    Placement arithmetic cannot tell you whether a label overruns its frame or
+    collides with another label - only the rendered width can, and that depends
+    on the font. Every text fault found when WORLI 733 was opened in AutoCAD was
+    invisible to coordinate checks for exactly this reason: legend rows escaping
+    the panel, the UTM tie-in lying across a dimension, two grid labels stacked
+    at the corner.
+
+    Rotation is applied to the corners so rotated dimension labels measure
+    correctly. Returns None when the font engine is unavailable, so callers must
+    treat measurement as best-effort rather than guaranteed.
+    """
+    try:
+        from ezdxf.tools.text_size import text_size
+        size = text_size(entity)
+        w, h = size.width, size.cap_height
+    except Exception:
+        try:
+            h = float(entity.dxf.height)
+            w = len(entity.dxf.text) * h * 0.72
+        except Exception:
+            return None
+    # Anchor point. Aligned text (anything other than left/baseline) stores its
+    # anchor in align_point, and the box grows around that anchor rather than right
+    # and up from it. Reading `insert` unconditionally reported the centred
+    # `CTS <n>` label half a width to the right and half a height too high.
+    halign = int(getattr(entity.dxf, "halign", 0) or 0)
+    valign = int(getattr(entity.dxf, "valign", 0) or 0)
+    try:
+        if (halign or valign) and entity.dxf.hasattr("align_point"):
+            anchor = entity.dxf.align_point
+        else:
+            anchor = entity.dxf.insert
+        x, y = float(anchor[0]), float(anchor[1])
+    except Exception:
+        return None
+
+    # Box offset from the anchor, per alignment.
+    # halign: 0 LEFT, 1 CENTER, 2 RIGHT, 3 ALIGNED, 4 MIDDLE, 5 FIT
+    # valign: 0 BASELINE, 1 BOTTOM, 2 MIDDLE, 3 TOP
+    ox = -w * {1: 0.5, 2: 1.0, 4: 0.5}.get(halign, 0.0)
+    oy = -h * (0.5 if halign == 4 else {2: 0.5, 3: 1.0}.get(valign, 0.0))
+
+    rot = math.radians(float(getattr(entity.dxf, "rotation", 0.0) or 0.0))
+    if not rot:
+        return (x + ox, y + oy, x + ox + w, y + oy + h)
+    # Rotation is about the anchor, so the alignment offset rotates with the box.
+    cos_r, sin_r = math.cos(rot), math.sin(rot)
+    pts = [(x + dx * cos_r - dy * sin_r, y + dx * sin_r + dy * cos_r)
+           for dx, dy in ((ox, oy), (ox + w, oy), (ox + w, oy + h), (ox, oy + h))]
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def boxes_overlap(a: Optional[tuple], b: Optional[tuple], slack: float = 0.0) -> bool:
+    """True when two (x0, y0, x1, y1) boxes intersect. Unmeasurable text never collides."""
+    if a is None or b is None:
+        return False
+    return not (a[2] + slack < b[0] or b[2] + slack < a[0]
+                or a[3] + slack < b[1] or b[3] + slack < a[1])
+
+
+def nudge_text_clear(entity, obstacles: list, step: float,
+                     direction: tuple = (0.0, 1.0), limit: int = 10) -> bool:
+    """
+    Shift a label along `direction` until it stops overlapping anything in `obstacles`.
+
+    Adjoining-parcel labels sit at the parcel centroid and boundary dimensions at
+    the edge midpoints; on WORLI 733 'CTS 733A' landed squarely on the '10.23m'
+    dimension, and on AMBIVALI 807 the '6.20m' and '3.47m' dimensions of two short
+    adjacent edges landed on each other. Neither placement is wrong in isolation,
+    so the label that moves is the one added later. Dimensions push outward along
+    the edge normal so they stay associated with their edge.
+
+    Returns True once clear, False if it never cleared within `limit` steps.
+    """
+    if step <= 0:
+        return True
+    dx, dy = direction
+    for _ in range(limit + 1):
+        box = text_extents(entity)
+        if box is None:
+            return True
+        if not any(boxes_overlap(box, other) for other in obstacles):
+            return True
+        ins = entity.dxf.insert
+        entity.set_placement((float(ins[0]) + dx * step, float(ins[1]) + dy * step))
+    return False
+
+
+# One source of truth for the legend rows. This list used to live inside the
+# drawing function while the sheet-sizing code carried its own hardcoded count of
+# 12, so the two could drift apart silently.
+DXF_LEGEND_ROWS = (
+    ('C-PLOT-BDY',      'PLOT BOUNDARY - gross plot area'),
+    ('C-PROP-HATCH',    'Gross plot area (fill)'),
+    ('C-ROAD-ALIGN',    'Abutting road alignment / frontage'),
+    ('C-SETBACK-3M',    '3.0 m setback line (true parallel offset)'),
+    ('C-SETBACK-6M',    '6.0 m setback line (true parallel offset)'),
+    # This layer carries advisory text only. CRZ status comes from a point
+    # identify, not a polygon, so there is no zone boundary to draw and the row
+    # must not imply one.
+    ('C-RESTRICT-ZONE', 'CRZ / Metro restriction (advisory note)'),
+    ('C-ADJN-PLOTS',    'Adjoining CTS plots'),
+    ('C-ANNO-DIMS',     'Boundary segment dimensions (m)'),
+    ('C-ANNO-TEXT',     'Plot metadata'),
+    ('C-NORTH-ARROW',   'True north'),
+    ('0_GRID_AXIS',     'Metric grid, 0,0 at plot centroid'),
+    ('C-TITLE-BLOCK',   'Sheet border, legend, title block'),
+)
+
+# Rows of vertical padding the panel needs beyond its content rows: the heading
+# gaps above LAYER LEGEND and PLOT DATA, and the margin below the last row.
+LEGEND_PAD_ROWS = 4.15
+
+
+def dxf_title_block_lines(properties: Dict[str, Any],
+                          utm_cx: float, utm_cy: float) -> List[str]:
+    """
+    The sheet's title block.
+
+    The Property Card caution is here rather than in PLOT DATA because it applies
+    to the drawing as a whole. MCGM's record and MCGM's own digitised polygon are
+    already both printed in the panel; the Property Card is a third source this
+    tool cannot read, and on WORLI 733 the owner measured it 5-7% away from the
+    MCGM figure.
+    """
+    return [
+        "MCGM DEVELOPMENT PLAN 2034 - CAD BASE",
+        f"PLOT: CTS {properties.get('cts_no')} ({properties.get('village')})",
+        "PURPOSE: Architectural concept & massing base",
+        "SCALE: 1:1 METRIC (1 CAD unit = 1 metre)",
+        "ORIGIN: Plot centroid (0.00, 0.00)",
+        f"UTM 43N CENTROID: E {utm_cx:.2f} / N {utm_cy:.2f}",
+        "SETBACKS ARE INDICATIVE - confirm against DCPR 2034",
+        "PLOT AREA PER PROPERTY CARD MAY DIFFER FROM THE MCGM",
+        "RECORD - reconcile both before any FSI calculation",
+    ]
+
+
+def title_block_height(lg_row: float, n_lines: int) -> float:
+    """Height the title block needs for `n_lines` of MTEXT plus its top margin."""
+    return lg_row * (n_lines + 1.2)
+
+
+def legend_column_height(lg_row: float, n_legend: int, n_data: int) -> float:
+    """
+    Height the legend panel needs to actually contain its rows.
+
+    Was `lg_row * (n_legend + 9.5)`, which never accounted for the PLOT DATA
+    rows at all - the panel border cut across the last three entries on every
+    drawing ever generated.
+    """
+    return lg_row * (n_legend + n_data + LEGEND_PAD_ROWS)
+
+
+# Longest value a PLOT DATA row carries before it wraps onto a continuation line.
+LEGEND_VALUE_MAX_CHARS = 34
+
+
+def legend_data_row(label: str, value: Any) -> List[str]:
+    """
+    One PLOT DATA row, wrapped onto continuation lines when the value is long.
+
+    AMBIVALI 807's frontage is 'Jay Prakash Road Part II Dadabhai Road to Versova
+    Metro.' - long enough to push that single row 19.8 m past the panel edge and
+    16.7 m outside the sheet border. Widening the panel to fit it would make the
+    panel wider than the plot, so the value wraps instead.
+    """
+    text = str(value)
+    if len(text) <= LEGEND_VALUE_MAX_CHARS:
+        return [f"{label:<16}: {text}"]
+    lines, current = [], ""
+    for word in text.split():
+        if current and len(current) + 1 + len(word) > LEGEND_VALUE_MAX_CHARS:
+            lines.append(current)
+            current = word
+        else:
+            current = f"{current} {word}".strip()
+    if current:
+        lines.append(current)
+    return [f"{label:<16}: {lines[0]}"] + [f"{'':<16}  {ln}" for ln in lines[1:]]
+
+
+def legend_data_rows(properties: Dict[str, Any], setback_status: Dict[float, bool],
+                     measured_area_sqm: Optional[float] = None) -> List[str]:
+    """
+    The PLOT DATA rows.
+
+    Both areas are printed on purpose. MCGM's approved record, MCGM's own
+    digitised parcel polygon and the Property Card are three independent sources
+    that do not agree: on WORLI 733 the record and the polygon differ by 0.30%,
+    but on AMBIVALI 807 they differ by 6.10% - 123 sq m. Printing a single figure
+    invites an FSI calculation off a number nobody reconciled, so the sheet shows
+    the record, shows what the drawn boundary actually measures, and names the
+    gap.
+    """
+    sb3 = "drawn" if setback_status.get(3.0) else "NOT VIABLE - plot too narrow"
+    sb6 = "drawn" if setback_status.get(6.0) else "NOT VIABLE - plot too narrow"
+    area_note = properties.get('area_source') or ''
+    derived = 'derived' in area_note
+    record_area = properties.get('area_sqm')
+
+    rows = legend_data_row("GROSS PLOT AREA", f"{record_area} sq m")
+    rows += legend_data_row(
+        "AREA SOURCE", "DERIVED from boundary" if derived else "MCGM approved record")
+    if measured_area_sqm:
+        delta = ""
+        if not derived and isinstance(record_area, (int, float)) and record_area:
+            pct = (measured_area_sqm - record_area) / record_area * 100.0
+            delta = f"  ({pct:+.2f}% vs record)"
+        rows += legend_data_row("MEASURED (BDY)", f"{measured_area_sqm:.2f} sq m{delta}")
+    rows += legend_data_row(
+        "CTS / VILLAGE", f"{properties.get('cts_no')} / {properties.get('village')}")
+    rows += legend_data_row(
+        "WARD / ZONE", f"{properties.get('ward')} / {properties.get('zone')}")
+    rows += legend_data_row(
+        "ABUTTING ROAD",
+        f"{properties.get('abutting_road')} ({properties.get('road_width')})")
+    # The drawing carries a short 'CRZ: ...' marker because a sentence does not fit
+    # on a small plot; the instruction that goes with it belongs here.
+    crz_value = properties.get('crz_buffer_flag')
+    if str(crz_value or '').upper().startswith('YES'):
+        crz_value = f"{crz_value} - verify with MCGM/MCZMA"
+    rows += legend_data_row("CRZ STATUS", crz_value)
+    rows += legend_data_row("METRO BUFFER", properties.get('metro_buffer_flag'))
+    rows += legend_data_row("3.0 m SETBACK", sb3)
+    rows += legend_data_row("6.0 m SETBACK", sb6)
+    return rows
+
+
+def draw_dxf_legend_column(msp, properties: Dict[str, Any], setback_status: Dict[float, bool],
+                           utm_cx: float, utm_cy: float,
+                           lg_x0: float, lg_w: float, b_max_y: float, b_min_y: float,
+                           char_h: float, dim_char_h: float, scale: float,
+                           data_rows: Optional[List[str]] = None) -> float:
+    """
+    Legend, plot-data panel and title block, stacked down the right-hand column.
+
+    Legend swatches are drawn ON their own layers, so each sample line carries
+    that layer's real colour and linetype - the swatch is the layer rather than
+    a picture of one.
+
+    Both panel frames are drawn LAST and sized from the measured extents of the
+    text inside them. Sizing them first from a row count is what let four legend
+    rows overrun the panel edge and three fall outside it entirely. Returns the
+    rightmost x reached, so the caller can put the sheet border outside it.
+    """
+    if data_rows is None:
+        data_rows = legend_data_rows(properties, setback_status)
+
+    lg_row = max(char_h * 1.9, 2.2)
+    left = lg_x0 + lg_row * 0.4
+    lg_y1 = b_max_y - scale * 0.05
+    right_edge = lg_x0 + lg_w
+    emitted = []
+
+    def place(text: str, height: float, x: float, y: float):
+        entity = msp.add_text(
+            text, dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': height})
+        entity.set_placement((x, y))
+        emitted.append(entity)
+        return entity
+
+    # ---- LEGEND ----------------------------------------------------------
+    y = lg_y1 - lg_row * 1.2
+    place("LAYER LEGEND", char_h * 0.95, left, y)
+    y -= lg_row * 1.3
+
+    swatch_w = lg_row * 1.5
+    for layer_name, meaning in DXF_LEGEND_ROWS:
+        # sample line drawn ON its own layer, so it carries that layer's colour
+        # and linetype - the swatch is the layer, not a picture of it.
+        msp.add_line((left, y + lg_row * 0.22),
+                     (left + swatch_w, y + lg_row * 0.22),
+                     dxfattribs={'layer': layer_name})
+        place(f"{layer_name}  -  {meaning}", dim_char_h * 0.92,
+              left + swatch_w + lg_row * 0.5, y)
+        y -= lg_row
+
+    # ---- PLOT DATA (what an architect needs before massing) --------------
+    y -= lg_row * 0.6
+    place("PLOT DATA", char_h * 0.95, left, y)
+    y -= lg_row * 1.25
+
+    for row in data_rows:
+        place(row, dim_char_h * 0.92, left, y)
+        y -= lg_row
+
+    # Frame sized to what is actually inside it, in both axes.
+    measured_right = right_edge
+    for entity in emitted:
+        box = text_extents(entity)
+        if box:
+            measured_right = max(measured_right, box[2])
+    lg_x1 = measured_right + lg_row * 0.4
+    lg_y0 = min(y + lg_row - lg_row * 0.8,
+                lg_y1 - legend_column_height(lg_row, len(DXF_LEGEND_ROWS), len(data_rows)))
+    msp.add_lwpolyline(
+        [(lg_x0, lg_y0), (lg_x1, lg_y0), (lg_x1, lg_y1), (lg_x0, lg_y1)],
+        dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
+
+    # ---- TITLE BLOCK (bottom of the legend column) -----------------------
+    title_lines = dxf_title_block_lines(properties, utm_cx, utm_cy)
+    tb_char_h = dim_char_h * 0.92
+    tb_h = title_block_height(lg_row, len(title_lines))
+    tb_y0 = b_min_y + scale * 0.05
+    tb_x1 = lg_x1
+    mtext = msp.add_mtext(
+        "\n".join(title_lines),
+        dxfattribs={'layer': 'C-TITLE-BLOCK', 'char_height': tb_char_h})
+    mtext.set_location((left, tb_y0 + tb_h - lg_row * 0.5))
+    msp.add_lwpolyline(
+        [(lg_x0, tb_y0), (tb_x1, tb_y0), (tb_x1, tb_y0 + tb_h), (lg_x0, tb_y0 + tb_h)],
+        dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
+
+    return lg_x1
+
+
+
+
+def export_dxf(wgs_rings: list, properties: dict, output_path: str,
+               neighbors: Optional[list] = None, roads: Optional[list] = None):
     """
     Generates a scale-accurate Multi-Layered AutoCAD DXF CAD drawing file (.dxf)
     centered around Local Origin (0, 0) in Real-World Metric Meters (1 CAD Unit = 1 Meter).
@@ -374,56 +898,15 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
     - C-ANNO-DIMS: Automated Boundary Segment Dimensions in Meters
     - C-TITLE-BLOCK: Architectural Sheet Border Frame & Title Block Box
     """
-    doc = ezdxf.new('R2010')
-    doc.header['$INSUNITS'] = 6     # Units = Meters
-    doc.header['$MEASUREMENT'] = 1  # ISO Metric
-    
+    doc = new_dxf_document()
     msp = doc.modelspace()
     
-    # Try adding linetypes
-    try:
-        doc.linetypes.add('DASHED', pattern='A, 1.0, -0.5')
-        doc.linetypes.add('PHANTOM', pattern='A, 2.0, -0.5, 0.5, -0.5, 0.5, -0.5')
-    except Exception:
-        pass
-
-    # Add Architectural Layers
-    doc.layers.add(name='0_GRID_AXIS', color=8, linetype='DASHED')
-    doc.layers.add(name='C-PLOT-BDY', color=1)
-    doc.layers.add(name='C-PROP-HATCH', color=252)
-    doc.layers.add(name='C-SETBACK-3M', color=3, linetype='DASHED')
-    doc.layers.add(name='C-SETBACK-6M', color=70, linetype='DASHED')
-    doc.layers.add(name='C-ADJN-PLOTS', color=2)
-    doc.layers.add(name='C-ROAD-ALIGN', color=4, linetype='DASHED')
-    doc.layers.add(name='C-RESTRICT-ZONE', color=6, linetype='PHANTOM')
-    doc.layers.add(name='C-ANNO-TEXT', color=7)
-    doc.layers.add(name='C-ANNO-DIMS', color=5)
-    doc.layers.add(name='C-NORTH-ARROW', color=7)
-    doc.layers.add(name='C-TITLE-BLOCK', color=4)
-    
     # 1. Fast Scale-Accurate Metric Projection around Local Origin (0, 0)
-    r0 = wgs_rings[0]
-    lons = [p[0] for p in r0]
-    lats = [p[1] for p in r0]
+    proj = project_rings_to_local_metres(wgs_rings)
+    lon0, lat0 = proj["lon0"], proj["lat0"]
+    meters_per_deg_lon, meters_per_deg_lat = proj["mpd_lon"], proj["mpd_lat"]
+    local_rings = proj["local_rings"]
     
-    lon0 = sum(lons) / len(lons)
-    lat0 = sum(lats) / len(lats)
-    
-    lat_rad = math.radians(lat0)
-    cos_lat = math.cos(lat_rad)
-    
-    # Degree-to-Meter conversion constants for Mumbai latitude (~18.9° N)
-    meters_per_deg_lon = 111319.5 * cos_lat
-    meters_per_deg_lat = 111132.0
-    
-    local_rings = []
-    for ring in wgs_rings:
-        loc_ring = [
-            ((p[0] - lon0) * meters_per_deg_lon, (p[1] - lat0) * meters_per_deg_lat)
-            for p in ring
-        ]
-        local_rings.append(loc_ring)
-        
     lr0 = local_rings[0]
     all_x = [p[0] for p in lr0]
     all_y = [p[1] for p in lr0]
@@ -456,7 +939,11 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
     gy = g_min_y
     while gy <= g_max_y:
         msp.add_line((g_min_x, gy), (g_max_x, gy), dxfattribs={'layer': '0_GRID_AXIS'})
-        msp.add_text(f"{int(gy)}m", dxfattribs={'layer': '0_GRID_AXIS', 'height': dim_char_h * 0.8}).set_placement((g_min_x + 0.5, gy + 0.5))
+        # The bottom-left corner is where the X label row and the Y label column
+        # meet: both emitted a label at exactly the same point, so the two sat
+        # stacked on top of each other. The corner's Y value is redundant there.
+        if gy > g_min_y:
+            msp.add_text(f"{int(gy)}m", dxfattribs={'layer': '0_GRID_AXIS', 'height': dim_char_h * 0.8}).set_placement((g_min_x + 0.5, gy + 0.5))
         gy += grid_step
 
     # 3. C-PLOT-BDY: Primary Plot Boundary (Closed Polyline)
@@ -464,12 +951,31 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
         poly = msp.add_lwpolyline(loc_ring, dxfattribs={'layer': 'C-PLOT-BDY', 'closed': True})
         poly.dxf.const_width = max(0.15, scale * 0.005)
         
-        # Solid Hatch inside plot boundary
+        # Plot fill. Deliberately transparent: as an opaque solid it hid anything
+        # an architect placed underneath - a survey underlay, a satellite image,
+        # an imported DP extract - which is most of what this drawing is for.
         try:
             hatch = msp.add_hatch(color=252, dxfattribs={'layer': 'C-PROP-HATCH'})
             hatch.paths.add_polyline_path(loc_ring, is_closed=True)
+            hatch.transparency = 0.65
         except Exception:
             pass
+
+    # Every label placed from here on is registered in `placed_boxes`, and each new
+    # one clears everything already in it. The order matters: whatever is placed
+    # first wins its position, so the list runs from most to least load-bearing.
+    placed_boxes = []
+
+    # 3b. The plot identifier, placed before the annotation that must avoid it.
+    # Left until last it was never checked against anything, so a boundary
+    # dimension could land on it ('12.00m' over 'CTS 1862').
+    cts_label = msp.add_text(
+        f"CTS {properties.get('cts_no')}",
+        dxfattribs={'layer': 'C-ANNO-TEXT', 'height': char_h})
+    cts_label.set_placement((cx, cy), align=TextEntityAlignment.MIDDLE_CENTER)
+    cts_box = text_extents(cts_label)
+    if cts_box:
+        placed_boxes.append(cts_box)
 
     # 4. C-SETBACK-3M & C-SETBACK-6M: true parallel setback lines.
     #
@@ -486,12 +992,37 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
                 drawn += 1
         setback_status[spec_dist] = drawn > 0
         if not drawn:
-            msp.add_text(
-                f"{spec_dist:.1f}m SETBACK NOT VIABLE - PLOT TOO NARROW",
-                dxfattribs={'layer': spec_layer, 'height': dim_char_h}
-            ).set_placement((min_x, min_y - dim_char_h * (2.5 if spec_dist == 3.0 else 4.0)))
+            # A marker, not a sentence. The full wording lives in the PLOT DATA
+            # panel; spelled out here it ran 3.8x the width of an 8 m plot, which
+            # is exactly the size of plot that triggers this message.
+            marker = msp.add_text(
+                f"{spec_dist:.1f}m SETBACK N/A",
+                dxfattribs={'layer': spec_layer, 'height': dim_char_h})
+            marker.set_placement((min_x, min_y - dim_char_h * (2.5 if spec_dist == 3.0 else 4.0)))
+            # Stacks below the plot alongside the road label, which is why it has
+            # to clear downward rather than up into the geometry.
+            nudge_text_clear(marker, placed_boxes, dim_char_h * 1.3,
+                             direction=(0.0, -1.0), limit=6)
+            box = text_extents(marker)
+            if box:
+                placed_boxes.append(box)
 
     # 5. C-ANNO-DIMS: Automated Boundary Side Dimension Lines in Meters
+    #
+    # Adjacent short edges crowd their labels together. Pushing outward along the
+    # edge normal separates them when the edges turn, but on a run of near-collinear
+    # slivers the normals are nearly parallel, so the labels travel together and
+    # never separate - DADAR-NAIGAON 98 produced seven mutual collisions among
+    # labels of 1.07-1.34 m.
+    #
+    # Two rules resolve it. Longest edges are labelled first, so the dimensions an
+    # architect actually needs win their position. Any label that still cannot be
+    # placed clear is removed rather than left overlapping: an unreadable pair of
+    # numbers conveys nothing and can be misread, the edge itself is still drawn,
+    # and the length is always recoverable by measuring in CAD. This is the rule
+    # already applied to sub-metre slivers, extended to the case where crowding is
+    # established by measurement instead of assumed from a length threshold.
+    segments = []
     for loc_ring in local_rings:
         n_pts = len(loc_ring)
         for i in range(n_pts):
@@ -499,28 +1030,43 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
             p2 = loc_ring[(i + 1) % n_pts]
             dx = p2[0] - p1[0]
             dy = p2[1] - p1[1]
-            seg_len = math.sqrt(dx*dx + dy*dy)
-            if seg_len > 0.5:
-                mx = (p1[0] + p2[0]) / 2.0
-                my = (p1[1] + p2[1]) / 2.0
-                # Outward normal
-                nx = -dy / seg_len
-                ny = dx / seg_len
-                if (mx + nx - cx)**2 + (my + ny - cy)**2 < (mx - cx)**2 + (my - cy)**2:
-                    nx = -nx
-                    ny = -ny
-                tx = mx + nx * (dim_char_h * 1.8)
-                ty = my + ny * (dim_char_h * 1.8)
-                angle_deg = math.degrees(math.atan2(dy, dx))
-                if angle_deg > 90 or angle_deg < -90:
-                    angle_deg += 180
-                
-                txt_elem = msp.add_text(f"{seg_len:.2f}m", dxfattribs={
-                    'layer': 'C-ANNO-DIMS',
-                    'height': dim_char_h,
-                    'rotation': angle_deg
-                })
-                txt_elem.set_placement((tx, ty))
+            seg_len = math.sqrt(dx * dx + dy * dy)
+            # Sub-metre slivers are digitisation noise rather than real frontage;
+            # the segment itself is still drawn.
+            if seg_len > 1.0:
+                segments.append((seg_len, dx, dy, p1, p2))
+    segments.sort(key=lambda s: -s[0])
+
+    dims_dropped = 0
+    for seg_len, dx, dy, p1, p2 in segments:
+        mx = (p1[0] + p2[0]) / 2.0
+        my = (p1[1] + p2[1]) / 2.0
+        # Outward normal
+        nx = -dy / seg_len
+        ny = dx / seg_len
+        if (mx + nx - cx)**2 + (my + ny - cy)**2 < (mx - cx)**2 + (my - cy)**2:
+            nx = -nx
+            ny = -ny
+        tx = mx + nx * (dim_char_h * 1.8)
+        ty = my + ny * (dim_char_h * 1.8)
+        angle_deg = math.degrees(math.atan2(dy, dx))
+        if angle_deg > 90 or angle_deg < -90:
+            angle_deg += 180
+
+        txt_elem = msp.add_text(f"{seg_len:.2f}m", dxfattribs={
+            'layer': 'C-ANNO-DIMS',
+            'height': dim_char_h,
+            'rotation': angle_deg
+        })
+        txt_elem.set_placement((tx, ty))
+        if nudge_text_clear(txt_elem, placed_boxes, dim_char_h * 1.2,
+                            direction=(nx, ny), limit=10):
+            box = text_extents(txt_elem)
+            if box:
+                placed_boxes.append(box)
+        else:
+            msp.delete_entity(txt_elem)
+            dims_dropped += 1
 
     # 6. C-ADJN-PLOTS: Adjoining CTS Plot Boundaries
     if neighbors:
@@ -533,10 +1079,19 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
                 if n_loc_ring:
                     ncx = sum(p[0] for p in n_loc_ring) / len(n_loc_ring)
                     ncy = sum(p[1] for p in n_loc_ring) / len(n_loc_ring)
-                    msp.add_text(f"CTS {n_cts}", dxfattribs={
+                    label = msp.add_text(f"CTS {n_cts}", dxfattribs={
                         'layer': 'C-ADJN-PLOTS',
                         'height': dim_char_h * 0.9
-                    }).set_placement((ncx, ncy))
+                    })
+                    label.set_placement((ncx, ncy))
+                    # A neighbour's centroid can coincide with one of our own
+                    # boundary dimensions ('CTS 733A' over '10.23m' on WORLI 733).
+                    # The dimension is load-bearing for the architect; the
+                    # neighbour label is reference, so the label moves.
+                    nudge_text_clear(label, placed_boxes, dim_char_h * 1.2, limit=6)
+                    box = text_extents(label)
+                    if box:
+                        placed_boxes.append(box)
 
     # 6b. C-ROAD-ALIGN: abutting road centreline(s).
     # This layer was declared but never populated - an architect had no idea
@@ -548,65 +1103,89 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
     cx_lo, cx_hi = min_x - clip, max_x + clip
     cy_lo, cy_hi = min_y - clip, max_y + clip
 
-    def _inside(p):
-        return cx_lo <= p[0] <= cx_hi and cy_lo <= p[1] <= cy_hi
-
     road_drawn = 0
     for road_ring in (roads or []):
         loc = [((pt[0] - lon0) * meters_per_deg_lon, (pt[1] - lat0) * meters_per_deg_lat)
                for pt in road_ring]
-        # keep contiguous runs that fall inside the sheet, plus one point either
-        # side of each crossing so the line reaches the sheet edge
-        run, runs = [], []
-        for i, p in enumerate(loc):
-            if _inside(p):
-                if not run and i > 0:
-                    run.append(loc[i - 1])
-                run.append(p)
-            elif run:
-                run.append(p)
-                runs.append(run)
-                run = []
-        if run:
-            runs.append(run)
-        for seg in runs:
+        for seg in clip_path_to_window(loc, cx_lo, cy_lo, cx_hi, cy_hi):
             if len(seg) >= 2:
                 msp.add_lwpolyline(seg, dxfattribs={'layer': 'C-ROAD-ALIGN'})
                 road_drawn += 1
 
     if road_drawn:
-        msp.add_text(
-            f"ABUTTING ROAD: {properties.get('abutting_road')} ({properties.get('road_width')})",
-            dxfattribs={'layer': 'C-ROAD-ALIGN', 'height': dim_char_h}
-        ).set_placement((min_x, min_y - dim_char_h * 1.2))
+        # Shortened on purpose. AMBIVALI 807's frontage name runs to 56
+        # characters, which on the drawing is wider than the plot itself; the
+        # full name and width are in the PLOT DATA panel.
+        # Budgeted against the plot, not a fixed character count. BANDRA-A 409 is
+        # 7.6 m wide, where even a 24-character name rendered 3x the plot width.
+        # The full name and width are always in the PLOT DATA panel.
+        road_text = msp.add_text(
+            fit_label_to_width(
+                "ABUTTING ROAD: {}",
+                f"{properties.get('abutting_road') or 'N/A'} ({properties.get('road_width')})",
+                max_width=max(width, height) * 1.2, char_h=dim_char_h),
+            dxfattribs={'layer': 'C-ROAD-ALIGN', 'height': dim_char_h})
+        road_text.set_placement((min_x, min_y - dim_char_h * 1.2))
+        # Sits below the plot, so it clears downward - pushing it up would move it
+        # onto the geometry it is annotating.
+        nudge_text_clear(road_text, placed_boxes, dim_char_h * 1.3,
+                         direction=(0.0, -1.0), limit=6)
+        box = text_extents(road_text)
+        if box:
+            placed_boxes.append(box)
 
     # 7. C-RESTRICT-ZONE: CRZ and Metro development restrictions.
+    # Markers, not sentences. Spelled out in full these ran 3.3x the width of an
+    # 8 m plot; the full wording is in the PLOT DATA panel, which has room for it.
     restrict_notes = []
     crz_flag = str(properties.get("crz_buffer_flag") or "")
     if crz_flag.upper().startswith("YES"):
-        restrict_notes.append(f"COASTAL REGULATION ZONE: {crz_flag}")
-        restrict_notes.append("Development restricted under CRZ Notification - verify with MCGM/MCZMA")
-    if properties.get("metro_buffer_flag") == "YES":
+        restrict_notes.append(f"CRZ: {crz_flag}")
+        restrict_notes.append("DEVELOPMENT RESTRICTED")
+    # Prefix test, not equality. The lookup sets this to "YES (Metro Buffer Zone)",
+    # so `== "YES"` never matched and the metro restriction was silently absent
+    # from every drawing ever generated - AMBIVALI 807 is in a metro buffer and its
+    # DXF said nothing. Same failure mode as the CRZ check above, which is why both
+    # now share the shape.
+    if str(properties.get("metro_buffer_flag") or "").upper().startswith("YES"):
         msp.add_circle((cx, cy), radius=scale * 0.6, dxfattribs={'layer': 'C-RESTRICT-ZONE'})
-        restrict_notes.append("METRO RAIL INFLUENCE BUFFER")
-    for i, note in enumerate(restrict_notes):
-        msp.add_text(note, dxfattribs={
-            'layer': 'C-RESTRICT-ZONE', 'height': dim_char_h
-        }).set_placement((min_x, max_y + dim_char_h * (2.2 + i * 1.4)))
+        restrict_notes.append("METRO RAIL BUFFER")
+    # Stacked above the plot, clear of the dimension band. The dimension labels
+    # sit dim_char_h * 1.8 outside the boundary plus their own cap height, so a
+    # note placed nearer than that lands on top of the top-edge dimensions - which
+    # is what put 'PLOT CENTROID' across '3.30m' on WORLI 733 and across two
+    # dimensions on AMBIVALI 807.
+    # Notes are the last annotation placed, so they clear everything already on
+    # the sheet and then stack upward from wherever each one landed. Placing them
+    # at fixed offsets put 'Development restricted...' straight through the
+    # 'CTS 732A' neighbour label on WORLI 733.
+    note_y = max_y + dim_char_h * 4.4
+    for note in restrict_notes:
+        note_text = msp.add_text(note, dxfattribs={
+            'layer': 'C-RESTRICT-ZONE', 'height': dim_char_h})
+        note_text.set_placement((min_x, note_y))
+        nudge_text_clear(note_text, placed_boxes, dim_char_h * 1.2, limit=14)
+        box = text_extents(note_text)
+        if box:
+            placed_boxes.append(box)
+            note_y = box[3] + dim_char_h * 1.1
+        else:
+            note_y += dim_char_h * 2.1
 
-    # 8. C-ANNO-TEXT: Centroid Metadata Title Block
-    lbl_text = (
-        f"CTS NO: {properties.get('cts_no')}\n"
-        f"VILLAGE: {properties.get('village')}\n"
-        f"WARD: {properties.get('ward')}\n"
-        f"AREA: {properties.get('area_sqm')} SQ M\n"
-        f"ZONE: {properties.get('zone')}\n"
-        f"STATUS: {properties.get('status_badge')}\n"
-        f"ABUTTING ROAD: {properties.get('abutting_road')} ({properties.get('road_width')})\n"
-        f"UTM CENTROID: E {utm_cx:.2f} m | N {utm_cy:.2f} m (UTM 43N)"
-    )
-    mtext = msp.add_mtext(lbl_text, dxfattribs={'layer': 'C-ANNO-TEXT', 'char_height': char_h})
-    mtext.set_location((cx - width * 0.4, cy + height * 0.2))
+    # 8. C-ANNO-TEXT: plot identity only, at the centroid.
+    #
+    # This used to print an eight-line metadata block across the middle of the
+    # plot - covering the boundary and both setback lines, i.e. exactly the area
+    # an architect needs clear to draw in. Rendering the DXF made that obvious
+    # in a way no geometry check could. The full metadata already lives in the
+    # PLOT DATA panel beside the legend, so only the identifier stays here.
+    # (Drawn earlier, before the annotation that has to avoid it.)
+
+    # The UTM tie-in used to be printed here as a 56-character string above the
+    # plot. It was the widest annotation on every sheet (0.91x the plot width on
+    # AMBIVALI 807, ~6x on a small plot), it collided with the top-edge
+    # dimensions, and it is already in the title block verbatim as
+    # "UTM 43N CENTROID". Carrying it twice bought nothing but the collision.
 
     # 8b. C-NORTH-ARROW: orientation. Local +Y is true north because the metric
     # projection maps latitude straight onto Y.
@@ -640,6 +1219,14 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
                 ctr, rad = entity.dxf.center, entity.dxf.radius
                 content_x += [ctr.x - rad, ctr.x + rad]
                 content_y += [ctr.y - rad, ctr.y + rad]
+            elif entity.dxftype() == 'TEXT':
+                # Text was invisible to this scan, which is precisely why labels
+                # ended up outside the border - the thing sizing the border could
+                # not see them.
+                box = text_extents(entity)
+                if box:
+                    content_x += [box[0], box[2]]
+                    content_y += [box[1], box[3]]
         except Exception:
             continue
     if not content_x:
@@ -651,106 +1238,40 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str, neighbors: l
     b_min_y = min(content_y) - pad
     b_max_y = max(content_y) + pad
 
+    # What the drawn boundary actually measures, which is not always what MCGM's
+    # record says: AMBIVALI 807 differs by 123 sq m (6.10%). Both go on the sheet.
+    measured_area = sum(abs(polygon_signed_area(r)) for r in local_rings) or None
+    data_rows = legend_data_rows(properties, setback_status, measured_area)
+
     # The legend column carries the legend rows, the plot-data rows and the title
     # block. On a small plot that stack is taller than the drawing, so grow the
-    # sheet downward rather than letting the legend run off the bottom.
+    # sheet downward rather than letting the legend run off the bottom. Both
+    # heights are derived from the row lists themselves - the old figures were
+    # magic constants that had never counted the PLOT DATA rows at all.
     _lg_row = max(char_h * 1.9, 2.2)
-    _legend_rows_n = 12
-    _needed = _lg_row * (_legend_rows_n + 9.5) + _lg_row * 7.2 + pad * 3
+    _needed = (legend_column_height(_lg_row, len(DXF_LEGEND_ROWS), len(data_rows))
+               + title_block_height(_lg_row, len(dxf_title_block_lines(properties, utm_cx, utm_cy)))
+               + pad * 3)
     if (b_max_y - b_min_y) < _needed:
         b_min_y = b_max_y - _needed
 
     # Legend panel sits to the right of all geometry, so it never covers anything.
     lg_w = max(scale * 0.95, 26.0)
     lg_x0 = plot_right + scale * 0.06
-    b_max_x = lg_x0 + lg_w + scale * 0.06
+
+    # The legend is drawn BEFORE the border and reports how far right it actually
+    # reached, so the border can contain it. Sized the other way round, four
+    # legend rows overran the panel and one escaped the sheet entirely.
+    lg_x1 = draw_dxf_legend_column(
+        msp, properties, setback_status, utm_cx, utm_cy,
+        lg_x0, lg_w, b_max_y, b_min_y, char_h, dim_char_h, scale,
+        data_rows=data_rows,
+    )
+    b_max_x = max(lg_x0 + lg_w, lg_x1) + scale * 0.06
 
     msp.add_lwpolyline(
         [(b_min_x, b_min_y), (b_max_x, b_min_y), (b_max_x, b_max_y), (b_min_x, b_max_y)],
         dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
-
-    # ---- LEGEND ----------------------------------------------------------
-    lg_row = max(char_h * 1.9, 2.2)
-    legend_rows = [
-        ('C-PLOT-BDY',      'PLOT BOUNDARY - gross plot area'),
-        ('C-PROP-HATCH',    'Gross plot area (fill)'),
-        ('C-ROAD-ALIGN',    'Abutting road alignment / frontage'),
-        ('C-SETBACK-3M',    '3.0 m setback line (true parallel offset)'),
-        ('C-SETBACK-6M',    '6.0 m setback line (true parallel offset)'),
-        ('C-RESTRICT-ZONE', 'CRZ / Metro development restriction'),
-        ('C-ADJN-PLOTS',    'Adjoining CTS plots'),
-        ('C-ANNO-DIMS',     'Boundary segment dimensions (m)'),
-        ('C-ANNO-TEXT',     'Plot metadata'),
-        ('C-NORTH-ARROW',   'True north'),
-        ('0_GRID_AXIS',     'Metric grid, 0,0 at plot centroid'),
-        ('C-TITLE-BLOCK',   'Sheet border, legend, title block'),
-    ]
-    lg_h = lg_row * (len(legend_rows) + 9.5)
-    lg_y1 = b_max_y - scale * 0.05
-    lg_y0 = lg_y1 - lg_h
-    msp.add_lwpolyline(
-        [(lg_x0, lg_y0), (lg_x0 + lg_w, lg_y0), (lg_x0 + lg_w, lg_y1), (lg_x0, lg_y1)],
-        dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
-
-    y = lg_y1 - lg_row * 1.2
-    msp.add_text("LAYER LEGEND", dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': char_h * 0.95}) \
-        .set_placement((lg_x0 + lg_row * 0.4, y))
-    y -= lg_row * 1.3
-
-    swatch_w = lg_row * 1.5
-    for layer_name, meaning in legend_rows:
-        # sample line drawn ON its own layer, so it carries that layer's colour
-        # and linetype - the swatch is the layer, not a picture of it.
-        msp.add_line((lg_x0 + lg_row * 0.4, y + lg_row * 0.22),
-                     (lg_x0 + lg_row * 0.4 + swatch_w, y + lg_row * 0.22),
-                     dxfattribs={'layer': layer_name})
-        msp.add_text(f"{layer_name}  -  {meaning}",
-                     dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': dim_char_h * 0.92}) \
-            .set_placement((lg_x0 + lg_row * 0.4 + swatch_w + lg_row * 0.5, y))
-        y -= lg_row
-
-    # ---- PLOT DATA (what an architect needs before massing) --------------
-    y -= lg_row * 0.6
-    msp.add_text("PLOT DATA", dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': char_h * 0.95}) \
-        .set_placement((lg_x0 + lg_row * 0.4, y))
-    y -= lg_row * 1.25
-
-    sb3 = "drawn" if setback_status.get(3.0) else "NOT VIABLE - plot too narrow"
-    sb6 = "drawn" if setback_status.get(6.0) else "NOT VIABLE - plot too narrow"
-    area_note = properties.get('area_source') or ''
-    data_rows = [
-        f"GROSS PLOT AREA : {properties.get('area_sqm')} sq m",
-        f"AREA SOURCE     : {'DERIVED from boundary' if 'derived' in area_note else 'MCGM approved record'}",
-        f"CTS / VILLAGE   : {properties.get('cts_no')} / {properties.get('village')}",
-        f"WARD / ZONE     : {properties.get('ward')} / {properties.get('zone')}",
-        f"ABUTTING ROAD   : {properties.get('abutting_road')} ({properties.get('road_width')})",
-        f"CRZ STATUS      : {properties.get('crz_buffer_flag')}",
-        f"METRO BUFFER    : {properties.get('metro_buffer_flag')}",
-        f"3.0 m SETBACK   : {sb3}",
-        f"6.0 m SETBACK   : {sb6}",
-    ]
-    for row in data_rows:
-        msp.add_text(row, dxfattribs={'layer': 'C-TITLE-BLOCK', 'height': dim_char_h * 0.92}) \
-            .set_placement((lg_x0 + lg_row * 0.4, y))
-        y -= lg_row
-
-    # ---- TITLE BLOCK (bottom of the legend column) -----------------------
-    tb_h = lg_row * 7.2
-    tb_y0 = b_min_y + scale * 0.05
-    msp.add_lwpolyline(
-        [(lg_x0, tb_y0), (lg_x0 + lg_w, tb_y0), (lg_x0 + lg_w, tb_y0 + tb_h), (lg_x0, tb_y0 + tb_h)],
-        dxfattribs={'layer': 'C-TITLE-BLOCK', 'closed': True})
-    title_meta = (
-        f"MCGM DEVELOPMENT PLAN 2034 - CAD BASE\n"
-        f"PLOT: CTS {properties.get('cts_no')} ({properties.get('village')})\n"
-        f"PURPOSE: Architectural concept & massing base\n"
-        f"SCALE: 1:1 METRIC (1 CAD unit = 1 metre)\n"
-        f"ORIGIN: Plot centroid (0.00, 0.00)\n"
-        f"UTM 43N CENTROID: E {utm_cx:.2f} / N {utm_cy:.2f}\n"
-        f"SETBACKS ARE INDICATIVE - confirm against DCPR 2034"
-    )
-    msp.add_mtext(title_meta, dxfattribs={'layer': 'C-TITLE-BLOCK', 'char_height': dim_char_h * 0.92}) \
-        .set_location((lg_x0 + lg_row * 0.4, tb_y0 + tb_h - lg_row * 0.5))
 
     # Set Header Extents & Active Modelspace Viewport Zoom Framing for AutoCAD 2024
     doc.header['$EXTMIN'] = (b_min_x, b_min_y, 0)
@@ -920,6 +1441,362 @@ def build_pdf_doc(pdf_path, status_badge, status_summary, village, attrs, cts_nu
 
     doc.build(story)
 
+# --- pure helpers ------------------------------------------------------------
+# Extracted from lookup_plot_pro, which had grown to 730 lines doing network IO,
+# geometry, parsing, rendering, export and logging in one scope. Everything below
+# is free of IO and shared state, so it is unit-testable without touching MCGM.
+
+WEB_MERCATOR_R = 20037508.342789244
+
+
+def mercator_to_wgs84(x: float, y: float, precision: int = 7) -> List[float]:
+    """Web Mercator (EPSG:102100/3857) metres to WGS84 degrees."""
+    lon = round((x / WEB_MERCATOR_R) * 180, precision)
+    lat = round(
+        (math.atan(math.exp(y / WEB_MERCATOR_R * math.pi)) * 2 - math.pi / 2) * 180 / math.pi,
+        precision,
+    )
+    return [lon, lat]
+
+
+def resolve_plot_area(attrs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Decide which area to report, and say which one it is.
+
+    MCGM leaves AREA_APP_SQ_MTRS null on a meaningful number of parcels
+    (MALABAR HILL 518, TARDEO 264). SHAPE.AREA - the digitised polygon's own
+    area - is populated there and is already in true ground square metres:
+    verified to match AREA_APP_SQ_MTRS exactly on plots carrying both.
+
+    It is NOT the same authority. It is the drawn area, not the approved
+    cadastral one, and the two differ by up to 7% where both exist. So it is a
+    labelled fallback, never a silent substitution.
+
+    Returns {"area_sqm", "area_source", "note"} - note is None when the approved
+    figure was available.
+    """
+    approved = attrs.get("AREA_APP_SQ_MTRS")
+    geometry = attrs.get("SHAPE.AREA")
+    if approved not in (None, "", 0):
+        return {"area_sqm": approved,
+                "area_source": "approved (MCGM AREA_APP_SQ_MTRS)",
+                "note": None}
+    if isinstance(geometry, (int, float)) and geometry > 0:
+        return {"area_sqm": round(float(geometry), 2),
+                "area_source": "derived from plot geometry - MCGM has no approved area on record",
+                "note": ("MCGM has no approved area for this plot; area is derived from the "
+                         "digitised boundary and is indicative only")}
+    return {"area_sqm": None, "area_source": "unavailable", "note": None}
+
+
+def prepare_geometry(rings: list) -> Dict[str, Any]:
+    """
+    Everything derived from the parcel rings: centroid, bounding box, the
+    half-extent used for map windows, and the WGS84 reprojection.
+    """
+    ring = rings[0]
+    cx = sum(p[0] for p in ring) / len(ring)
+    cy = sum(p[1] for p in ring) / len(ring)
+
+    pts = [p for r in rings for p in r]
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    mcx, mcy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    span = max(max(xs) - min(xs), max(ys) - min(ys))
+
+    lon, lat = mercator_to_wgs84(cx, cy, precision=6)
+    return {
+        "cx": cx, "cy": cy, "mcx": mcx, "mcy": mcy,
+        "xs": xs, "ys": ys,
+        "d": max(50, span / 2),
+        "lat": lat, "lon": lon,
+        "wgs_rings": [[mercator_to_wgs84(p[0], p[1]) for p in r] for r in rings],
+    }
+
+
+def bundle_folder_name(village: Any, cts_number: Any) -> str:
+    """Filesystem-safe bundle folder, e.g. 'malabar_hill_cts_16-738'."""
+    cts_clean = str(cts_number).replace("/", "-").replace("\\", "-")
+    village_clean = (str(village).lower().strip()
+                     .replace("/", "-").replace("\\", "-").replace(" ", "_"))
+    return f"{village_clean}_cts_{cts_clean}"
+
+
+# MCGM records unnamed carriageway under several placeholder names, and its own
+# typo "Exisiting Road" is the commonest.
+GENERIC_ROAD_NAMES = ("Exisiting Road", "EXISTING", "Road", "None")
+
+
+def select_road(road_map: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Pick the abutting road to report, best evidence first:
+
+      1. a real name AND a recorded width
+      2. a real name OR a recorded width
+      3. whatever was found, so the field is never empty when something matched
+
+    Behaviour-preserving extraction of the selection already in lookup_plot_pro.
+    """
+    def real_name(r):
+        return r.get("name") not in GENERIC_ROAD_NAMES
+
+    def real_width(r):
+        return r.get("width") != "N/A"
+
+    values = list(road_map.values())
+    named_with_width = [r for r in values if real_width(r) and real_name(r)]
+    named_or_width = [r for r in values if real_name(r) or real_width(r)]
+    roads = named_with_width or named_or_width or values
+    if not roads:
+        return {"name": "None", "width": "None"}
+    return {"name": roads[0]["name"], "width": roads[0]["width"]}
+
+
+def crz_flag_from(crz_item: Optional[Dict[str, Any]]) -> str:
+    """
+    Report the CRZ sub-tier rather than a bare yes.
+
+    The attribute name varies by layer: 14 uses `category` ("II"), 1548 uses
+    `Category`, 1264 uses `CLASS` (already "CRZ II").
+    """
+    if not crz_item:
+        return "NO (Outside CRZ Buffer)"
+    attrs = crz_item.get("attributes", {}) or {}
+    tier = None
+    for key in ("category", "Category", "CATEGORY", "CLASS", "Class"):
+        val = attrs.get(key)
+        if val and str(val).strip().lower() not in ("", "null", "none"):
+            tier = str(val).strip()
+            break
+    if not tier:
+        return f"YES ({crz_item.get('layerName')})"
+    label = tier if tier.upper().startswith("CRZ") else f"CRZ {tier}"
+    return f"YES ({label})"
+
+
+def derive_status(mod_item, des_item, rv_item, des_desc, des_code,
+                  res_code, res_type, mod_approval) -> Dict[str, str]:
+    """Planning status badge and one-line summary, in precedence order."""
+    if mod_item:
+        return {"badge": "\U0001F7E1 MODIFIED (DP Notification Order)",
+                "summary": f"Modified via {mod_approval}"}
+    if des_item and des_desc != "None":
+        return {"badge": f"\U0001F534 RESERVED / DESIGNATED ({des_desc})",
+                "summary": f"Designated as {des_desc} ({des_code})"}
+    if rv_item and res_code != "None":
+        return {"badge": f"\U0001F534 RESERVED ({res_type})",
+                "summary": f"Reserved under {res_code}"}
+    return {"badge": "\U0001F7E2 CLEAR (No Reservation)",
+            "summary": "Unreserved Land Parcel"}
+
+
+# --- ArcGIS request construction ---------------------------------------------
+# Layer sets and payload builders, lifted out of lookup_plot_pro so the exact
+# parameters are visible, testable, and no longer 300-character single lines.
+# Values here mirror the live-validated requests exactly - do not "tidy" them
+# without re-verifying against the server.
+
+PLANNING_LAYER_IDS = [0, 46, 47, 192, 1550]      # zone, reservation, designation, DP mod, metro
+ROAD_LAYERS = "visible:193,194,44,45,2224"
+NEIGHBOUR_LAYERS = "visible:13"
+
+# Probe offsets outward from each boundary edge, in Web Mercator units. Three
+# distances because a single nudge missed frontage on plots set back from the
+# carriageway.
+ROAD_EDGE_NUDGES = (6.0, 15.0, 25.0)
+ROAD_EDGE_PROBE_LIMIT = 12
+
+
+def identify_payload(x: float, y: float, layers: str, mcx: float, mcy: float, d: float,
+                     tolerance: int, return_geometry: bool) -> Dict[str, str]:
+    """One ArcGIS /identify POST body. mapExtent + imageDisplay set the pixel
+    scale that `tolerance` is measured in, so they travel together."""
+    return {
+        "geometry": f"{x},{y}",
+        "geometryType": "esriGeometryPoint",
+        "sr": "102100",
+        "layers": layers,
+        "tolerance": str(tolerance),
+        "mapExtent": f"{mcx - d},{mcy - d},{mcx + d},{mcy + d}",
+        "imageDisplay": "1000,1000,96",
+        "returnGeometry": "true" if return_geometry else "false",
+        "f": "json",
+    }
+
+
+def planning_layers(crz_layer_ids: list) -> str:
+    ids = ",".join(str(i) for i in PLANNING_LAYER_IDS + list(crz_layer_ids))
+    return f"visible:{ids}"
+
+
+def map_export_params(x0: float, y0: float, x1: float, y1: float,
+                      width: int = 1000, height: int = 1000, dpi: int = 144) -> Dict[str, str]:
+    """The /export call. Consistently the slowest request in a lookup."""
+    return {
+        "bbox": f"{x0},{y0},{x1},{y1}",
+        "bboxSR": "102100",
+        "imageSR": "102100",
+        "size": f"{width},{height}",
+        "format": "png",
+        "transparent": "false",
+        "dpi": str(dpi),
+        "f": "image",
+    }
+
+
+def road_probe_points(outer_ring: list, mcx: float, mcy: float,
+                      xs: list, ys: list) -> List[tuple]:
+    """
+    Where to look for the abutting road.
+
+    Two earlier versions were wrong. Polygon /query against layers 193/194 never
+    worked - those layers reject spatial queries and answer HTTP 200 with an
+    error body that read as "no roads found". Probing only the centroid and two
+    bounding-box corners missed frontage entirely, because on an irregular
+    parcel those corners fall outside the polygon.
+
+    Now: centroid and both corners (kept - on some parcels a corner lands nearer
+    the frontage than any edge midpoint, and dropping them regressed WORLI 947),
+    plus the midpoints of the longest edges pushed outward at three distances.
+    Additive by design; road_map de-duplicates.
+    """
+    edge_probes = []
+    for i in range(len(outer_ring)):
+        p1 = outer_ring[i]
+        p2 = outer_ring[(i + 1) % len(outer_ring)]
+        ex, ey = p2[0] - p1[0], p2[1] - p1[1]
+        seg_len = math.hypot(ex, ey)
+        if seg_len <= 0.01:
+            continue
+        emx, emy = (p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0
+        enx, eny = -ey / seg_len, ex / seg_len
+        # flip the normal so it points away from the parcel centre
+        if (emx + enx - mcx) ** 2 + (emy + eny - mcy) ** 2 < (emx - mcx) ** 2 + (emy - mcy) ** 2:
+            enx, eny = -enx, -eny
+        for nudge in ROAD_EDGE_NUDGES:
+            edge_probes.append((seg_len, (emx + enx * nudge, emy + eny * nudge)))
+
+    edge_probes.sort(key=lambda e: e[0], reverse=True)
+    return [
+        (mcx, mcy),
+        (min(xs), min(ys)),
+        (max(xs), max(ys)),
+    ] + [pt for _, pt in edge_probes[:ROAD_EDGE_PROBE_LIMIT]]
+
+
+def neighbour_probe_points(mcx: float, mcy: float, d: float) -> List[tuple]:
+    """Four cardinal offsets around the parcel."""
+    off = max(15.0, d * 0.7)
+    return [(mcx + off, mcy), (mcx - off, mcy), (mcx, mcy + off), (mcx, mcy - off)]
+
+
+# --- image rendering ---------------------------------------------------------
+# Both renderers take bytes and return a PIL image, so they can be exercised
+# with synthetic input and never need the network.
+
+
+def render_dp_map(base_png: Optional[bytes], rings: list, bbox: tuple, size: tuple,
+                  labels: Dict[str, Any]) -> "Image.Image":
+    """
+    DP zoning map with the plot outlined and a legend.
+
+    `base_png` is the server's rendered map, or None when the fetch failed - in
+    which case a blank ground is used so the report still builds rather than
+    crashing on a missing image.
+    """
+    x0, y0, x1, y1 = bbox
+    width, height = size
+
+    if base_png:
+        base = Image.open(io.BytesIO(base_png)).convert("RGBA")
+    else:
+        base = Image.new("RGBA", (width, height), (240, 240, 240, 255))
+
+    overlay = Image.new("RGBA", base.size, (255, 255, 255, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    def to_px(x, y):
+        return ((x - x0) / (x1 - x0) * width, (y1 - y) / (y1 - y0) * height)
+
+    for ring in rings:
+        draw.polygon([to_px(p[0], p[1]) for p in ring],
+                     fill=(255, 23, 68, 45), outline=(255, 23, 68, 255), width=5)
+
+    # north arrow
+    nx, ny = width - 80, 80
+    draw.ellipse([nx - 30, ny - 30, nx + 30, ny + 30],
+                 fill=(255, 255, 255, 230), outline=(0, 0, 0, 255), width=2)
+    draw.polygon([(nx, ny - 22), (nx - 10, ny + 12), (nx + 10, ny + 12)], fill=(220, 0, 0, 255))
+    draw.text((nx - 5, ny - 48), "N", fill=(0, 0, 0, 255), font_size=24)
+
+    lw, lh = 420, 160
+    lx0, ly0 = width - lw - 30, height - lh - 30
+    draw.rectangle([lx0, ly0, lx0 + lw, ly0 + lh],
+                   fill=(255, 255, 255, 235), outline=(0, 0, 0, 255), width=2)
+    draw.rectangle([lx0 + 20, ly0 + 20, lx0 + 50, ly0 + 42],
+                   fill=(255, 23, 68, 100), outline=(255, 23, 68, 255), width=2)
+    draw.text((lx0 + 60, ly0 + 20), f"Plot Boundary (CTS {labels['cts']})",
+              fill=(0, 0, 0, 255), font_size=18)
+    draw.text((lx0 + 20, ly0 + 55), f"Village: {labels['village']} | Ward: {labels['ward']}",
+              fill=(0, 0, 0, 255), font_size=16)
+    draw.text((lx0 + 20, ly0 + 85), f"Zone: {labels['zone']} | Area: {labels['area']} sq m",
+              fill=(0, 0, 0, 255), font_size=16)
+    draw.text((lx0 + 20, ly0 + 115), f"Status: {labels['status']}",
+              fill=(0, 0, 0, 255), font_size=16)
+
+    return Image.alpha_composite(base, overlay)
+
+
+def stitch_satellite(tiles: list, coords: list, grid_dim: int, wgs_rings: list,
+                     bounds: tuple, labels: Dict[str, Any]) -> "Image.Image":
+    """
+    Esri tiles stitched into one canvas with the plot outlined.
+
+    `bounds` is (top_lat, left_lon, bot_lat, right_lon) for the whole grid.
+    Tiles that failed arrive as falsy or as exceptions and are skipped, leaving
+    the dark ground showing rather than aborting.
+    """
+    top_lat, left_lon, bot_lat, right_lon = bounds
+    canvas_w = canvas_h = grid_dim * 256
+    canvas = Image.new("RGBA", (canvas_w, canvas_h), (40, 40, 40, 255))
+
+    for (gx, gy), blob in zip(coords, tiles):
+        if not blob or isinstance(blob, Exception):
+            continue
+        try:
+            canvas.paste(Image.open(io.BytesIO(blob)).convert("RGBA"), (gx * 256, gy * 256))
+        except Exception:
+            continue
+
+    overlay = Image.new("RGBA", (canvas_w, canvas_h), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    def to_px(lon, lat):
+        return ((lon - left_lon) / (right_lon - left_lon) * canvas_w,
+                (top_lat - lat) / (top_lat - bot_lat) * canvas_h)
+
+    for ring in wgs_rings:
+        draw.polygon([to_px(p[0], p[1]) for p in ring],
+                     fill=(255, 235, 59, 50), outline=(255, 235, 59, 255), width=5)
+
+    slw, slh = 320, 110
+    sx, sy = canvas_w - slw - 15, canvas_h - slh - 15
+    draw.rectangle([sx, sy, sx + slw, sy + slh],
+                   fill=(0, 0, 0, 210), outline=(255, 255, 255, 255), width=2)
+    draw.rectangle([sx + 12, sy + 12, sx + 35, sy + 30],
+                   fill=(255, 235, 59, 100), outline=(255, 235, 59, 255), width=2)
+    draw.text((sx + 42, sy + 12), f"Satellite Boundary (CTS {labels['cts']})",
+              fill=(255, 255, 255, 255), font_size=13)
+    draw.text((sx + 12, sy + 38), f"Village: {labels['village']} | Ward: {labels['ward']}",
+              fill=(255, 255, 255, 255), font_size=12)
+    draw.text((sx + 12, sy + 60), f"Lat: {labels['lat']:.6f} | Lon: {labels['lon']:.6f}",
+              fill=(255, 255, 255, 255), font_size=12)
+    draw.text((sx + 12, sy + 82), f"Adjoining Parcels Identified: {labels['neighbours']}",
+              fill=(255, 255, 255, 255), font_size=12)
+
+    return Image.alpha_composite(canvas, overlay)
+
+
 async def lookup_plot_pro(
     village: str,
     cts_number: str,
@@ -1036,56 +1913,23 @@ async def lookup_plot_pro(
         attrs = feature["attributes"]
         rings = feature["geometry"]["rings"]
 
-        # Plot area. MCGM leaves AREA_APP_SQ_MTRS null on a meaningful number of
-        # parcels (MALABAR HILL 518, TARDEO 264, ...). SHAPE.AREA - the digitised
-        # polygon's own area - is populated there and is already in true ground
-        # square metres (verified: it matches AREA_APP_SQ_MTRS exactly on plots
-        # where both exist). It is NOT the same authority though: it is the drawn
-        # area, not the approved cadastral one, and the two can differ by several
-        # percent. So fall back to it, but always say which one is being reported.
-        approved_area = attrs.get("AREA_APP_SQ_MTRS")
-        geometry_area = attrs.get("SHAPE.AREA")
-        if approved_area not in (None, "", 0):
-            area_sqm = approved_area
-            area_source = "approved (MCGM AREA_APP_SQ_MTRS)"
-        elif isinstance(geometry_area, (int, float)) and geometry_area > 0:
-            area_sqm = round(float(geometry_area), 2)
-            area_source = "derived from plot geometry - MCGM has no approved area on record"
-            notes.append(
-                "MCGM has no approved area for this plot; area is derived from the "
-                "digitised boundary and is indicative only"
-            )
-        else:
-            area_sqm = None
-            area_source = "unavailable"
-        # Keep attrs consistent for the downstream renderers.
-        attrs["AREA_APP_SQ_MTRS"] = area_sqm
-        
-        ring = rings[0]
-        cx = sum(p[0] for p in ring) / len(ring)
-        cy = sum(p[1] for p in ring) / len(ring)
-        
-        pts = [p for r in rings for p in r]
-        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
-        mcx, mcy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
-        d = max(50, max(max(xs) - min(xs), max(ys) - min(ys)) / 2)
-        
-        R = 20037508.342789244
-        lon = round((cx / R) * 180, 6)
-        lat = round((math.atan(math.exp(cy / R * math.pi)) * 2 - math.pi / 2) * 180 / math.pi, 6)
-        
-        wgs_rings = [
-            [
-                [round((p[0] / R) * 180, 7), round((math.atan(math.exp(p[1] / R * math.pi)) * 2 - math.pi / 2) * 180 / math.pi, 7)]
-                for p in r_ring
-            ]
-            for r_ring in rings
-        ]
+        area = resolve_plot_area(attrs)
+        area_sqm, area_source = area["area_sqm"], area["area_source"]
+        if area["note"]:
+            notes.append(area["note"])
+        attrs["AREA_APP_SQ_MTRS"] = area_sqm  # keep attrs consistent for renderers
+
+        geom = prepare_geometry(rings)
+        cx, cy = geom["cx"], geom["cy"]
+        mcx, mcy = geom["mcx"], geom["mcy"]
+        xs, ys, d = geom["xs"], geom["ys"], geom["d"]
+        lat, lon = geom["lat"], geom["lon"]
+        wgs_rings = geom["wgs_rings"]
+        R = WEB_MERCATOR_R
 
         cts_clean = str(cts_number).replace('/', '-').replace('\\', '-')
         village_clean = village.lower().strip().replace('/', '-').replace('\\', '-').replace(' ', '_')
-        query_folder_name = f"{village_clean}_cts_{cts_clean}"
-        query_dir = os.path.join(output_dir, query_folder_name)
+        query_dir = os.path.join(output_dir, bundle_folder_name(village, cts_number))
         os.makedirs(query_dir, exist_ok=True)
 
         # CRZ *zone polygons* — not boundary lines.
@@ -1100,17 +1944,8 @@ async def lookup_plot_pro(
 
         ident_task = client.post(
             f"{SERVER_URL}/identify",
-            data={
-                "geometry": f"{cx},{cy}",
-                "geometryType": "esriGeometryPoint",
-                "sr": "102100",
-                "layers": "visible:0,46,47,192,1550," + ",".join(map(str, crz_restriction_layer_ids)),
-                "tolerance": "30",
-                "mapExtent": f"{mcx-d},{mcy-d},{mcx+d},{mcy+d}",
-                "imageDisplay": "1000,1000,96",
-                "returnGeometry": "false",
-                "f": "json",
-            }
+            data=identify_payload(cx, cy, planning_layers(crz_restriction_layer_ids),
+                                  mcx, mcy, d, tolerance=30, return_geometry=False),
         )
 
         half = max(70, max(max(xs) - min(xs), max(ys) - min(ys)) * 0.9)
@@ -1120,75 +1955,22 @@ async def lookup_plot_pro(
 
         dp_snap_task = client.get(
             f"{SERVER_URL}/export",
-            params={
-                "bbox": f"{x0},{y0},{x1},{y1}",
-                "bboxSR": "102100",
-                "imageSR": "102100",
-                "size": f"{W},{H}",
-                "format": "png",
-                "transparent": "false",
-                "dpi": "144",
-                "f": "image",
-            }
+            params=map_export_params(x0, y0, x1, y1, W, H),
         )
 
-        # Road sampling: probe just OUTSIDE each boundary edge, where roads actually run.
-        #
-        # Two things were wrong here before:
-        #  1) Two /query calls against layers 193 & 194 sent a polygon geometry. Those
-        #     layers have spatial querying disabled server-side and answer HTTP 200 with
-        #     an {"error": {"code": 400}} body for EVERY geometry type, so they never
-        #     returned a road. The parser reads .get("features", []) and saw an empty
-        #     list, silently reporting "no road". Both calls are removed.
-        #  2) The remaining probes were the centroid and two BOUNDING-BOX corners. On an
-        #     irregular parcel those corners sit outside the polygon entirely, and the
-        #     centroid can be far from any frontage, so abutting roads were missed.
-        #
-        # Now: the centroid plus the midpoints of the longest boundary edges, each nudged
-        # ~6 units outward along the edge normal. Longest edges first, since frontage is
-        # normally the long side of a plot.
-        outer_ring = rings[0]
-        edge_probes = []
-        for i in range(len(outer_ring)):
-            p1 = outer_ring[i]
-            p2 = outer_ring[(i + 1) % len(outer_ring)]
-            ex, ey = p2[0] - p1[0], p2[1] - p1[1]
-            seg_len = math.hypot(ex, ey)
-            if seg_len <= 0.01:
-                continue
-            emx, emy = (p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0
-            enx, eny = -ey / seg_len, ex / seg_len
-            # flip the normal so it points away from the parcel centre
-            if (emx + enx - mcx) ** 2 + (emy + eny - mcy) ** 2 < (emx - mcx) ** 2 + (emy - mcy) ** 2:
-                enx, eny = -enx, -eny
-            edge_probes.append((seg_len, (emx + enx * 6.0, emy + eny * 6.0)))
-
-        edge_probes.sort(key=lambda e: e[0], reverse=True)
-        # Keep the original centroid + bounding-box corner probes as well. They are
-        # coarse, but on some parcels a corner lands nearer the frontage than any edge
-        # midpoint does, so dropping them regressed named-road detection. Additive:
-        # more probes can only widen coverage, and road_map de-duplicates the results.
-        road_sample_pts = [
-            (mcx, mcy),
-            (min(xs), min(ys)),
-            (max(xs), max(ys)),
-        ] + [pt for _, pt in edge_probes[:6]]
-
+        road_sample_pts = road_probe_points(rings[0], mcx, mcy, xs, ys)
         road_tasks = [
-            client.post(f"{SERVER_URL}/identify", data={"geometry": f"{px},{py}", "geometryType": "esriGeometryPoint", "sr": "102100", "layers": "visible:193,194,44,45", "tolerance": "40", "mapExtent": f"{mcx-d},{mcy-d},{mcx+d},{mcy+d}", "imageDisplay": "1000,1000,96", "returnGeometry": "true", "f": "json"})
+            client.post(f"{SERVER_URL}/identify",
+                        data=identify_payload(px, py, ROAD_LAYERS, mcx, mcy, d,
+                                              tolerance=50, return_geometry=True))
             for px, py in road_sample_pts
         ]
 
-        # Optimize neighbor query sample points to 4 cardinal offset points around parcel
-        off_d = max(15.0, d * 0.7)
-        neighbor_sample_pts = [
-            (mcx + off_d, mcy),
-            (mcx - off_d, mcy),
-            (mcx, mcy + off_d),
-            (mcx, mcy - off_d)
-        ]
+        neighbor_sample_pts = neighbour_probe_points(mcx, mcy, d)
         neighbor_tasks = [
-            client.post(f"{SERVER_URL}/identify", data={"geometry": f"{px},{py}", "geometryType": "esriGeometryPoint", "sr": "102100", "layers": "visible:13", "tolerance": "30", "mapExtent": f"{mcx-d},{mcy-d},{mcx+d},{mcy+d}", "imageDisplay": "1000,1000,96", "returnGeometry": "true", "f": "json"})
+            client.post(f"{SERVER_URL}/identify",
+                        data=identify_payload(px, py, NEIGHBOUR_LAYERS, mcx, mcy, d,
+                                              tolerance=30, return_geometry=True))
             for px, py in neighbor_sample_pts
         ]
 
@@ -1244,17 +2026,18 @@ async def lookup_plot_pro(
                     continue
                 for f in j.get('features', []):
                     r_attrs = f.get('attributes', {})
-                    r_name, r_w = r_attrs.get('ROAD_NAME'), r_attrs.get('WIDTH_RL')
+                    r_name = r_attrs.get('ROAD_NAME') or r_attrs.get('Roadname') or r_attrs.get('NAME') or r_attrs.get('Name') or r_attrs.get('TYPE_') or r_attrs.get('Type')
+                    r_w = r_attrs.get('WIDTH_RL') or r_attrs.get('WIDTH') or r_attrs.get('Width')
                     if r_name or r_w:
                         road_map[f"{r_name}|{r_w}"] = {'name': r_name or 'Road', 'width': r_w or 'N/A'}
                 for item in j.get('results', []):
                     r_attrs = item.get('attributes', {})
-                    r_name = r_attrs.get('ROAD_NAME') or r_attrs.get('TYPE_')
-                    r_w = r_attrs.get('WIDTH_RL') or r_attrs.get('WIDTH')
+                    r_name = r_attrs.get('ROAD_NAME') or r_attrs.get('Roadname') or r_attrs.get('NAME') or r_attrs.get('Name') or r_attrs.get('TYPE_') or r_attrs.get('Type')
+                    r_w = r_attrs.get('WIDTH_RL') or r_attrs.get('WIDTH') or r_attrs.get('Width')
                     if r_name or r_w:
                         road_map[f"{r_name}|{r_w}"] = {'name': r_name or 'Road', 'width': r_w or 'N/A'}
                     # Road layers are mixed geometry: 193/194 are polylines and
-                    # return 'paths'; 44/45 are road polygons and return 'rings'.
+                    # return 'paths'; 44/45/2224 are road polygons and return 'rings'.
                     # Reading only 'paths' left C-ROAD-ALIGN empty on any plot
                     # whose frontage came from the polygon layers.
                     r_geom = item.get('geometry', {}) or {}
@@ -1272,10 +2055,8 @@ async def lookup_plot_pro(
                 "abutting road may be incomplete"
             )
 
-        named_roads = [r for r in road_map.values() if r['name'] != 'Exisiting Road' and r['width'] != 'N/A']
-        roads = named_roads if named_roads else list(road_map.values())
-        road_name = roads[0]["name"] if roads else "None"
-        road_width = roads[0]["width"] if roads else "None"
+        chosen_road = select_road(road_map)
+        road_name, road_width = chosen_road["name"], chosen_road["width"]
 
         # Parse Neighbors
         neighbors_map = {}
@@ -1363,43 +2144,13 @@ async def lookup_plot_pro(
         
         metro_buffer_flag = "YES (Metro Buffer Zone)" if metro_item else "NO"
 
-        # Report the CRZ sub-tier (CRZ I / II / III / IV) rather than a bare YES.
-        # Attribute name varies by layer: 14 -> `category` ("II"), 1548 -> `Category`,
-        # 1264 -> `CLASS` (already "CRZ II").
-        crz_tier = None
-        if crz_item:
-            crz_attrs = crz_item.get("attributes", {})
-            for key in ("category", "Category", "CATEGORY", "CLASS", "Class"):
-                val = crz_attrs.get(key)
-                if val and str(val).strip().lower() not in ("", "null", "none"):
-                    crz_tier = str(val).strip()
-                    break
+        crz_buffer_flag = crz_flag_from(crz_item)
 
-        if not crz_item:
-            crz_buffer_flag = "NO (Outside CRZ Buffer)"
-        elif crz_tier:
-            tier = crz_tier if crz_tier.upper().startswith("CRZ") else f"CRZ {crz_tier}"
-            crz_buffer_flag = f"YES ({tier})"
-        else:
-            crz_buffer_flag = f"YES ({crz_item.get('layerName')})"
-
-        if mod_item:
-            status_badge = "🟡 MODIFIED (DP Notification Order)"
-            status_summary = f"Modified via {mod_approval}"
-        elif des_item and des_desc != "None":
-            status_badge = f"🔴 RESERVED / DESIGNATED ({des_desc})"
-            status_summary = f"Designated as {des_desc} ({des_code})"
-        elif rv_item and res_code != "None":
-            status_badge = f"🔴 RESERVED ({res_type})"
-            status_summary = f"Reserved under {res_code}"
-        else:
-            status_badge = "🟢 CLEAR (No Reservation)"
-            status_summary = "Unreserved Land Parcel"
+        status = derive_status(mod_item, des_item, rv_item, des_desc, des_code,
+                               res_code, res_type, mod_approval)
+        status_badge, status_summary = status["badge"], status["summary"]
 
         ward_clean = str(attrs['WARD']).replace('/', '-').replace('\\', '-')
-
-        def px_dp(x, y):
-            return ((x - x0) / (x1 - x0) * W, (y1 - y) / (y1 - y0) * H)
 
         # ------------------------------------------------------------------
         # FAST PATH COMPLETE. Everything below the on_data callback needs the
@@ -1448,7 +2199,8 @@ async def lookup_plot_pro(
         # Vector exports need geometry and attributes only - no imagery - so they
         # are written now rather than behind the map fetch.
         export_geojson(wgs_rings, export_props, geojson_path)
-        export_dxf(wgs_rings, export_props, dxf_path, neighbors=neighbors, roads=road_geoms[:6])
+        export_dxf(wgs_rings, export_props, dxf_path, neighbors=neighbors,
+                   roads=nearest_road_geoms(road_geoms, wgs_rings))
         export_kml(wgs_rings, export_props, kml_path)
 
         def _compose_result(exec_ms: float, pending: bool) -> Dict[str, Any]:
@@ -1512,78 +2264,39 @@ async def lookup_plot_pro(
             and getattr(dp_snap_resp, "status_code", None) == 200
             and dp_snap_resp.headers.get("content-type", "").startswith("image")
         )
-        if dp_map_ok:
-            dp_img = Image.open(io.BytesIO(dp_snap_resp.content)).convert("RGBA")
-        else:
+        if not dp_map_ok:
             warnings.append("DP base map could not be fetched; the map image is a blank placeholder")
-            dp_img = Image.new("RGBA", (W, H), (240, 240, 240, 255))
-        dp_overlay = Image.new("RGBA", dp_img.size, (255, 255, 255, 0))
-        draw_dp = ImageDraw.Draw(dp_overlay)
 
-        for r in rings:
-            poly_pts = [px_dp(p[0], p[1]) for p in r]
-            draw_dp.polygon(poly_pts, fill=(255, 23, 68, 45), outline=(255, 23, 68, 255), width=5)
-
-        nx, ny = W - 80, 80
-        draw_dp.ellipse([nx-30, ny-30, nx+30, ny+30], fill=(255, 255, 255, 230), outline=(0, 0, 0, 255), width=2)
-        draw_dp.polygon([(nx, ny-22), (nx-10, ny+12), (nx+10, ny+12)], fill=(220, 0, 0, 255))
-        draw_dp.text((nx-5, ny-48), "N", fill=(0, 0, 0, 255), font_size=24)
-
-        lw, lh = 420, 160
-        lx0, ly0 = W - lw - 30, H - lh - 30
-        draw_dp.rectangle([lx0, ly0, lx0+lw, ly0+lh], fill=(255, 255, 255, 235), outline=(0, 0, 0, 255), width=2)
-        draw_dp.rectangle([lx0+20, ly0+20, lx0+50, ly0+42], fill=(255, 23, 68, 100), outline=(255, 23, 68, 255), width=2)
-        draw_dp.text((lx0+60, ly0+20), f"Plot Boundary (CTS {cts_number})", fill=(0, 0, 0, 255), font_size=18)
-        draw_dp.text((lx0+20, ly0+55), f"Village: {village.upper()} | Ward: {attrs['WARD']}", fill=(0, 0, 0, 255), font_size=16)
-        draw_dp.text((lx0+20, ly0+85), f"Zone: {zone} | Area: {attrs['AREA_APP_SQ_MTRS']} sq m", fill=(0, 0, 0, 255), font_size=16)
-        draw_dp.text((lx0+20, ly0+115), f"Status: {status_badge[:30]}", fill=(0, 0, 0, 255), font_size=16)
-
-        final_dp_img = Image.alpha_composite(dp_img, dp_overlay)
+        final_dp_img = render_dp_map(
+            dp_snap_resp.content if dp_map_ok else None,
+            rings,
+            bbox=(x0, y0, x1, y1),
+            size=(W, H),
+            labels={"cts": cts_number, "village": village.upper(), "ward": attrs["WARD"],
+                    "zone": zone, "area": attrs["AREA_APP_SQ_MTRS"],
+                    "status": status_badge[:30]},
+        )
 
         # Stitch Satellite Canvas
-        canvas_w, canvas_h = grid_dim * 256, grid_dim * 256
-        sat_canvas = Image.new('RGBA', (canvas_w, canvas_h), (40, 40, 40, 255))
-        missing_tiles = 0
-        if isinstance(sat_tile_bytes, Exception):
-            missing_tiles = len(sat_coords)
-        else:
-            missing_tiles = sum(1 for b in sat_tile_bytes if isinstance(b, Exception) or not b)
+        tiles = [] if isinstance(sat_tile_bytes, Exception) else list(sat_tile_bytes)
+        missing_tiles = (len(sat_coords) if isinstance(sat_tile_bytes, Exception)
+                         else sum(1 for b in tiles if isinstance(b, Exception) or not b))
         if missing_tiles:
             warnings.append(f"{missing_tiles} of {len(sat_coords)} satellite tiles failed to load")
-        if not isinstance(sat_tile_bytes, Exception):
-            for (gx, gy), b in zip(sat_coords, sat_tile_bytes):
-                if b and not isinstance(b, Exception):
-                    try:
-                        t_img = Image.open(io.BytesIO(b)).convert('RGBA')
-                        sat_canvas.paste(t_img, (gx * 256, gy * 256))
-                    except Exception:
-                        pass
-                    
+
         top_lat, left_lon = tile_to_latlon(xtile - half_dim, ytile - half_dim, zoom)
         bot_lat, right_lon = tile_to_latlon(xtile + half_dim + 1, ytile + half_dim + 1, zoom)
-        
-        sat_overlay = Image.new('RGBA', (canvas_w, canvas_h), (255, 255, 255, 0))
-        draw_sat = ImageDraw.Draw(sat_overlay)
-        
-        def px_sat(w_lon, w_lat):
-            x_px = (w_lon - left_lon) / (right_lon - left_lon) * canvas_w
-            y_px = (top_lat - w_lat) / (top_lat - bot_lat) * canvas_h
-            return (x_px, y_px)
-            
-        for r in wgs_rings:
-            poly_pts = [px_sat(p[0], p[1]) for p in r]
-            draw_sat.polygon(poly_pts, fill=(255, 235, 59, 50), outline=(255, 235, 59, 255), width=5)
-            
-        slw, slh = 320, 110
-        slx0, sly0 = canvas_w - slw - 15, canvas_h - slh - 15
-        draw_sat.rectangle([slx0, sly0, slx0+slw, sly0+slh], fill=(0, 0, 0, 210), outline=(255, 255, 255, 255), width=2)
-        draw_sat.rectangle([slx0+12, sly0+12, slx0+35, sly0+30], fill=(255, 235, 59, 100), outline=(255, 235, 59, 255), width=2)
-        draw_sat.text((slx0+42, sly0+12), f"Satellite Boundary (CTS {cts_number})", fill=(255, 255, 255, 255), font_size=13)
-        draw_sat.text((slx0+12, sly0+38), f"Village: {village.upper()} | Ward: {attrs['WARD']}", fill=(255, 255, 255, 255), font_size=12)
-        draw_sat.text((slx0+12, sly0+60), f"Lat: {lat:.6f} | Lon: {lon:.6f}", fill=(255, 255, 255, 255), font_size=12)
-        draw_sat.text((slx0+12, sly0+82), f"Adjoining Parcels Identified: {len(neighbors)}", fill=(255, 255, 255, 255), font_size=12)
 
-        final_sat = Image.alpha_composite(sat_canvas, sat_overlay)
+        final_sat = stitch_satellite(
+            tiles or [None] * len(sat_coords),
+            sat_coords,
+            grid_dim,
+            wgs_rings,
+            bounds=(top_lat, left_lon, bot_lat, right_lon),
+            labels={"cts": cts_number, "village": village.upper(), "ward": attrs["WARD"],
+                    "lat": lat, "lon": lon, "neighbours": len(neighbors)},
+        )
+
         def save_images():
             final_dp_img.convert("RGB").save(dp_snapshot_path, "PNG", compress_level=1)
             final_sat.convert("RGB").save(sat_snapshot_path, "PNG", compress_level=1)
@@ -1701,7 +2414,7 @@ def suggest_villages(name: Any, limit: int = 8) -> List[str]:
 def format_result_human(result: Dict[str, Any]) -> str:
     """Readable summary of a lookup. Raw JSON stays available behind --json."""
     if "error" in result:
-        lines = ["", f"  Could not complete the lookup:", f"  {result['error']}", ""]
+        lines = ["", "  Could not complete the lookup:", f"  {result['error']}", ""]
         return "\n".join(lines)
 
     ident = result["plot_identity"]
@@ -1801,7 +2514,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Tolerate the conversational form: "WORLI CTS 947"
     if len(args) >= 3 and args[1].upper() in ("CTS", "CS", "PLOT", "NO", "NO."):
-        args = [args[0], args[2]] + args[3:]
+        args = [args[0], args[2], *args[3:]]
 
     if len(args) < 2:
         print(USAGE)

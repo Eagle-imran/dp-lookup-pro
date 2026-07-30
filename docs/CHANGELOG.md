@@ -4,6 +4,235 @@ All notable changes to this project. Newest first.
 
 > **If something breaks after an update, see [ROLLBACK.md](ROLLBACK.md).**
 
+## [3.12.0] — 2026-07-30
+
+The DXF was opened in AutoCAD for the first time. Every geometry check had been
+passing; the drawing carried **16 faults per sheet** anyway.
+
+### 🔴 Why none of this was caught before
+
+Whether a label overruns a frame or lands on another label depends on the
+**rendered width of a glyph**, not on where its insertion point sits. Nothing in
+the codebase had ever measured text. Two root causes:
+
+* The legend panel height was `lg_row * (n_legend + 9.5)` — a magic constant that
+  **never counted the PLOT DATA rows at all**. Three rows fell outside the panel
+  border on every drawing ever generated. A second copy of the row count
+  (`_legend_rows_n = 12`) lived in a different function and could drift freely.
+* The sheet-border extent scan read `LWPOLYLINE`, `LINE` and `CIRCLE` — **never
+  `TEXT`**. Labels were invisible to the code sizing the border meant to contain
+  them.
+
+### ✅ Added — text measurement
+
+`text_extents()` measures a `TEXT` entity through ezdxf's font engine, applying
+rotation to the corners so rotated dimensions measure correctly.
+`boxes_overlap()` and `nudge_text_clear()` build on it. Panel frames are now
+drawn **last** and sized from their measured contents; `legend_column_height()`
+derives the height from the row lists themselves.
+
+`tools/audit_dxf.py` runs the whole check and exits non-zero on any fault.
+
+### 🔴 Fixed
+
+| Fault | Detail |
+| :--- | :--- |
+| Panel border cut across PLOT DATA | 3 rows outside the frame, worst 10.21 m below |
+| Legend rows overran the panel | 4 rows on WORLI 733; **19.83 m** on AMBIVALI 807 |
+| A row escaped the sheet border | +0.35 m (WORLI), **+16.66 m** (AMBIVALI) |
+| UTM tie-in lay across dimensions | removed — it was already in the title block verbatim, and was the widest annotation on every sheet |
+| Two grid labels stacked at the corner | X-row and Y-column both labelled the origin corner |
+| Neighbour label on a dimension | `CTS 733A` over `10.23m` |
+| Two dimensions on each other | `6.20m` over `3.47m` on short adjacent edges |
+| CRZ note over a neighbour label | notes now clear everything already placed |
+| Opaque plot fill | hid survey underlays and satellite images; now 65% transparent |
+| No plot hierarchy | all 12 layers were on default lineweight, so the grid plotted as heavy as the boundary |
+| Legend overpromised a CRZ polygon | `C-RESTRICT-ZONE` carries advisory text only — CRZ comes from a point identify, not a polygon |
+
+### 🔴 Metro buffer restriction was never drawn — on any plot, ever
+
+Found while checking why `C-RESTRICT-ZONE` held only its legend swatch on
+AMBIVALI 807, a plot that **is** in a Metro Buffer Zone.
+
+The lookup sets the flag to `"YES (Metro Buffer Zone)"`. `export_dxf` tested
+`== "YES"`. That comparison has never once been true, so the metro influence
+circle and its note were silently absent from every DXF this tool has produced.
+
+This is the same failure mode as the CRZ false negative fixed in 3.7 — an exact
+string match where the data carries a qualifier. The CRZ check already used
+`.upper().startswith("YES")`; both now share that shape.
+
+It survived the empty-layer test because the legend draws a sample line *on*
+`C-RESTRICT-ZONE`, so the layer counted as populated on the strength of its own
+swatch. There is now a test that requires real geometry, not a swatch.
+
+### 🔴 Roads were dropped when their vertices were far apart
+
+`C-ROAD-ALIGN` was empty on AMBIVALI 807 even though MCGM had returned the
+frontage name and a 27.4 m width. The clip that trims MCGM's kilometre-long road
+networks to the plot vicinity kept a road only when one of its **vertices** landed
+inside the window. MCGM centrelines can run a kilometre between vertices, so a
+road passing directly along the plot's edge was discarded entirely.
+
+Demonstrated with the same road at two vertex densities:
+
+| Road geometry | Drawn before | Drawn now |
+| :--- | :--- | :--- |
+| Vertices ~100 m apart | ✅ | ✅ |
+| Vertices ~1.1 km apart, same alignment | ❌ | ✅ |
+| Genuinely misses the plot | ❌ | ❌ |
+
+Now clipped with Liang-Barsky on each **segment**, so a segment that crosses the
+window is kept and trimmed to it. Trimming matters as much as keeping: retaining a
+whole 1.1 km segment would have dragged the sheet border out with it.
+
+### 🔴 …and the actual reason AMBIVALI 807 had no road was a different bug
+
+The clipping fix above is real and was worth making, but it did **not** fix
+AMBIVALI 807. After it shipped, that plot still had an empty `C-ROAD-ALIGN`.
+Tracing what actually reached `export_dxf` showed the six road paths passed were
+**910–2082 m away**, while `Jay Prakash Road Part II Dadabhai Road` sat **8.7 m
+from the boundary** and never arrived at all.
+
+The cause was `road_geoms[:6]` — the first six geometries in **arrival order**,
+with no regard to proximity. MCGM's road *polygon* layers return hundreds of rings
+per probe (552 for layer 44 here, across nine probes), so the real frontage was
+routinely pushed out of the slice by distant rings that happened to be parsed
+first. `nearest_road_geoms()` now ranks by distance to the plot before cutting.
+
+AMBIVALI 807 went from **0 road polylines to 8**, with the frontage label restored.
+
+This matters for the deliverable rather than the sheet — the frontage governs the
+front setback, and an architect had no way to tell which edge faced the road.
+
+### 🟠 Two areas are now printed, and the gap is named
+
+MCGM's approved record, MCGM's **own** digitised polygon, and the Property Card
+are three independent sources that do not agree:
+
+| Plot | MCGM record | Drawn boundary | Gap |
+| :--- | ---: | ---: | ---: |
+| WORLI 733 | 1317.74 m² | 1321.74 m² | +0.30% |
+| AMBIVALI 807 | 2019.00 m² | **2142.25 m²** | **+6.10%** (123 m²) |
+
+The sheet printed one figure and labelled it `MCGM approved record`, so an
+architect measuring the polyline got a number that appeared nowhere on the
+drawing. PLOT DATA now carries `MEASURED (BDY)` with the percentage delta, and the
+title block states that the Property Card may differ and must be reconciled
+before any FSI calculation. The owner measured 5–7% against the Property Card on
+WORLI 733.
+
+### 🔴 The first fix pass only worked on the two plots it was tested against
+
+Regenerating all 27 bundles and auditing every one gave **17 clean, 10 with
+faults**. WORLI 733 and AMBIVALI 807 were clean; that did not generalise. Three
+further causes, found only by running the audit across the whole set:
+
+* **`text_extents` was wrong for aligned text** — a bug in the measuring helper
+  itself. It read `dxf.insert` unconditionally, but aligned text stores its anchor
+  in `align_point` and grows *around* it. The centred `CTS <n>` label therefore
+  measured half a width right and half a height high, so every collision verdict
+  involving it was unreliable. Now honours `halign`/`valign`, composed correctly
+  with rotation.
+* **Near-collinear slivers could not be separated by nudging.** Pushing a label out
+  along its edge normal separates neighbours when the edges turn, but on a run of
+  slivers the normals are nearly parallel, so labels travelled together and never
+  cleared — DADAR-NAIGAON 98 had **seven** mutual collisions among labels of
+  1.07–1.34 m. Now the longest edges are labelled first, so the dimensions an
+  architect needs win their position, and a label that still cannot be placed clear
+  is removed rather than left overlapping. Across all 27 plots this drops
+  **1 label out of 388 (0.3%)**.
+* **The centre label was placed last**, so nothing ever checked against it and a
+  boundary dimension could land on it (`12.00m` over `CTS 1862`). It is now placed
+  before the annotation that has to avoid it. Same for the setback-N/A markers,
+  which collided with the road label below the plot on BANDRA-A 409.
+
+In-drawing labels are now budgeted against the plot they annotate
+(`fit_label_to_width`) rather than a fixed character count.
+
+The audit's annotation-width check was also too strict to be useful — it failed at
+1.01× plot width. On a 7.6 m plot any legible text is wide relative to the plot;
+that is inherent and harmless while the label sits outside the boundary, which the
+collision and border checks already enforce. It now warns above 1.5× and fails only
+above 3×.
+
+**All 27 bundles audit clean.**
+
+### 🟢 Small plots
+
+Long strings were shortened to markers where the panel already carries the full
+wording — the setback-not-viable notice ran **3.8×** the width of an 8 m plot, and
+the CRZ notice 3.3×. Long road names wrap in the panel instead of widening it
+(AMBIVALI 807's frontage is 56 characters).
+
+### 🧪 Tests: 115 → 130
+
+Covers text measurement and rotation, the nudge loop including its failure case,
+the legend height regression, road-name wrapping, dual-area disclosure, and
+generated-drawing assertions for border containment, panel containment, zero
+collisions, unique grid labels, lineweights, fill transparency, and annotation
+scale on an 8 × 16 m plot.
+
+**Verified:** WORLI 733 and AMBIVALI 807 both go 16 faults → 0.
+
+---
+
+## [3.11.0] — 2026-07-30
+
+### 📁 Repository Folder Structure & Documentation Hierarchy Cleanup
+
+Reorganized project layout to declutter the root directory and streamline navigation for developers and AI agents.
+
+* **Root Directory Minimization**: Kept root clean with only core entry files (`README.md`, `START-HERE.md`, `SKILL.md`, `LICENSE`, `pyproject.toml`, `cts_dp_lookup_pro.py`).
+* **Documentation Hierarchy (`docs/`)**: Moved all technical reference specs, architectural guides, version logs, and flow maps into `docs/` (`DXF-GUIDE.md`, `CHANGELOG.md`, `FEATURES_PLANNED.md`, `ROLLBACK.md`, `MEMORY.md`, `APP_FLOW.html`, `APP_FLOW.json`).
+* **Agent Guidance**: Updated `docs/MEMORY.md` with explicit repository layout rules and documentation policies for future AI coding agents.
+
+---
+
+## [3.10.1] — 2026-07-29
+
+Rendered the DXF and looked at it. Found a defect no geometry check could catch.
+
+### 🔴 Plot metadata was printed across the plot
+
+`C-ANNO-TEXT` drew an eight-line block — CTS, village, ward, area, zone, status,
+road, UTM — starting near the plot centroid. On screen it covered the boundary
+and **both setback lines**: exactly the area an architect needs clear to draw in.
+
+Every geometry check passed, because nothing was geometrically wrong. It was
+only visible once rendered.
+
+The block is also redundant — the legend's PLOT DATA panel already carries all
+of it. The centroid now shows just `CTS <number>`, with the UTM tie-in moved
+above the plot.
+
+### Also fixed by looking
+
+- CRZ notes, the UTM line and the road label were stacked at 1.4× line spacing
+  and overlapped each other and the top boundary edge. Now 2.1×.
+- Sub-metre boundary segments produced a cluster of unreadable overlapping
+  dimension labels. Labels are now omitted below 1.0 m; the segment is still
+  drawn, and sub-metre slivers are digitisation noise rather than real frontage.
+
+### 🔍 New: `tools/render_dxf.py`
+
+```bash
+uv run python tools/render_dxf.py output/worli_cts_733/plot_G-S_733_worli.dxf --zoom
+```
+
+Renders a DXF to PNG via ezdxf's matplotlib backend. Not a substitute for
+AutoCAD, but it catches what measurement cannot: overlapping text, annotations
+sitting on geometry, a legend covering the drawing, layers that render
+invisible. Requires the dev extra (`uv pip install -e ".[dev]"`).
+
+### Known cosmetic limit
+
+On small plots (Bandra-A 409 is 7.6 × 16.4 m) annotation text is wide relative
+to the plot, because text height is floored at a 30 m reference scale. The notes
+sit outside the boundary so nothing is obscured, and annotation layers can be
+switched off — but it looks cramped. Worth a look when the drawing is opened in
+real CAD.
+
 ---
 
 ## [3.10.0] — 2026-07-29

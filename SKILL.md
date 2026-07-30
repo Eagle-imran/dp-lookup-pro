@@ -4,7 +4,7 @@ description: >-
   Enterprise Pro Level 3 DP Plot Lookup & GIS Exporter for Mumbai (MCGM SDP 2014-34).
   Queries Zoning, Land Reservations, DP Modification Orders, CRZ Coastal Restrictions, Metro Rail Buffers, Road Widths, and Adjoining Plot Clusters.
   Generates 2-Page PDF Remark Dockets, Retina HD DP Maps, Esri Satellite Views, AutoCAD DXF Drawing Files, GeoJSON, and Google Earth 3D KML exports.
-version: 3.10.0
+version: 3.12.0
 command: /dp-lookup-pro
 parameters:
   type: object
@@ -29,7 +29,7 @@ parameters:
 ## Pro Capabilities
 
 1. **🏷️ Planning Status Badges**: Classifies land parcels (`🟢 CLEAR`, `🟡 MODIFIED`, `🔴 RESERVED`).
-2. **🌊 Precise CRZ & Infrastructure Detection**: Queries plot-specific Coastal Regulation Zone (CRZ-I/II/III/IV) restriction boundaries & Layer 1550 Metro Rail Influence buffers.
+2. **🌊 Precise CRZ & Infrastructure Detection**: Queries CRZ **zone polygons** and reports the sub-tier (`YES (CRZ II)`), plus Layer 1550 Metro Rail Influence buffers.
 3. **📸 Dual High-Definition Visuals**: Generates Retina HD DP 2034 Map Overlay with North Arrow ($N \uparrow$) and scale legend, alongside Tile-Stitched Esri World Imagery Satellite Aerial Views.
 4. **📐 Direct AutoCAD DXF & GeoJSON Exports**: Generates native AutoCAD `.dxf` drawing files (compatible with AutoCAD LT, Civil 3D, and standard CAD) and scale-accurate `.geojson` (QGIS/ArcGIS).
 5. **🌍 Google Earth 3D Exports**: Generates interactive 3D `.kml` files with metadata popups for Google Earth.
@@ -41,6 +41,14 @@ parameters:
 
 * **Python Runtime & Package Management**: Use **`uv`** (`uv run`). Standard `pip` or system `python` calls can be used as fallback.
 * **JavaScript Runtime**: Use **`bun`** (`bun run`, `bun add`).
+
+## Command-line options
+
+| Option | Effect |
+| :--- | :--- |
+| `--json` | full JSON response instead of the readable summary |
+| `--no-cache` | force a fresh lookup, ignoring the 30-day cache |
+| `--list-villages` | print all 128 valid MCGM village names and exit |
 
 ## Usage
 
