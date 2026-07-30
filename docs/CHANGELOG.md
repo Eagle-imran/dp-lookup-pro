@@ -66,6 +66,29 @@ It survived the empty-layer test because the legend draws a sample line *on*
 `C-RESTRICT-ZONE`, so the layer counted as populated on the strength of its own
 swatch. There is now a test that requires real geometry, not a swatch.
 
+### 🔴 Roads were dropped when their vertices were far apart
+
+`C-ROAD-ALIGN` was empty on AMBIVALI 807 even though MCGM had returned the
+frontage name and a 27.4 m width. The clip that trims MCGM's kilometre-long road
+networks to the plot vicinity kept a road only when one of its **vertices** landed
+inside the window. MCGM centrelines can run a kilometre between vertices, so a
+road passing directly along the plot's edge was discarded entirely.
+
+Demonstrated with the same road at two vertex densities:
+
+| Road geometry | Drawn before | Drawn now |
+| :--- | :--- | :--- |
+| Vertices ~100 m apart | ✅ | ✅ |
+| Vertices ~1.1 km apart, same alignment | ❌ | ✅ |
+| Genuinely misses the plot | ❌ | ❌ |
+
+Now clipped with Liang-Barsky on each **segment**, so a segment that crosses the
+window is kept and trimmed to it. Trimming matters as much as keeping: retaining a
+whole 1.1 km segment would have dragged the sheet border out with it.
+
+This one matters for the deliverable — the frontage is what governs the front
+setback, and an architect had no way to tell which edge faced the road.
+
 ### 🟠 Two areas are now printed, and the gap is named
 
 MCGM's approved record, MCGM's **own** digitised polygon, and the Property Card

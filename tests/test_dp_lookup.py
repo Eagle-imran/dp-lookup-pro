@@ -1154,3 +1154,64 @@ def test_restriction_layer_carries_geometry_not_just_a_legend_swatch(tmp_path):
     real = [e for e in msp if e.dxf.layer == "C-RESTRICT-ZONE"
             and e.dxftype() in ("TEXT", "CIRCLE")]
     assert len(real) >= 2, "restriction layer carries only its legend swatch"
+
+
+# --------------------------------------------------------------------------
+# Road clipping
+# --------------------------------------------------------------------------
+
+def test_clip_keeps_a_segment_that_crosses_with_no_vertex_inside():
+    """MCGM road centrelines can have vertices a kilometre apart. Testing
+    vertices alone dropped roads running straight past the plot."""
+    runs = dp.clip_path_to_window([(-1000.0, 5.0), (1000.0, 5.0)], -50, -50, 50, 50)
+    assert len(runs) == 1
+    (x0, _), (x1, _) = runs[0][0], runs[0][-1]
+    # Clipped to the window, not kept at full length, or the sheet border follows it out.
+    assert x0 == pytest.approx(-50.0) and x1 == pytest.approx(50.0)
+
+
+def test_clip_drops_a_path_that_misses_the_window():
+    assert dp.clip_path_to_window([(-1000.0, 500.0), (1000.0, 500.0)], -50, -50, 50, 50) == []
+
+
+def test_clip_splits_a_path_that_leaves_and_reenters():
+    path = [(-100.0, 0.0), (0.0, 0.0), (0.0, 500.0), (10.0, 500.0), (10.0, 0.0), (100.0, 0.0)]
+    runs = dp.clip_path_to_window(path, -50, -50, 50, 50)
+    assert len(runs) == 2, f"expected two runs, got {len(runs)}"
+
+
+def test_clip_keeps_a_wholly_contained_path_intact():
+    path = [(-10.0, -10.0), (0.0, 0.0), (10.0, 10.0)]
+    runs = dp.clip_path_to_window(path, -50, -50, 50, 50)
+    assert len(runs) == 1
+    assert len(runs[0]) == 3
+
+
+def test_sparse_road_is_drawn_on_the_dxf(tmp_path):
+    """Regression: the same road was drawn when densely vertexed and dropped
+    entirely when sparsely vertexed. AMBIVALI 807 had a named 27.4 m frontage and
+    an empty C-ROAD-ALIGN layer."""
+    ezdxf = pytest.importorskip("ezdxf")
+    props = dict(PROPS, abutting_road="Jay Prakash Road", road_width="27.4 M.")
+    # Runs due east past the plot's south edge; vertices ~1.1 km either side, so
+    # neither lands anywhere near the plot.
+    sparse = [[[72.800, 18.96995], [72.850, 18.96995]]]
+    out = tmp_path / "x.dxf"
+    dp.export_dxf(RING, props, str(out), neighbors=[], roads=sparse)
+
+    msp = ezdxf.readfile(str(out)).modelspace()
+    assert list(msp.query("LWPOLYLINE[layer=='C-ROAD-ALIGN']")), \
+        "road passes the plot but was not drawn"
+    assert [e for e in msp.query("TEXT[layer=='C-ROAD-ALIGN']")], \
+        "frontage label missing, so the architect cannot tell which edge fronts the road"
+
+
+def test_a_long_road_does_not_drag_the_sheet_border_out(tmp_path):
+    """A 100 km centreline must not become a 100 km sheet."""
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "x.dxf"
+    huge = [[[72.0, 18.96995], [73.5, 18.96995]]]
+    dp.export_dxf(RING, PROPS, str(out), neighbors=[], roads=huge)
+    coords = [c for e in ezdxf.readfile(str(out)).modelspace().query("LWPOLYLINE")
+              for p in e.get_points("xy") for c in (p[0], p[1])]
+    assert max(abs(c) for c in coords) < 1000

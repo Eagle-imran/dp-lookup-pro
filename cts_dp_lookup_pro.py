@@ -435,6 +435,68 @@ def to_local_metres(points: list, lon0: float, lat0: float,
     return [((p[0] - lon0) * mpd_lon, (p[1] - lat0) * mpd_lat) for p in points]
 
 
+def clip_segment_to_box(p1: tuple, p2: tuple, x_lo: float, y_lo: float,
+                        x_hi: float, y_hi: float) -> Optional[tuple]:
+    """
+    The portion of segment p1-p2 that lies inside the box, or None.
+
+    Liang-Barsky. Clipping rather than keeping whole segments matters because MCGM
+    road centrelines run kilometres long; retaining an outside endpoint would drag
+    the sheet border out with it.
+    """
+    x1, y1 = float(p1[0]), float(p1[1])
+    x2, y2 = float(p2[0]), float(p2[1])
+    dx, dy = x2 - x1, y2 - y1
+    t0, t1 = 0.0, 1.0
+    for p, q in ((-dx, x1 - x_lo), (dx, x_hi - x1), (-dy, y1 - y_lo), (dy, y_hi - y1)):
+        if p == 0:
+            if q < 0:
+                return None          # parallel to this edge and outside it
+        else:
+            r = q / p
+            if p < 0:
+                if r > t1:
+                    return None
+                t0 = max(t0, r)
+            else:
+                if r < t0:
+                    return None
+                t1 = min(t1, r)
+    return ((x1 + t0 * dx, y1 + t0 * dy), (x1 + t1 * dx, y1 + t1 * dy))
+
+
+def clip_path_to_window(path: list, x_lo: float, y_lo: float,
+                        x_hi: float, y_hi: float) -> List[list]:
+    """
+    Contiguous runs of `path` clipped to the window.
+
+    A segment is kept when it CROSSES the window, not merely when one of its
+    vertices sits inside it. MCGM returns road centrelines whose vertices can be a
+    kilometre apart, so testing vertices alone dropped roads that ran straight past
+    the plot - AMBIVALI 807 has a named 27.4 m frontage and an empty
+    C-ROAD-ALIGN layer because of it.
+    """
+    runs: List[list] = []
+    run: list = []
+    for i in range(len(path) - 1):
+        seg = clip_segment_to_box(path[i], path[i + 1], x_lo, y_lo, x_hi, y_hi)
+        if seg is None:
+            if run:
+                runs.append(run)
+                run = []
+            continue
+        start, end = seg
+        if run and abs(run[-1][0] - start[0]) < 1e-9 and abs(run[-1][1] - start[1]) < 1e-9:
+            run.append(end)
+        else:
+            if run:
+                runs.append(run)
+            run = [start, end]
+    if run:
+        runs.append(run)
+    return runs
+
+
 def text_extents(entity) -> Optional[tuple]:
     """
     (x0, y0, x1, y1) of a TEXT entity as it will actually render.
@@ -927,28 +989,11 @@ def export_dxf(wgs_rings: list, properties: dict, output_path: str,
     cx_lo, cx_hi = min_x - clip, max_x + clip
     cy_lo, cy_hi = min_y - clip, max_y + clip
 
-    def _inside(p):
-        return cx_lo <= p[0] <= cx_hi and cy_lo <= p[1] <= cy_hi
-
     road_drawn = 0
     for road_ring in (roads or []):
         loc = [((pt[0] - lon0) * meters_per_deg_lon, (pt[1] - lat0) * meters_per_deg_lat)
                for pt in road_ring]
-        # keep contiguous runs that fall inside the sheet, plus one point either
-        # side of each crossing so the line reaches the sheet edge
-        run, runs = [], []
-        for i, p in enumerate(loc):
-            if _inside(p):
-                if not run and i > 0:
-                    run.append(loc[i - 1])
-                run.append(p)
-            elif run:
-                run.append(p)
-                runs.append(run)
-                run = []
-        if run:
-            runs.append(run)
-        for seg in runs:
+        for seg in clip_path_to_window(loc, cx_lo, cy_lo, cx_hi, cy_hi):
             if len(seg) >= 2:
                 msp.add_lwpolyline(seg, dxfattribs={'layer': 'C-ROAD-ALIGN'})
                 road_drawn += 1
