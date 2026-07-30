@@ -1,6 +1,19 @@
+# Virtualenv and bytecode
 .venv/
 __pycache__/
 *.pyc
+
+# Generated lookup bundles and the audit register
 output/
-.DS_Store
+
+# Tool caches. Previously only covered by a global gitignore, so a fresh clone
+# or a CI runner saw them as untracked.
+.pytest_cache/
+.ruff_cache/
 .cache/
+
+# Local, machine-specific settings
+.claude/settings.local.json
+
+# macOS
+.DS_Store
