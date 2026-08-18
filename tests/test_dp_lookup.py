@@ -1364,3 +1364,227 @@ def test_nearest_road_geoms_survives_missing_geometry():
     ring = [[[72.8200, 18.9700], [72.8210, 18.9700], [72.8200, 18.9700]]]
     assert dp.nearest_road_geoms([], ring) == []
     assert dp.nearest_road_geoms([[[72.82, 18.97]]], []) == [[[72.82, 18.97]]]
+
+
+# --------------------------------------------------------------------------
+# Spatial Polygon Engine & Multi-Reservation / Partial Encumbrance Tests
+# --------------------------------------------------------------------------
+
+def test_derive_status_partial_encumbrance():
+    reservations = [
+        {"code": "ROS1.5", "type": "ROS", "description": "Garden/ Park", "overlap_sqm": 1934.96},
+        {"code": "RSA2.9", "type": "RSA", "description": "Homeless Shelter", "overlap_sqm": 2581.12},
+    ]
+    designations = [
+        {"code": "EOS1.4", "type": "EOS", "description": "Play Ground", "overlap_sqm": 2825.32},
+    ]
+    status = dp.derive_status(
+        reservations=reservations,
+        designations=designations,
+        encumbered_percent=22.82,
+        encumbered_area_sqm=9187.19,
+        total_area_sqm=40257.98,
+        net_unencumbered_sqm=31070.79,
+    )
+    assert "PARTIALLY RESERVED / DESIGNATED" in status["badge"]
+    assert "22.8%" in status["badge"]
+    assert "ROS1.5" in status["badge"]
+    assert "9,187.2 m²" in status["summary"]
+    assert "31,070.8 m²" in status["summary"]
+
+
+def test_derive_status_full_encumbrance():
+    reservations = [
+        {"code": "ROS1.5", "type": "ROS", "description": "Garden/ Park", "overlap_sqm": 5000.0},
+    ]
+    status = dp.derive_status(
+        reservations=reservations,
+        designations=[],
+        encumbered_percent=95.0,
+        encumbered_area_sqm=5000.0,
+        total_area_sqm=5263.0,
+        net_unencumbered_sqm=263.0,
+    )
+    assert "RESERVED (ROS)" in status["badge"]
+    assert "ROS1.5" in status["summary"]
+
+
+def test_dxf_exports_reservations_layer(tmp_path):
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "res_test.dxf"
+    ring = [[[72.8200, 18.9700], [72.8220, 18.9700], [72.8220, 18.9720], [72.8200, 18.9720], [72.8200, 18.9700]]]
+    res_rings = [[[72.8205, 18.9705], [72.8215, 18.9705], [72.8215, 18.9715], [72.8205, 18.9715], [72.8205, 18.9705]]]
+    props = dict(
+        PROPS,
+        encumbered_percent=25.0,
+        encumbered_area_sqm=1200.0,
+        net_unencumbered_sqm=3600.0,
+    )
+    reservations = [{
+        "code": "ROS1.5",
+        "type": "ROS",
+        "description": "Garden/ Park",
+        "overlap_sqm": 1200.0,
+        "wgs_rings": res_rings,
+    }]
+    dp.export_dxf(ring, props, str(out), reservations=reservations)
+
+    doc = ezdxf.readfile(str(out))
+    msp = doc.modelspace()
+    layers = {e.dxf.layer for e in msp}
+    assert "C-RESERVATIONS" in layers
+
+    text = " ".join(
+        (e.plain_text() if hasattr(e, "plain_text") else e.dxf.text)
+        for e in msp if e.dxftype() in ("TEXT", "MTEXT")
+    )
+    assert "RES: ROS1.5" in text
+    assert "ENCUMBERED" in text
+    assert "NET DEVELOPABLE" in text
+
+
+def test_geojson_contains_reservation_subfeatures(tmp_path):
+    out = tmp_path / "res_test.geojson"
+    ring = [[[72.8200, 18.9700], [72.8220, 18.9700], [72.8220, 18.9720], [72.8200, 18.9720], [72.8200, 18.9700]]]
+    res_rings = [[[72.8205, 18.9705], [72.8215, 18.9705], [72.8215, 18.9715], [72.8205, 18.9715], [72.8205, 18.9705]]]
+    reservations = [{
+        "code": "ROS1.5",
+        "type": "ROS",
+        "description": "Garden/ Park",
+        "overlap_sqm": 1200.0,
+        "overlap_percent": 25.0,
+        "u_r_id": "TR0126",
+        "wgs_rings": res_rings,
+    }]
+    props = dict(PROPS, reservations=reservations, encumbered_percent=25.0)
+    dp.export_geojson(ring, props, str(out))
+
+    data = json.loads(out.read_text())
+    assert len(data["features"]) == 2
+    assert data["features"][0]["geometry"]["type"] == "Polygon"
+    assert data["features"][1]["properties"]["feature_type"] == "PLU_RESERVATION"
+    assert data["features"][1]["properties"]["code"] == "ROS1.5"
+
+
+def test_pdf_build_with_multi_reservations(tmp_path):
+    out = tmp_path / "docket.pdf"
+    # Create blank dummy PNGs for map and satellite
+    img = dp.Image.new("RGB", (100, 100), (255, 255, 255))
+    dp_img_path = str(tmp_path / "dp.png")
+    sat_img_path = str(tmp_path / "sat.png")
+    img.save(dp_img_path)
+    img.save(sat_img_path)
+
+    qr_bytes = dp.io.BytesIO()
+    img.save(qr_bytes, format="PNG")
+    qr_bytes.seek(0)
+
+    reservations = [
+        {"code": "ROS1.5", "type": "ROS", "description": "Garden/ Park", "overlap_sqm": 1934.96, "overlap_percent": 4.81},
+        {"code": "RSA2.9", "type": "RSA", "description": "Homeless Shelter", "overlap_sqm": 2581.12, "overlap_percent": 6.41},
+    ]
+    designations = [
+        {"code": "EOS1.4", "type": "EOS", "description": "Play Ground", "overlap_sqm": 2825.32, "overlap_percent": 7.02},
+        {"code": "EE1.1", "type": "EE", "description": "Municipal School", "overlap_sqm": 1845.78, "overlap_percent": 4.58},
+    ]
+
+    dp.build_pdf_doc(
+        str(out),
+        status_badge="PARTIALLY RESERVED / DESIGNATED",
+        status_summary="22.8% Encumbered",
+        village="MULUND-W",
+        attrs={"WARD": "T", "TYPE": "CTS", "AREA_APP_SQ_MTRS": 35735.55},
+        cts_number="22",
+        zone="R",
+        des_desc="Play Ground, Municipal School",
+        des_code="EOS1.4, EE1.1",
+        mod_approval="None",
+        mod_label="None",
+        crz_buffer_flag="NO",
+        metro_buffer_flag="NO",
+        road_name="Road",
+        road_width="N/A",
+        dp_snapshot_path=dp_img_path,
+        qr_bytes=qr_bytes,
+        map_link="https://example.com",
+        sat_snapshot_path=sat_img_path,
+        neighbors=[],
+        reservations=reservations,
+        designations=designations,
+        encumbered_percent=22.82,
+        encumbered_area_sqm=9187.19,
+        net_unencumbered_sqm=31070.79,
+    )
+
+    assert out.exists()
+    content = out.read_bytes()
+    assert content.startswith(b"%PDF")
+    page_count = content.count(b"/Type /Page\n") or content.count(b"/Type /Page ") or content.count(b"/Type /Page/")
+    assert page_count == 2, f"PDF should be strictly 2 pages, got {page_count}"
+
+
+def test_export_html_map_generates_valid_dossier(tmp_path):
+    wgs_rings = [[[72.825, 18.975], [72.828, 18.975], [72.828, 18.978], [72.825, 18.978], [72.825, 18.975]]]
+    props = {
+        "village": "WORLI",
+        "cts_no": "947",
+        "ward": "G/S",
+        "type": "Private",
+        "area_sqm": 462.28,
+        "zone": "R",
+        "status_badge": "🟢 CLEAR (No Reservation)",
+        "abutting_road": "B G KHER",
+        "road_width": "18.30 M",
+        "crz_buffer_flag": "YES (CRZ II)",
+        "metro_buffer_flag": "NO",
+        "encumbered_area_sqm": 0.0,
+        "encumbered_percent": 0.0,
+        "net_unencumbered_sqm": 462.28,
+        "net_unencumbered_percent": 100.0,
+    }
+    out = tmp_path / "test_map.html"
+    dp.export_html_map(wgs_rings, props, str(out))
+
+    assert out.exists()
+    html_text = out.read_text(encoding="utf-8")
+    assert "<!DOCTYPE html>" in html_text
+    assert "Leaflet" in html_text or "leaflet.js" in html_text
+    assert "WORLI CTS 947" in html_text
+    assert "462.3" in html_text or "462.28" in html_text
+    assert "Net Developable Envelope" in html_text
+
+
+def test_export_html_map_with_reservations_and_neighbors(tmp_path):
+    wgs_rings = [[[72.95, 19.17], [72.96, 19.17], [72.96, 19.18], [72.95, 19.18], [72.95, 19.17]]]
+    res_rings = [[[72.951, 19.171], [72.954, 19.171], [72.954, 19.174], [72.951, 19.174], [72.951, 19.171]]]
+    props = {
+        "village": "MULUND-W",
+        "cts_no": "22",
+        "ward": "T",
+        "type": "Plot",
+        "area_sqm": 35735.55,
+        "zone": "R",
+        "status_badge": "🟡 PARTIALLY RESERVED (22.8%)",
+        "abutting_road": "LBS MARG",
+        "road_width": "27.45 M",
+        "encumbered_area_sqm": 9187.19,
+        "encumbered_percent": 22.82,
+        "net_unencumbered_sqm": 31070.79,
+        "net_unencumbered_percent": 77.18,
+    }
+    reservations = [{"code": "RSA2.9", "type": "Homeless Shelter", "overlap_sqm": 2581.0, "overlap_percent": 7.2, "wgs_rings": res_rings}]
+    neighbors = [{"cts_no": "23", "ward": "T", "rings": [[[72.961, 19.17], [72.965, 19.17], [72.965, 19.18], [72.961, 19.18], [72.961, 19.17]]]}]
+    roads = [[[72.95, 19.169], [72.96, 19.169]]]
+
+    out = tmp_path / "mulund_map.html"
+    dp.export_html_map(wgs_rings, props, str(out), neighbors=neighbors, roads=roads, reservations=reservations)
+
+    assert out.exists()
+    html_text = out.read_text(encoding="utf-8")
+    assert "RSA2.9" in html_text
+    assert "Homeless Shelter" in html_text
+    assert "Adjoining Parcel" in html_text
+    assert '"cts_no": "23"' in html_text
+    assert "MULUND-W CTS 22" in html_text
+
+

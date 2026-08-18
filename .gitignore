@@ -15,5 +15,8 @@ output/
 # Local, machine-specific settings
 .claude/settings.local.json
 
+# Scratch & temporary testing scripts
+scratch/
+
 # macOS
 .DS_Store

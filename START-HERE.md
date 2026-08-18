@@ -28,11 +28,12 @@ For any City Survey (CTS/CS) plot in Mumbai, under the MCGM Development Plan 203
 
 ## 📦 What you get, every time
 
-One request creates a folder containing **six files**:
+One request creates a folder containing **seven files**:
 
 | File | Who it's for | What you do with it |
 | :--- | :--- | :--- |
 | 📄 **PDF Report** | Your client | 2-page DP remark docket — email it, print it, attach it to a proposal |
+| 🌐 **Interactive Map Dossier** | You & Client | Standalone interactive map in your browser with 1-click satellite toggle and developable envelope |
 | 📐 **AutoCAD `.dxf`** | Your architect | Opens in AutoCAD to scale, with the road, setback lines, neighbouring plots and a layer legend. Send them [docs/DXF-GUIDE.md](docs/DXF-GUIDE.md) with it. |
 | 🗺️ **HD Zoning Map** | You | Zone, reservations and road widths at a glance |
 | 📸 **Satellite View** | You | What's actually built on the ground today |

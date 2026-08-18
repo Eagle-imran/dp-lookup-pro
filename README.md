@@ -11,19 +11,20 @@ The rest of this README is the technical reference for developers.
 > ⚖️ **Proprietary software** — © 2026 Imran Patel. All rights reserved. Not open-source.
 > Free for personal evaluation; commercial use requires a licence. See [LICENSE](LICENSE).
 
-**v3.12.0** · [What changed](docs/CHANGELOG.md) · [Reading the DXF](docs/DXF-GUIDE.md) · [How to roll back](docs/ROLLBACK.md) · [System flow map](docs/APP_FLOW.html)
+**v3.14.0** · [What changed](docs/CHANGELOG.md) · [Reading the DXF](docs/DXF-GUIDE.md) · [How to roll back](docs/ROLLBACK.md) · [System flow map](docs/APP_FLOW.html)
 
 ---
 
 `dp-lookup-pro` is an enterprise-grade AI agent skill and standalone CLI tool that queries the official **MCGM Development Plan (DP) 2034 MapServer** to instantly retrieve zoning, land reservations, modification orders, CRZ restrictions, Metro rail buffers, road access widths, and adjoining plot clusters for any City Survey (CTS/CS) land parcel in Mumbai.
 
-It automatically generates a complete export bundle containing a **2-Page PDF DP Remark Docket**, **Retina HD DP Maps**, **Tile-Stitched Satellite Aerial Views**, **AutoCAD DXF Drawing Files**, **QGIS GeoJSON**, and **Google Earth 3D KML** files.
+It automatically generates a complete export bundle containing an **Interactive HTML Map Dossier**, **2-Page PDF DP Remark Docket**, **Retina HD DP Maps**, **Tile-Stitched Satellite Aerial Views**, **AutoCAD DXF Drawing Files**, **QGIS GeoJSON**, and **Google Earth 3D KML** files.
 
 ---
 
 ## ✨ Features & Capabilities
 
 * **🏷️ Automated Planning Status Badges**: Instantly classifies land parcels into `🟢 CLEAR (No Reservation)`, `🟡 MODIFIED (DP Order)`, or `🔴 RESERVED (DCPR Amenity)`.
+* **🌐 Standalone Interactive HTML Map Dossier**: Self-contained offline GIS web dossier with 1-click Satellite/Cadastral switcher, net developable envelope, and HUD dashboard.
 * **🌊 Precise CRZ & Infrastructure Detection**: Queries CRZ **zone polygons** (layers 14/1264/1548) and reports the sub-tier — `YES (CRZ II)`, not a bare yes — plus Layer 1550 Metro Rail Influence buffers.
 * **🗺️ Village name help**: `--list-villages` lists all 128 valid names, and a wrong name suggests the right one (`BANDRA` → `BANDRA-A`…). 
 * **📖 Readable output**: a plain summary by default; `--json` for the full response.
@@ -38,9 +39,9 @@ It automatically generates a complete export bundle containing a **2-Page PDF DP
 * **📄 2-Page Executive PDF Report Docket**: Professional PDF containing metadata tables, status banners, maps, adjoining parcel lists, and a scannable QR Code linking directly to the live MCGM Web Map.
 * **📊 Centralized Excel Register**: Automatically appends query results to `output/dp-lookups.xlsx`.
 * **⚡ High-Speed Concurrency & Persistent Disk Cache**:
-  * **Answer in ~0.7 s.** All 25 requests fire at once, but only the planning half is awaited before reporting; the map, satellite and PDF finish after. Typically ~10× faster to an answer than waiting for everything (measured 0.7 s vs 6.5 s).
-  * A cold lookup writes all six files in **5–13 s**. MCGM is slow and variable across every endpoint.
-  * Cached repeat queries return in **~0.4 s** end-to-end (the lookup itself is sub-millisecond; the rest is Python interpreter startup). Entries live **30 days** — matching how slowly DP data actually moves — are invalidated automatically if their files are deleted, and report their age on every hit. Pass `--no-cache` for a same-day fresh check. The cache lives in the output directory and expires after 24 hours by default; pass `--no-cache` to force a fresh fetch.
+  * **Answer in ~0.7 s.** All requests pipeline concurrently through an HTTP/2 semaphore pool.
+  * A cold lookup writes all seven bundle files in **5–13 s**.
+  * Cached repeat queries return in **~0.4 s** end-to-end. Entries live **30 days**, self-invalidate if files are missing, and report cache age. Pass `--no-cache` to force a fresh fetch.
 
 ---
 

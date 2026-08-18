@@ -4,6 +4,65 @@ All notable changes to this project. Newest first.
 
 > **If something breaks after an update, see [ROLLBACK.md](ROLLBACK.md).**
 
+## [3.14.0] — 2026-08-18
+
+### 🏗️ Architecture — Modular Package Decomposition (`dp_lookup/`) & Interactive HTML Dossier
+
+Refactored the monolithic 3,180-line `cts_dp_lookup_pro.py` into a domain-driven Python package structure while maintaining 100% backward compatibility via a facade interface:
+
+* **Domain Package Layout (`dp_lookup/`)**:
+  - `core/constants.py`: Layer IDs, 128 MCGM revenue villages, Web Mercator constants, and validation regexes.
+  - `core/geometry.py`: Pure math projections (`wgs84_to_utm43n`), polygon area, centroid, and probe generation.
+  - `core/planning_status.py`: Planning status classification and partial encumbrance calculations.
+  - `core/orchestrator.py`: High-speed async pipeline coordinating cadastral, GIS, and document generation tasks.
+  - `clients/arcgis.py`: ArcGIS REST MapServer query, identify, and tile fetch clients.
+  - `clients/cache.py`: Deterministic local disk caching with file integrity checks.
+  - `exporters/`: Dedicated modules for `dxf.py`, `pdf.py`, `geojson.py`, `kml.py`, `excel.py`, and `html_map.py`.
+  - `renderers/`: Dedicated renderers for `map_overlay.py` (Retina DP overlays) and `satellite.py` (Esri World Imagery).
+  - `cli.py`: Command-line arguments, text formatting, and typo suggestion engine.
+* **🌐 Standalone Interactive HTML Map Dossier (`dp_lookup/exporters/html_map.py`)**:
+  - Generates a standalone, self-contained interactive Leaflet.js HTML dossier (`plot_map_*.html`) in the plot output bundle.
+  - Zero-server dependency: embeds GeoJSON geometries and works fully offline.
+  - 2-Way Base Switcher: Seamless 1-click toggle between `🛰️ Satellite View` (Esri World Imagery HD) and `🗺️ Cadastral Map` (CartoDB Positron).
+  - High-Contrast Distinguishable Styling: Vivid Crimson Red (`#e11d48`) plot boundary with corner vertex pins vs Electric Cyan (`#0284c7`) dashed road casing.
+  - Unencumbered Net Developable polygon computed via Shapely geometric difference.
+  - Dossier HUD: Real-time encumbrance progress meter, Gross vs Net usable area ($m^2$ & $sq.ft$), and on-screen measurement tool.
+* **⚡ HTTP/2 Semaphore Throttling**:
+  - Added an `asyncio.Semaphore(6)` around parallel road and neighbor probe requests, preventing ArcGIS Server stream reset errors (`RST_STREAM error_code: 8`).
+* **📐 AutoCAD Mega-Plot Dynamic Metric Grid**:
+  - Added adaptive grid steps ($500\text{m} \rightarrow 200\text{m} \rightarrow 100\text{m} \rightarrow 50\text{m} \rightarrow 25\text{m}$) based on plot scale.
+  - Registered grid label bounding boxes into `placed_boxes` collision detector, dropping mega-plot text collisions to zero.
+  - Made `C-RESERVATIONS` layer declaration conditional, eliminating empty-layer CAD faults on 0% encumbrance plots.
+* **🔬 Cadastral Area Scaling & Distortion Fix**:
+  - Eliminated Web Mercator latitude area distortion ($\sim 12.3\%$ at $19^\circ\text{ N}$) on net developable square meters. Encumbered and net developable metrics are now strictly scaled against the approved cadastral area from MCGM Layer 13.
+* **Backward-Compatible Facade (`cts_dp_lookup_pro.py`)**: Re-exports all core public symbols, guaranteeing zero breaking changes for existing CLI commands, scripts, and tests.
+* **Quality & Validation**:
+  - `154 / 154` pytest tests passing (100% pass in 0.93s).
+  - `ruff` lint check clean across all modules.
+  - `tools/audit_dxf.py` verified CLEAN across all benchmark plots.
+
+---
+
+## [3.13.0] — 2026-08-18
+
+### 🚀 Added — Spatial Polygon Intersection & Partial Encumbrance Engine
+
+Previously, `dp-lookup-pro` evaluated DP planning layers (reservations, designations, zones, DP modifications, metro buffer, and CRZ) via a single arithmetic centroid point query `/identify`. On large parcels (e.g. Mulund West CTS 22 at ~35,735 m²), corner or edge reservations (such as `ROS1.5` Garden/Park, `RSA2.9` Homeless Shelter) did not cover the centroid and were falsely reported as `🟢 CLEAR`.
+
+`dp-lookup-pro` now runs real spatial polygon-in-polygon queries across all DP 2034 planning layers using Shapely:
+
+* **Bounding Envelope Query + Shapely Intersection**: Queries `/query` endpoints for Layers 0 (Zones), 46 (Reservations), 47 (Designations), 192 (DP Modifications), 1550 (Metro Buffer), and 14/1264/1548 (CRZ), calculating exact overlapping polygon area ($m^2$) and percentage of parcel area.
+* **Partial Encumbrance Detection & Status Classification**:
+  - Plots with $< 90\%$ statutory reservation/designation overlap are classified as `🟡 PARTIALLY RESERVED / DESIGNATED (X.X% - [CODES])`.
+  - Calculates and reports both **Encumbered Area ($m^2$ & $\%$)** and **Net Unencumbered Developable Area ($m^2$ & $\%$)**.
+  - Heavily/fully encumbered plots ($\ge 90\%$) remain `🔴 RESERVED`.
+* **Digitisation Sliver Noise Thresholding**: Boundary overlaps $\le 5.0\text{ m}^2$ or $\le 0.1\%$ of parcel area resulting from independent digitisation of cadastral and DP layer maps are automatically filtered out.
+* **AutoCAD DXF `C-RESERVATIONS` Layer**: Draws distinct closed polygons in magenta (`Color 6`) with hatched patterns and centered dimension/annotation text (`RES: <CODE> (<AREA>m²)`). Legend table includes `ENCUMBERED` and `NET DEVELOPABLE` metrics.
+* **GeoJSON Sub-Features**: Exports multi-feature collections containing `BASE_PLOT`, `PLU_RESERVATION`, and `PLU_DESIGNATION` geometries with complete attribute payloads.
+* **Strict 2-Page PDF Docket**: Automatically caps reservation/designation rows in the Page 1 table and scales DP map graphics to ensure all reports fit strictly on 2 pages.
+
+---
+
 ## [3.12.0] — 2026-07-30
 
 The DXF was opened in AutoCAD for the first time. Every geometry check had been

@@ -10,7 +10,7 @@
 * **Repository**: [https://github.com/Eagle-imran/dp-lookup-pro](https://github.com/Eagle-imran/dp-lookup-pro)
 * **Local Workspace Path**: `/Users/imranpatel/Developer/dp-lookup-pro-IP`
 * **Primary Executable**: `uv run python dp-lookup-pro` (or `dp-lookup-pro` after `uv pip install -e .`)
-* **Current Version**: 3.12.0 — 2026-07-30
+* **Current Version**: 3.14.0 — 2026-08-18
 * **Skill Metadata File**: `SKILL.md`
 * **Purpose**: Automated Real Estate Spatial Querying, GIS CAD Exporter & DP Remark Docket Generator for Mumbai Land Parcels under MCGM Development Plan (SDP) 2014-34.
 
@@ -143,6 +143,16 @@ passing; WORLI 733 and AMBIVALI 807 each carried **16 faults**.
 * Long values wrap rather than widen the panel — AMBIVALI 807's frontage name is 56 characters and overran the panel by 19.83 m. Long in-drawing notes became short markers; spelled out, the setback notice ran 3.8× the width of an 8 m plot.
 * **Roads were dropped when their vertices were far apart** - the clip that trims MCGM's kilometre-long road networks kept a road only if a *vertex* landed inside the window. MCGM centrelines can run a kilometre between vertices, so a road running along the plot edge was discarded: AMBIVALI 807 had the frontage name and a 27.4 m width but an empty `C-ROAD-ALIGN`. Now clipped per *segment* with Liang-Barsky (`clip_path_to_window`), trimmed to the window so a long segment cannot drag the sheet border out.
 * **The abutting road geometry was selected by arrival order, not proximity** - `road_geoms[:6]` took the first six geometries parsed. MCGM road *polygon* layers return hundreds of rings per probe (552 for layer 44 at AMBIVALI 807, across nine probes), so the real frontage was pushed out by distant rings: the six that reached `export_dxf` were 910-2082 m away while the frontage sat 8.7 m from the boundary. `nearest_road_geoms()` ranks by distance before cutting. Note this was a *separate* bug from the segment-clipping one above, and was the actual cause of the empty layer - the clipping fix alone did not resolve it.
+
+### 14. 🧩 Spatial Polygon Intersection & Partial Encumbrance Engine (2026-08-18, v3.13.0)
+* **Issue**: Point-centroid identify failed on large parcels with corner/edge reservations (e.g. Mulund West CTS 22 at 35,735 m²).
+* **Resolution**: Replaced single-point identify with Shapely polygon-in-polygon intersection across layers 0, 46, 47, 192, 1550, and CRZ layers. Computes exact overlapping $m^2$ and percentage of parcel area, classifying plots into partial encumbrance.
+
+### 15. 🏗️ Modular Package Refactoring & Interactive HTML Dossier (2026-08-18, v3.14.0)
+* **Modular Package (`dp_lookup/`)**: Monolithic 3,180-line `cts_dp_lookup_pro.py` decomposed into 10 domain modules (`core/`, `clients/`, `exporters/`, `renderers/`, `cli.py`), while `cts_dp_lookup_pro.py` acts as a 100% backward-compatible facade.
+* **🌐 Standalone Interactive HTML Map Dossier (`dp_lookup/exporters/html_map.py`)**: Generates an offline-capable Leaflet.js dossier (`plot_map_*.html`) with a 2-way Satellite/Cadastral switcher, net developable polygon, and high-contrast color scheme.
+* **⚡ HTTP/2 Semaphore Throttling**: Added an `asyncio.Semaphore(6)` around probe requests to avoid ArcGIS Server `RST_STREAM` resets.
+* **🔬 Cadastral Area Scaling**: Fixed Web Mercator latitude distortion factor on net developable area calculation. Encumbered and net developable metrics are strictly scaled against approved plot area (`AREA_APP_SQ_MTRS`).
 * Explicit lineweights per layer, so the boundary no longer plots at the same weight as the grid. Plot fill is 65% transparent so a survey or satellite underlay shows through.
 
 ### ⚠️ Plot area: three sources, three answers

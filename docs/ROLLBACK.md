@@ -1,7 +1,9 @@
 # ⏪ ROLLBACK — How to go back if something breaks
 
-> **Short version:** v3.12.0 is on `main` (merged 2026-07-30).
-> To undo it, run **`git revert -m 1 da6d215`**. Nothing is lost either way.
+> **Short version:** 
+> - **Pre-2026-08-18 Checkpoint:** Tag & Branch **`checkpoint-pre-2026-08-18`** (Commit `97b8e62`).
+> - To jump back to the exact code before today's changes: **`git checkout checkpoint-pre-2026-08-18`**.
+> - To return to current: **`git checkout main`**.
 
 ---
 
@@ -9,10 +11,9 @@
 
 | Reference | Commit | What it is |
 | :--- | :--- | :--- |
-| **`main`** | `2378175` | **Current.** v3.12.0 — all fixes. Pushed to GitHub. |
-| **tag `v3.12.0`** | `da6d215` | The release point. Immutable — `git checkout v3.12.0` always gets you here. |
-| the merge | `da6d215` | One commit containing the whole DXF update — revert this to undo it all |
-| pre-update `main` | `7e6b3a1` | The old version (pre-3.11), still in history |
+| **`main`** | `HEAD` | **Current v3.14.0** — Modular `dp_lookup/` package, Interactive HTML Map Dossier, Spatial Encumbrance Engine. |
+| **`checkpoint-pre-2026-08-18`** | `97b8e62` | **Pre-change Checkpoint** — The exact repository state before today's changes (v3.12.0 monolithic architecture). |
+| **tag `v3.12.0`** | `da6d215` | The earlier DXF sheet hardening release. |
 
 There is now a **single branch** (`main`) plus that tag. The `dxf-text-metrics`
 and `v3.7.0-hardening` branches were deleted after merging — every commit they

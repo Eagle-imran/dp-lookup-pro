@@ -4,7 +4,7 @@ description: >-
   Enterprise Pro Level 3 DP Plot Lookup & GIS Exporter for Mumbai (MCGM SDP 2014-34).
   Queries Zoning, Land Reservations, DP Modification Orders, CRZ Coastal Restrictions, Metro Rail Buffers, Road Widths, and Adjoining Plot Clusters.
   Generates 2-Page PDF Remark Dockets, Retina HD DP Maps, Esri Satellite Views, AutoCAD DXF Drawing Files, GeoJSON, and Google Earth 3D KML exports.
-version: 3.12.0
+version: 3.14.0
 command: /dp-lookup-pro
 parameters:
   type: object
@@ -31,11 +31,12 @@ parameters:
 1. **🏷️ Planning Status Badges**: Classifies land parcels (`🟢 CLEAR`, `🟡 MODIFIED`, `🔴 RESERVED`).
 2. **🌊 Precise CRZ & Infrastructure Detection**: Queries CRZ **zone polygons** and reports the sub-tier (`YES (CRZ II)`), plus Layer 1550 Metro Rail Influence buffers.
 3. **📸 Dual High-Definition Visuals**: Generates Retina HD DP 2034 Map Overlay with North Arrow ($N \uparrow$) and scale legend, alongside Tile-Stitched Esri World Imagery Satellite Aerial Views.
-4. **📐 Direct AutoCAD DXF & GeoJSON Exports**: Generates native AutoCAD `.dxf` drawing files (compatible with AutoCAD LT, Civil 3D, and standard CAD) and scale-accurate `.geojson` (QGIS/ArcGIS).
-5. **🌍 Google Earth 3D Exports**: Generates interactive 3D `.kml` files with metadata popups for Google Earth.
-6. **📄 Auto-Generated 2-Page PDF Docket**: Generates a 2-page downloadable **DP Remark PDF Report** complete with formatted data tables, status banners, maps, adjoining parcel cluster tables, and a scannable interactive map **QR Code**.
-7. **📁 Dedicated Query Export Subfolders**: Isolates all query assets inside clean bundle subfolders (`output/<village_name>_cts_<cts_no>/`).
-8. **⚡ Concurrency & Persistent Disk Cache**: Single-batch HTTP/2 pipelining (~5-13 s cold, 25 requests) with a 30-day disk cache for instant repeat lookups. Cache hits report their age, self-invalidate if the files are gone, and incomplete results are never cached.
+4. **🌐 Standalone Interactive HTML Map Dossier**: Generates an offline-capable interactive GIS Leaflet.js dossier (`plot_map_*.html`) with satellite/cadastral 2-way toggle, net developable envelope, and HUD metrics.
+5. **📐 Direct AutoCAD DXF & GeoJSON Exports**: Generates native AutoCAD `.dxf` drawing files (compatible with AutoCAD LT, Civil 3D, and standard CAD) and scale-accurate `.geojson` (QGIS/ArcGIS).
+6. **🌍 Google Earth 3D Exports**: Generates interactive 3D `.kml` files with metadata popups for Google Earth.
+7. **📄 Auto-Generated 2-Page PDF Docket**: Generates a strictly 2-page downloadable **DP Remark PDF Report** complete with formatted data tables, status banners, maps, adjoining parcel cluster tables, and a scannable interactive map **QR Code**.
+8. **📁 Dedicated Query Export Subfolders**: Isolates all 7 query assets inside clean bundle subfolders (`output/<village_name>_cts_<cts_no>/`).
+9. **⚡ Concurrency & Persistent Disk Cache**: Single-batch HTTP/2 pipelining with semaphore throttling (~5-13 s cold) with a 30-day disk cache for instant repeat lookups. Cache hits report their age, self-invalidate if the files are gone, and incomplete results are never cached.
 
 ## Tooling Standards
 
