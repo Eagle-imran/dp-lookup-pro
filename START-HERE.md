@@ -28,7 +28,8 @@ For any City Survey (CTS/CS) plot in Mumbai, under the MCGM Development Plan 203
 
 ## 📦 What you get, every time
 
-One request creates a folder containing **seven files**:
+One request creates a folder containing **seven bundle artifacts**, plus a
+shared Excel register at the output root:
 
 | File | Who it's for | What you do with it |
 | :--- | :--- | :--- |
@@ -37,11 +38,13 @@ One request creates a folder containing **seven files**:
 | 📐 **AutoCAD `.dxf`** | Your architect | Opens in AutoCAD to scale, with the road, setback lines, neighbouring plots and a layer legend. Send them [docs/DXF-GUIDE.md](docs/DXF-GUIDE.md) with it. |
 | 🗺️ **HD Zoning Map** | You | Zone, reservations and road widths at a glance |
 | 📸 **Satellite View** | You | What's actually built on the ground today |
+| 🌐 **QGIS `.geojson`** | Your GIS team | Import the scale-accurate plot polygon into QGIS or ArcGIS |
 | 🌍 **Google Earth `.kml`** | Site visits | Double-click → flies you to the plot in 3D |
-| 📊 **Excel Register** | Your records | Every plot you've ever looked up, in one running log |
+| 📊 **Excel Register** *(shared)* | Your records | Every plot you've ever looked up, in one running log at `output/dp-lookups.xlsx` |
 
-Everything lands in a folder named after the plot, for example
-`output/bandra_cts_100/`.
+The seven bundle artifacts land in a folder named after the plot, for example
+`output/bandra_cts_100/`; the shared Excel register stays at
+`output/dp-lookups.xlsx`.
 
 ---
 
@@ -108,7 +111,7 @@ see this:
     Abutting road     Bazar Road
     Adjoining plots   4
 
-    Files            ./output/bandra-a_cts_409  (6 files)
+    Files            ./output/bandra-a_cts_409  (7 bundle files)
     Fetched in 7.4s
 ```
 
@@ -245,6 +248,26 @@ If a plot matters right now — a transaction, a submission — force a fresh ch
 uv run python dp-lookup-pro WORLI 947 --no-cache
 ```
 
+A successful fresh lookup becomes the new cache entry. For ordinary feasibility
+and repeated design work, leave caching enabled. Use `--no-cache` for a final
+client issue, transaction, submission, suspected MCGM update, or scheduled
+30-day refresh.
+
+## 🔎 Optional deeper planning evidence
+
+The normal command uses the established fast `basic` lookup. For a broader
+source-backed due-diligence register, request it explicitly:
+
+```bash
+uv run dp-lookup-pro COLABA 1/600 --evidence standard --no-cache --json
+uv run dp-lookup-pro "VILE PARLE" 1449 --evidence full --no-cache --json
+```
+
+`full` mode checks more MCGM layers and can take noticeably longer. Its findings
+are screening evidence, not an official DP Remark or an automatic FSI/buildable
+area conclusion. See [Planning evidence](docs/PLANNING_EVIDENCE.md) and the
+[ArcGIS layer audit](docs/ARCGIS_LAYER_AUDIT.md).
+
 ---
 
 ## ⚠️ Important — read this
@@ -261,7 +284,7 @@ before making any legal, financial or development decision.
 
 Proprietary software. © 2026 Imran Patel. All rights reserved.
 
-*Version 3.12.0 — see [docs/CHANGELOG.md](docs/CHANGELOG.md). If an update ever breaks
+*Version 3.14.0 — see [docs/CHANGELOG.md](docs/CHANGELOG.md). If an update ever breaks
 something, [docs/ROLLBACK.md](docs/ROLLBACK.md) explains how to go back.*
 
 Free for personal evaluation and testing. Commercial use, redistribution and

@@ -11,7 +11,7 @@ The rest of this README is the technical reference for developers.
 > ⚖️ **Proprietary software** — © 2026 Imran Patel. All rights reserved. Not open-source.
 > Free for personal evaluation; commercial use requires a licence. See [LICENSE](LICENSE).
 
-**v3.14.0** · [What changed](docs/CHANGELOG.md) · [Reading the DXF](docs/DXF-GUIDE.md) · [How to roll back](docs/ROLLBACK.md) · [System flow map](docs/APP_FLOW.html)
+**v3.14.0** · [Architecture](docs/ARCHITECTURE.md) · [Planning evidence](docs/PLANNING_EVIDENCE.md) · [ArcGIS layer audit](docs/ARCGIS_LAYER_AUDIT.md) · [What changed](docs/CHANGELOG.md) · [Reading the DXF](docs/DXF-GUIDE.md) · [How to roll back](docs/ROLLBACK.md) · [System flow map](docs/APP_FLOW.html)
 
 ---
 
@@ -39,9 +39,9 @@ It automatically generates a complete export bundle containing an **Interactive 
 * **📄 2-Page Executive PDF Report Docket**: Professional PDF containing metadata tables, status banners, maps, adjoining parcel lists, and a scannable QR Code linking directly to the live MCGM Web Map.
 * **📊 Centralized Excel Register**: Automatically appends query results to `output/dp-lookups.xlsx`.
 * **⚡ High-Speed Concurrency & Persistent Disk Cache**:
-  * **Answer in ~0.7 s.** All requests pipeline concurrently through an HTTP/2 semaphore pool.
-  * A cold lookup writes all seven bundle files in **5–13 s**.
-  * Cached repeat queries return in **~0.4 s** end-to-end. Entries live **30 days**, self-invalidate if files are missing, and report cache age. Pass `--no-cache` to force a fresh fetch.
+  * Requests pipeline concurrently through a bounded async pool with verified TLS, connection reuse, timeouts, and retry/backoff.
+  * A cold lookup writes all seven bundle artifacts in **5–13 s**; the shared Excel register is updated alongside them.
+  * Cached repeat queries return in **~0.4 s** end-to-end. Entries live **30 days**, self-invalidate if files are missing, and report cache age. Pass `--no-cache` to ignore an existing entry and fetch fresh data; a complete refreshed result becomes the new cache entry.
 
 ---
 
@@ -86,7 +86,7 @@ uv sync
 ```
 *(Alternatively, using standard Python `pip`):*
 ```bash
-pip install "httpx[http2]>=0.28.0" pillow openpyxl reportlab qrcode ezdxf
+pip install "httpx>=0.28.0" pillow openpyxl reportlab qrcode ezdxf shapely
 ```
 
 ### Step 4: Execute a Plot Lookup Query
@@ -94,6 +94,17 @@ Run the command by passing the **Village Name** and **CTS Number**:
 ```bash
 uv run python dp-lookup-pro WORLI 748A
 ```
+
+The compatibility default uses the established layer set. Request the curated
+due-diligence register explicitly when needed:
+
+```bash
+uv run dp-lookup-pro COLABA 1/600 --evidence standard --no-cache --json
+uv run dp-lookup-pro "VILE PARLE" 1449 --evidence full --no-cache --json
+```
+
+See [Planning evidence](docs/PLANNING_EVIDENCE.md) for `basic`, `shadow`,
+`standard`, and conditional `full` mode semantics.
 *(The answer appears in about a second; the PDF, maps and CAD files finish a few seconds later. A cached lookup is instant. See [docs/CHANGELOG.md](docs/CHANGELOG.md).)*
 
 ### Step 5: Inspect the Generated Output Bundle
@@ -214,7 +225,8 @@ uv run python dp-lookup-pro "<VILLAGE_NAME>" "<CTS_NUMBER>" [OUTPUT_DIR] [option
 | Option | Effect |
 | :--- | :--- |
 | `--json` | full JSON response instead of the summary (clean on stdout) |
-| `--no-cache` | ignore any cached report and refetch |
+| `--no-cache` | ignore any cached report, refetch, and replace it after a complete run |
+| `--evidence MODE` | select `basic`, `shadow`, `standard`, or conditional `full` planning evidence; default is `basic` |
 | `--list-villages` | print all 128 valid village names and exit |
 
 ### Examples:
@@ -241,11 +253,16 @@ output/
 └── <village_name>_cts_<cts_no>/                # Dedicated query export bundle
     ├── dp_report_<ward>_<cts_no>_<village>.pdf # 2-Page Executive PDF Remark Docket
     ├── plot_<ward>_<cts_no>_<village>_hd.png   # Retina HD DP 2034 Zoning Map Snapshot
-    ├── plot_<ward>_<cts_no>_<village>_sat.png  # High-Res Tile-Stitched Satellite View
+    ├── plot_map_<ward>_<cts_no>_<village>.html # Standalone Interactive HTML Map Dossier
+    ├── plot_<ward>_<cts_no>_<village>_satellite.png # High-Res Tile-Stitched Satellite View
     ├── plot_<ward>_<cts_no>_<village>.dxf      # Native AutoCAD Drawing File (.dxf)
     ├── plot_<ward>_<cts_no>_<village>.geojson  # QGIS / ArcGIS Spatial Polygon File
     └── plot_<ward>_<cts_no>_<village>.kml      # Google Earth 3D Interactive File
 ```
+
+The query folder contains seven bundle artifacts (HTML, PDF, two PNG maps, DXF,
+GeoJSON, and KML). The shared `output/dp-lookups.xlsx` register is maintained
+at the output root, alongside the query folders.
 
 ---
 

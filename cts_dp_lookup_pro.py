@@ -11,6 +11,8 @@ import sys
 
 from PIL import Image
 
+from dp_lookup.application.dependencies import LookupDependencies
+from dp_lookup.application.lookup_service import lookup_plot_pro
 from dp_lookup.cli import USAGE, format_result_human, main, suggest_villages
 
 # Clients & Cache
@@ -39,6 +41,7 @@ from dp_lookup.clients.cache import (
 from dp_lookup.core.constants import (
     _CTS_RE,
     _VILLAGE_RE,
+    APPLICATION_VERSION,
     CACHE_FILENAME,
     CRZ_LAYER_IDS,
     DEFAULT_CACHE_TTL_SECONDS,
@@ -74,17 +77,27 @@ from dp_lookup.core.geometry import (
     tile_to_latlon,
     wgs84_to_utm43n,
 )
-
-# Orchestrator & CLI
-from dp_lookup.core.orchestrator import lookup_plot_pro
+from dp_lookup.core.models import (
+    ArtifactManifest,
+    EvidenceState,
+    LookupResult,
+    PlanningRemarks,
+    PlotIdentity,
+    RegulatoryInfrastructure,
+    RunMetadata,
+    SourceEvidence,
+    SpatialCluster,
+)
 
 # Core Planning Status
 from dp_lookup.core.planning_status import (
     bundle_folder_name,
     crz_flag_from,
     derive_status,
+    filesystem_identity_token,
     select_road,
 )
+from dp_lookup.core.topology import arcgis_rings_to_geometry
 
 # Exporters
 from dp_lookup.exporters.dxf import (
@@ -123,6 +136,8 @@ from dp_lookup.exporters.pdf import build_pdf_doc
 from dp_lookup.renderers.map_overlay import render_dp_map
 from dp_lookup.renderers.satellite import stitch_satellite
 
+__version__ = APPLICATION_VERSION
+
 __all__ = [
     "CACHE_FILENAME",
     "CRZ_LAYER_IDS",
@@ -154,8 +169,19 @@ __all__ = [
     "_STORES",
     "_TILE_CACHE",
     "_VILLAGE_RE",
+    "ArtifactManifest",
+    "EvidenceState",
     "Image",
+    "LookupDependencies",
+    "LookupResult",
+    "PlanningRemarks",
+    "PlotIdentity",
+    "RegulatoryInfrastructure",
+    "RunMetadata",
+    "SourceEvidence",
+    "SpatialCluster",
     "_esc",
+    "arcgis_rings_to_geometry",
     "boxes_overlap",
     "build_pdf_doc",
     "bundle_folder_name",
@@ -172,6 +198,7 @@ __all__ = [
     "export_html_map",
     "export_kml",
     "fetch_tile_cached",
+    "filesystem_identity_token",
     "fit_label_to_width",
     "format_result_human",
     "identify_payload",

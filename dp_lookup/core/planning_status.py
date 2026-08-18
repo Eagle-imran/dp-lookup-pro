@@ -6,13 +6,23 @@ from typing import Any, Dict, List, Optional
 from dp_lookup.core.constants import GENERIC_ROAD_NAMES
 
 
+def filesystem_identity_token(value: Any, *, lower: bool = False) -> str:
+    """Encode an exact cadastral identity into a safe, collision-free token.
+
+    Slash and hyphen are both meaningful in CTS numbers.  Replacing both with
+    ``-`` made ``16/738`` overwrite ``16-738``; the ``~xx`` escape is readable,
+    reversible, and cannot collide because ``~`` is not accepted user input.
+    """
+    text = str(value).strip()
+    if lower:
+        text = text.lower()
+    return text.replace("~", "~7e").replace("/", "~2f").replace("\\", "~5c").replace(" ", "_")
+
+
 def bundle_folder_name(village: Any, cts_number: Any) -> str:
-    """Filesystem-safe bundle folder, e.g. 'malabar_hill_cts_16-738'."""
-    cts_clean = str(cts_number).replace("/", "-").replace("\\", "-")
-    village_clean = (
-        str(village).lower().strip()
-        .replace("/", "-").replace("\\", "-").replace(" ", "_")
-    )
+    """Filesystem-safe bundle folder preserving exact cadastral identity."""
+    cts_clean = filesystem_identity_token(cts_number)
+    village_clean = filesystem_identity_token(village, lower=True)
     return f"{village_clean}_cts_{cts_clean}"
 
 
@@ -24,7 +34,7 @@ def select_road(road_map: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
       3. whatever was found, so the field is never empty when something matched
     """
     def real_name(r):
-        return r.get("name") not in GENERIC_ROAD_NAMES
+        return str(r.get("name") or "").strip().casefold() not in GENERIC_ROAD_NAMES
 
     def real_width(r):
         return r.get("width") != "N/A"
@@ -35,7 +45,11 @@ def select_road(road_map: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     roads = named_with_width or named_or_width or values
     if not roads:
         return {"name": "None", "width": "None"}
-    return {"name": roads[0]["name"], "width": roads[0]["width"]}
+    selected = roads[0]
+    name = selected.get("name")
+    if not real_name(selected):
+        name = "Unnamed / existing road"
+    return {"name": name, "width": selected.get("width") or "N/A"}
 
 
 def crz_flag_from(crz_item: Optional[Dict[str, Any]]) -> str:

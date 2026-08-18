@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DP Dossier Map — @@D0@@ CTS @@D1@@</title>
+  
+  <!-- Leaflet CSS & JS -->
+  <!-- Leaflet and the optional basemap tiles remain remote runtime dependencies. -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+@@D26@@
+  </style>
+</head>
+<body>
+
+  <button class="hud-toggle-btn" id="hudToggleBtn" onclick="toggleHud()">📋 Show Plot Dossier</button>
+
+  <div id="map"></div>
+
+  <!-- Essential Floating Tools on Right -->
+  <div class="floating-tools">
+    <button class="tool-btn" onclick="fitPlotBounds()" title="Center & Fit Plot">🎯</button>
+    <button class="tool-btn" onclick="toggleMeasureMode()" id="measureBtn" title="Distance Measure Tool">📏</button>
+    <button class="tool-btn" onclick="toggleBaseImagery()" id="floatingSatBtn" title="Toggle Satellite / Cadastral Map">🛰️</button>
+  </div>
+
+  <!-- Dossier HUD Panel -->
+  <div class="dossier-hud" id="dossierHud">
+    <div class="hud-header">
+      <div class="hud-header-top">
+        <span class="hud-tag">MCGM SDP 2034 DOSSIER</span>
+        <button class="hud-close-btn" onclick="toggleHud()">✕</button>
+      </div>
+      <div class="hud-title">@@D2@@ CTS @@D3@@</div>
+      <div class="hud-subtitle">Ward @@D4@@ · Zone @@D5@@</div>
+      <div class="status-badge">@@D6@@</div>
+    </div>
+
+    <div class="hud-body">
+      <!-- 2-Way Base Map Toggle -->
+      <div class="basemap-switch">
+        <button class="basemap-switch-btn active" id="btn-sat" onclick="setBase('sat')">🛰️ Satellite View</button>
+        <button class="basemap-switch-btn" id="btn-cad" onclick="setBase('cad')">🗺️ Cadastral Map</button>
+      </div>
+
+      <!-- Area Statistics -->
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-card-label">Gross Plot Area</div>
+          <div class="stat-card-value" style="color:var(--plot-red)">@@D7@@ <span style="font-size:11px;font-weight:600">m²</span></div>
+          <div class="stat-card-sub">@@D8@@ sq.ft</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Net Developable</div>
+          <div class="stat-card-value" style="color:var(--net-emerald)">@@D9@@ <span style="font-size:11px;font-weight:600">m²</span></div>
+          <div class="stat-card-sub">@@D10@@% usable</div>
+        </div>
+      </div>
+
+      <!-- Encumbrance Bar Meter -->
+      <div class="meter-section">
+        <div class="meter-header">
+          <span>Encumbrance Split</span>
+          <span style="color:@@D11@@">@@D12@@% Reserved</span>
+        </div>
+        <div class="meter-bar">
+          <div class="meter-fill-enc" style="width:@@D13@@%"></div>
+          <div class="meter-fill-net" style="width:@@D14@@%"></div>
+        </div>
+        <div class="meter-legend">
+          <span>🟢 Net: @@D15@@ m²</span>
+          <span>🔴 Encumbered: @@D16@@ m²</span>
+        </div>
+      </div>
+
+      <!-- Planning Attributes -->
+      <div class="detail-list">
+        <div class="detail-row">
+          <span class="detail-label">DP 2034 Zone</span>
+          <span class="detail-val">Zone @@D17@@</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Abutting Road</span>
+          <span class="detail-val" style="color:var(--road-cyan)">@@D18@@ (@@D19@@)</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">CRZ Restriction</span>
+          <span class="detail-val">@@D20@@</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Metro Rail Buffer</span>
+          <span class="detail-val">@@D21@@</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Adjoining Plots</span>
+          <span class="detail-val">@@D22@@ CTS parcels</span>
+        </div>
+      </div>
+
+      <!-- Useful Essential Overlays Only -->
+      <div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;">Visible Layers</div>
+        <div class="layer-controls">
+          <div class="layer-pill active" id="layerPlot" onclick="toggleOverlay('plot')">
+            <div class="pill-dot" style="background:var(--plot-red)"></div> 🔴 Plot Boundary
+          </div>
+          <div class="layer-pill active" id="layerRoads" onclick="toggleOverlay('roads')">
+            <div class="pill-dot" style="background:var(--road-cyan)"></div> 🛣️ Abutting Road
+          </div>
+          <div class="layer-pill active" id="layerNet" onclick="toggleOverlay('net')">
+            <div class="pill-dot" style="background:var(--net-emerald)"></div> 🟢 Net Envelope
+          </div>
+          @@D23@@
+          @@D24@@
+          <div class="layer-pill active" id="layerNeigh" onclick="toggleOverlay('neigh')">
+            <div class="pill-dot" style="background:#64748b"></div> 📍 Neighbours (@@D25@@)
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Action Footer -->
+    <div class="hud-actions">
+      <button class="btn btn-outline" onclick="window.print()">🖨️ Print Map</button>
+      <button class="btn btn-primary" onclick="fitPlotBounds()">🎯 Center Plot</button>
+    </div>
+  </div>
+
+  <script>
+@@D27@@
+  </script>
+</body>
+</html>

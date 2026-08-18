@@ -9,6 +9,7 @@ from dp_lookup.core.constants import (
     ROAD_EDGE_PROBE_LIMIT,
     WEB_MERCATOR_R,
 )
+from dp_lookup.core.topology import arcgis_rings_to_geometry
 
 
 def wgs84_to_utm43n(lon: float, lat: float) -> Tuple[float, float]:
@@ -114,8 +115,13 @@ def prepare_geometry(rings: list) -> Dict[str, Any]:
     half-extent used for map windows, and the WGS84 reprojection.
     """
     ring = rings[0]
-    cx = sum(p[0] for p in ring) / len(ring)
-    cy = sum(p[1] for p in ring) / len(ring)
+    parcel_geometry = arcgis_rings_to_geometry(rings)
+    if parcel_geometry.is_empty:
+        cx = sum(p[0] for p in ring) / len(ring)
+        cy = sum(p[1] for p in ring) / len(ring)
+    else:
+        representative = parcel_geometry.representative_point()
+        cx, cy = representative.x, representative.y
 
     pts = [p for r in rings for p in r]
     xs = [p[0] for p in pts]

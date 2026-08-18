@@ -1,27 +1,30 @@
 """
 GeoJSON Vector File Exporter with Multi-Layer Sub-Features.
 """
+
 import json
-from typing import Any, Dict, List
+from typing import List
+
+from dp_lookup.core.topology import rings_to_geojson_geometry
+from dp_lookup.exporters.contracts import ExportPayload, legacy_export_properties
 
 
 def export_geojson(
     wgs_rings: List[List[List[float]]],
-    properties: Dict[str, Any],
+    properties: ExportPayload,
     output_path: str,
 ) -> None:
     """
     Export the parcel as a fully featured GeoJSON FeatureCollection.
     Includes the primary plot boundary and any overlapping PLU Reservation / Designation sub-features.
     """
+    properties = legacy_export_properties(properties)
     features = [
         {
             "type": "Feature",
-            "geometry": {
-                "type": "Polygon",
-                "coordinates": wgs_rings,
-            },
+            "geometry": rings_to_geojson_geometry(wgs_rings),
             "properties": {
+                "feature_type": "BASE_PLOT",
                 "village": properties.get("village"),
                 "cts_no": properties.get("cts_no"),
                 "ward": properties.get("ward"),
@@ -49,41 +52,39 @@ def export_geojson(
 
     for res in properties.get("reservations", []):
         if "wgs_rings" in res:
-            features.append({
-                "type": "Feature",
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates": res["wgs_rings"],
-                },
-                "properties": {
-                    "feature_type": "PLU_RESERVATION",
-                    "code": res.get("code"),
-                    "type": res.get("type"),
-                    "description": res.get("description"),
-                    "u_r_id": res.get("u_r_id"),
-                    "overlap_sqm": res.get("overlap_sqm"),
-                    "overlap_percent": res.get("overlap_percent"),
-                },
-            })
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": rings_to_geojson_geometry(res["wgs_rings"]),
+                    "properties": {
+                        "feature_type": "PLU_RESERVATION",
+                        "code": res.get("code"),
+                        "type": res.get("type"),
+                        "description": res.get("description"),
+                        "u_r_id": res.get("u_r_id"),
+                        "overlap_sqm": res.get("overlap_sqm"),
+                        "overlap_percent": res.get("overlap_percent"),
+                    },
+                }
+            )
 
     for des in properties.get("designations", []):
         if "wgs_rings" in des:
-            features.append({
-                "type": "Feature",
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates": des["wgs_rings"],
-                },
-                "properties": {
-                    "feature_type": "PLU_DESIGNATION",
-                    "code": des.get("code"),
-                    "type": des.get("type"),
-                    "description": des.get("description"),
-                    "u_d_id": des.get("u_d_id"),
-                    "overlap_sqm": des.get("overlap_sqm"),
-                    "overlap_percent": des.get("overlap_percent"),
-                },
-            })
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": rings_to_geojson_geometry(des["wgs_rings"]),
+                    "properties": {
+                        "feature_type": "PLU_DESIGNATION",
+                        "code": des.get("code"),
+                        "type": des.get("type"),
+                        "description": des.get("description"),
+                        "u_d_id": des.get("u_d_id"),
+                        "overlap_sqm": des.get("overlap_sqm"),
+                        "overlap_percent": des.get("overlap_percent"),
+                    },
+                }
+            )
 
     geojson_data = {
         "type": "FeatureCollection",

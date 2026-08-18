@@ -625,7 +625,7 @@ def test_prepare_geometry_floors_the_window_for_a_tiny_plot():
 
 @pytest.mark.parametrize("village,cts,expected", [
     ("WORLI", "733", "worli_cts_733"),
-    ("MALABAR HILL", "16/738", "malabar_hill_cts_16-738"),
+    ("MALABAR HILL", "16/738", "malabar_hill_cts_16~2f738"),
     ("BANDRA-A", "409", "bandra-a_cts_409"),
     ("  TARDEO  ", "264", "tardeo_cts_264"),
 ])
@@ -633,6 +633,12 @@ def test_bundle_folder_is_filesystem_safe(village, cts, expected):
     name = dp.bundle_folder_name(village, cts)
     assert name == expected
     assert "/" not in name and "\\" not in name and " " not in name
+
+
+def test_bundle_folder_preserves_exact_slash_vs_hyphen_identity():
+    assert dp.bundle_folder_name("MALABAR HILL", "16/738") != dp.bundle_folder_name(
+        "MALABAR HILL", "16-738"
+    )
 
 
 # ---- road selection ----
@@ -652,9 +658,9 @@ def test_road_accepts_a_width_without_a_name():
 
 
 def test_road_falls_back_to_the_generic_record():
-    """WORLI 886: MCGM's own typo, no width. Better than reporting nothing."""
+    """MCGM placeholders must not be presented as if they were real road names."""
     chosen = dp.select_road({"a": {"name": "Exisiting Road", "width": "N/A"}})
-    assert chosen == {"name": "Exisiting Road", "width": "N/A"}
+    assert chosen == {"name": "Unnamed / existing road", "width": "N/A"}
 
 
 def test_road_reports_none_when_nothing_was_found():
@@ -1586,5 +1592,3 @@ def test_export_html_map_with_reservations_and_neighbors(tmp_path):
     assert "Adjoining Parcel" in html_text
     assert '"cts_no": "23"' in html_text
     assert "MULUND-W CTS 22" in html_text
-
-

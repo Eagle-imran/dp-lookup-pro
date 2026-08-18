@@ -6,6 +6,54 @@ All notable changes to this project. Newest first.
 
 ## [3.14.0] — 2026-08-18
 
+### Application-stage and evidence architecture hardening
+
+* Added an optional typed planning-evidence capability with `basic`, `shadow`,
+  `standard`, and conditional `full` modes. Layer 13 ingestion and the existing
+  public lookup signature remain unchanged; expanded results live under
+  `metadata.evidence.planning_due_diligence`.
+* Added a versioned, explicit-field ArcGIS layer registry, canonical duplicate
+  mappings, bounded four-request querying, exact intersections, per-layer
+  outcome states, authority guards, and separate CRZ/ASI screening summaries.
+* Preserved the live ArcGIS investigation and operating decisions in
+  `docs/ARCGIS_LAYER_AUDIT.md` and `docs/PLANNING_EVIDENCE.md`.
+* Corrected Layer 192 field-name parsing, retained proposed and final
+  reservation/designation codes, and made the basic CRZ display select the
+  largest exact overlap rather than the first server feature.
+
+* Split the lookup coordinator into focused ingestion, normalization, output
+  layout, result-factory, reporting, and dependency-composition modules.
+* Split the ArcGIS adapter into payload, planning-query, tile-cache, and
+  transport modules while preserving the historical import facade.
+* Added explicit dependency injection for network, export, and rendering
+  adapters without changing the public result dictionary or CLI contract.
+* Added field-level evidence states and made spatial-planning fallback visibly
+  incomplete rather than treating a failed query as proof of no constraint.
+* Canonicalized all output paths and normalized MCGM road placeholders.
+* Architecture import boundaries and compatibility facades are enforced by the
+  offline contract suite.
+* Added bounded ArcGIS retry/backoff, atomic bounded tile/cache storage,
+  malformed-payload guards, optional-renderer isolation, and per-stage run
+  diagnostics. HTTP/2 is no longer a runtime dependency; the ArcGIS REST path
+  remains pooled and concurrent over HTTP/1.1.
+* Added strict static checks for 21 core boundary modules, a branch-aware 80%
+  coverage ratchet, locked runtime vulnerability auditing, dependency review,
+  CodeQL, scheduled live ArcGIS acceptance checks, and trusted releases with
+  checksums and provenance attestations.
+* Replaced hard-coded vector-export calls with a typed `ArtifactExporter`
+  registry. Built-in formats remain backward compatible, while SVG, IFC, or
+  future massing outputs can be added without changing the coordinator.
+* Split the interactive dossier into packaged HTML, CSS, and JavaScript source
+  assets while preserving the generated single-file report; strict token and
+  escaping tests guard template drift and script injection.
+* Made shared Excel register updates cross-process safe with a stable sidecar
+  lock, same-directory temporary save, and atomic replacement.
+* Centralized DXF tuning in a frozen `DxfLayoutPolicy` and added high-vertex,
+  thin-sliver, collision, and custom-policy regression tests.
+* Final release verification: 249 offline tests pass, strict typing and Ruff are
+  clean, branch-aware coverage is 83.64%, and both wheel and source distribution
+  build successfully.
+
 ### 🏗️ Architecture — Modular Package Decomposition (`dp_lookup/`) & Interactive HTML Dossier
 
 Refactored the monolithic 3,180-line `cts_dp_lookup_pro.py` into a domain-driven Python package structure while maintaining 100% backward compatibility via a facade interface:
@@ -14,21 +62,22 @@ Refactored the monolithic 3,180-line `cts_dp_lookup_pro.py` into a domain-driven
   - `core/constants.py`: Layer IDs, 128 MCGM revenue villages, Web Mercator constants, and validation regexes.
   - `core/geometry.py`: Pure math projections (`wgs84_to_utm43n`), polygon area, centroid, and probe generation.
   - `core/planning_status.py`: Planning status classification and partial encumbrance calculations.
-  - `core/orchestrator.py`: High-speed async pipeline coordinating cadastral, GIS, and document generation tasks.
-  - `clients/arcgis.py`: ArcGIS REST MapServer query, identify, and tile fetch clients.
+  - `application/lookup_service.py`: High-speed async composition shell coordinating typed lookup stages.
+  - `core/orchestrator.py`: Backward-compatible import shim for the application service.
+  - `clients/arcgis.py`: Backward-compatible facade over focused ArcGIS adapters.
   - `clients/cache.py`: Deterministic local disk caching with file integrity checks.
   - `exporters/`: Dedicated modules for `dxf.py`, `pdf.py`, `geojson.py`, `kml.py`, `excel.py`, and `html_map.py`.
   - `renderers/`: Dedicated renderers for `map_overlay.py` (Retina DP overlays) and `satellite.py` (Esri World Imagery).
   - `cli.py`: Command-line arguments, text formatting, and typo suggestion engine.
-* **🌐 Standalone Interactive HTML Map Dossier (`dp_lookup/exporters/html_map.py`)**:
-  - Generates a standalone, self-contained interactive Leaflet.js HTML dossier (`plot_map_*.html`) in the plot output bundle.
-  - Zero-server dependency: embeds GeoJSON geometries and works fully offline.
+* **🌐 Single-file Interactive HTML Map Dossier (`dp_lookup/exporters/html_map.py`)**:
+  - Generates one portable interactive Leaflet.js HTML dossier (`plot_map_*.html`) in the plot output bundle.
+  - Embeds GeoJSON and first-party CSS/JavaScript; Leaflet, web fonts, and basemap tiles remain explicit network dependencies when opened.
   - 2-Way Base Switcher: Seamless 1-click toggle between `🛰️ Satellite View` (Esri World Imagery HD) and `🗺️ Cadastral Map` (CartoDB Positron).
   - High-Contrast Distinguishable Styling: Vivid Crimson Red (`#e11d48`) plot boundary with corner vertex pins vs Electric Cyan (`#0284c7`) dashed road casing.
   - Unencumbered Net Developable polygon computed via Shapely geometric difference.
   - Dossier HUD: Real-time encumbrance progress meter, Gross vs Net usable area ($m^2$ & $sq.ft$), and on-screen measurement tool.
-* **⚡ HTTP/2 Semaphore Throttling**:
-  - Added an `asyncio.Semaphore(6)` around parallel road and neighbor probe requests, preventing ArcGIS Server stream reset errors (`RST_STREAM error_code: 8`).
+* **⚡ Bounded Request Concurrency**:
+  - Added an `asyncio.Semaphore(6)` around parallel road and neighbor probe requests, preventing overload during ArcGIS bursts.
 * **📐 AutoCAD Mega-Plot Dynamic Metric Grid**:
   - Added adaptive grid steps ($500\text{m} \rightarrow 200\text{m} \rightarrow 100\text{m} \rightarrow 50\text{m} \rightarrow 25\text{m}$) based on plot scale.
   - Registered grid label bounding boxes into `placed_boxes` collision detector, dropping mega-plot text collisions to zero.
@@ -37,7 +86,7 @@ Refactored the monolithic 3,180-line `cts_dp_lookup_pro.py` into a domain-driven
   - Eliminated Web Mercator latitude area distortion ($\sim 12.3\%$ at $19^\circ\text{ N}$) on net developable square meters. Encumbered and net developable metrics are now strictly scaled against the approved cadastral area from MCGM Layer 13.
 * **Backward-Compatible Facade (`cts_dp_lookup_pro.py`)**: Re-exports all core public symbols, guaranteeing zero breaking changes for existing CLI commands, scripts, and tests.
 * **Quality & Validation**:
-  - `154 / 154` pytest tests passing (100% pass in 0.93s).
+  - Full offline unit and contract suite passing.
   - `ruff` lint check clean across all modules.
   - `tools/audit_dxf.py` verified CLEAN across all benchmark plots.
 

@@ -50,7 +50,7 @@
 | :--- | :--- | :--- |
 | **Language & Runtime** | Python `3.9` – `3.14+` | Core asynchronous execution environment (Tested & verified on Python 3.14). |
 | **Package Manager** | `uv` | Rust-powered ultra-fast package & virtual environment manager (`pyproject.toml`, `uv.lock`). |
-| **Async Networking** | `httpx[http2]` | HTTP/2 multiplexed connection pool (`max_keepalive_connections=30`, `max_connections=50`). |
+| **Async Networking** | `httpx` | Verified pooled HTTP/1.1 transport with bounded retry/backoff (`max_keepalive_connections=20`, `max_connections=30`). |
 | **Concurrency Engine** | `asyncio` | Single-batch concurrent request dispatching (`asyncio.gather`) and background CPU thread offloading (`asyncio.to_thread`). |
 | **GIS & Projections** | WGS84 (`EPSG:4326`) & Mercator | Spherical Mercator (`EPSG:3857/102100`) to WGS84 coordinate transformation algorithms. |
 | **Canvas & Image Engine** | Pillow (PIL) | Retina HD DP 2034 map overlays with North Arrow ($N \uparrow$) and scale legend, plus 3x3 Esri tile stitching. |
@@ -76,9 +76,9 @@
 * **Issue**: Direct Esri MapServer export server endpoints (`services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export`) threw HTTP 500 errors when queried with unaligned bounding boxes.
 * **Resolution**: Replaced with standard XYZ tile fetching (`server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/{y}/{x}`) stitched into a seamless 3x3 grid canvas via Pillow at Zoom Level 18.
 
-### 3. ⚡ Single-Batch HTTP/2 Async Concurrency
+### 3. ⚡ Bounded async request concurrency
 * **Issue**: Sequential API querying caused fresh lookups to take 3.5 – 5.0 seconds.
-* **Resolution**: Pipelined the network tasks over HTTP/2 pooling. **25 requests** per cold lookup: 1 parcel query (sequential) + 24 concurrent (1 identify, 1 map export, 9 road probes, 4 neighbour probes, 9 satellite tiles). Since v3.10.0 the *wait* is split in two — see history entry 10 — though all 25 still dispatch together.
+* **Resolution**: Pipelined independent network tasks with bounded concurrency over pooled HTTP/1.1, verified TLS, per-request timeouts, and retry/backoff. The planning wait remains split from slower map/report rendering. HTTP/2 was retired in v3.14.0 to reduce the runtime dependency and vulnerability surface; ArcGIS uses the same REST requests.
 * **Measured reality**: a cold lookup takes **5–13 s**. The `/export` map-image request is consistently the slowest single call (5.6–5.9 s), but it is **not** reliably 95% of runtime — an earlier note claiming that held for one measurement only. Identify calls range 414 ms–4,470 ms run to run. MCGM is slow *and variable* across every endpoint.
 * **v3.10.0**: the wait is split. Planning data and vector exports complete in the fast half (~0.7 s typical), then the map, satellite and PDF finish. See history entry 10.
 
@@ -150,8 +150,8 @@ passing; WORLI 733 and AMBIVALI 807 each carried **16 faults**.
 
 ### 15. 🏗️ Modular Package Refactoring & Interactive HTML Dossier (2026-08-18, v3.14.0)
 * **Modular Package (`dp_lookup/`)**: Monolithic 3,180-line `cts_dp_lookup_pro.py` decomposed into 10 domain modules (`core/`, `clients/`, `exporters/`, `renderers/`, `cli.py`), while `cts_dp_lookup_pro.py` acts as a 100% backward-compatible facade.
-* **🌐 Standalone Interactive HTML Map Dossier (`dp_lookup/exporters/html_map.py`)**: Generates an offline-capable Leaflet.js dossier (`plot_map_*.html`) with a 2-way Satellite/Cadastral switcher, net developable polygon, and high-contrast color scheme.
-* **⚡ HTTP/2 Semaphore Throttling**: Added an `asyncio.Semaphore(6)` around probe requests to avoid ArcGIS Server `RST_STREAM` resets.
+* **🌐 Single-file Interactive HTML Map Dossier (`dp_lookup/exporters/html_map.py`)**: Generates a Leaflet.js dossier (`plot_map_*.html`) with a 2-way Satellite/Cadastral switcher, net developable polygon, and high-contrast color scheme. Plot data and first-party CSS/JS are embedded; Leaflet, fonts, and basemap tiles require network access when opened.
+* **⚡ Request Semaphore Throttling**: Added an `asyncio.Semaphore(6)` around probe requests to bound ArcGIS Server load.
 * **🔬 Cadastral Area Scaling**: Fixed Web Mercator latitude distortion factor on net developable area calculation. Encumbered and net developable metrics are strictly scaled against approved plot area (`AREA_APP_SQ_MTRS`).
 * Explicit lineweights per layer, so the boundary no longer plots at the same weight as the grid. Plot fill is 65% transparent so a survey or satellite underlay shows through.
 
@@ -178,7 +178,7 @@ plot area as authoritative.**
 | :--- | :--- | :--- |
 | **Answer visible (v3.10.0 fast half)** | **`~700 ms`** | Planning data + GeoJSON/DXF/KML. Typical; a slow identify can push this to ~4.7 s. |
 | **Repeat Query (cache hit)** | **`~0.2 ms`** | In-process. ~390 ms for a full CLI run, dominated by Python startup. |
-| **Cold Fresh Query (all 6 files)** | **`5,000 ms – 13,000 ms`** | 25 requests, tile stitching, PDF & CAD export. Highly variable server-side. |
+| **Cold Fresh Query (all 7 bundle artifacts)** | **`5,000 ms – 13,000 ms`** | Core-mode requests, tile stitching, PDF & CAD export. Highly variable server-side. |
 
 ---
 

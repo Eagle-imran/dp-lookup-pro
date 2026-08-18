@@ -1,67 +1,104 @@
 """
 Local File-Based Cache, Validation, and JSON Response Safety Helpers.
 """
+
 import datetime
 import json
+import math
 import os
-import re
 import sys
+import tempfile
+import threading
 import time
+from contextlib import contextmanager
 from typing import Any, Dict, Optional
 
-from dp_lookup.core.constants import CACHE_FILENAME, DEFAULT_CACHE_TTL_SECONDS
-
-# In-memory tile cache is process-scoped and safe to share across lookups.
-_TILE_CACHE: Dict[str, bytes] = {}
+from dp_lookup.clients.responses import usable_json as usable_json
+from dp_lookup.clients.tile_cache import _TILE_CACHE as _TILE_CACHE
+from dp_lookup.clients.validation import sanitize_query_value as sanitize_query_value
+from dp_lookup.core.constants import (
+    APPLICATION_VERSION,
+    CACHE_FILENAME,
+    CACHE_SCHEMA_VERSION,
+    DEFAULT_CACHE_TTL_SECONDS,
+)
 
 # One lookup store per output directory.
 _STORES: Dict[str, Dict[str, Any]] = {}
 
+# Cache files can be touched by several lookups in one process (and, for
+# example, by two CLI invocations started from a shell script).  Keep the
+# lock process-local even on platforms without fcntl; the file lock below is
+# only an additional best-effort guard for cooperating processes.
+_CACHE_LOCK = threading.RLock()
 
-def sanitize_query_value(value: Any, pattern: "re.Pattern[str]", label: str, max_len: int = 64) -> str:
-    """Validate and sanitize user input before interpolating into SQL / WHERE queries."""
-    text = str(value).strip()
-    if not text:
-        raise ValueError(f"{label} must not be empty")
-    if len(text) > max_len:
-        raise ValueError(f"{label} is too long (max {max_len} characters)")
-    if not pattern.match(text):
-        raise ValueError(
-            f"{label} contains unsupported characters. "
-            f"Allowed: letters, digits, space, and ( ) . / -"
-        )
-    return text
+try:  # pragma: no cover - fcntl is unavailable on Windows
+    import fcntl
+except ImportError:  # pragma: no cover - exercised only on Windows
+    fcntl = None  # type: ignore[assignment]
 
 
-def usable_json(resp: Any) -> Optional[Dict[str, Any]]:
-    """
-    Safely extract parsed JSON from an HTTP response, returning None on
-    exceptions, non-200 HTTP statuses, or ArcGIS error payloads.
-    """
-    if resp is None or isinstance(resp, Exception):
-        return None
-    if getattr(resp, "status_code", None) != 200:
-        return None
-    try:
-        data = resp.json()
-    except Exception:
-        return None
-    if not isinstance(data, dict):
-        return None
-    if "error" in data:
-        return None
-    return data
+CACHE_APP_VERSION = APPLICATION_VERSION
+CACHE_METADATA_KEY = "_cache_metadata"
 
 
 def cache_path_for(output_dir: str) -> str:
     """Cache store lives beside the bundles it describes, not beside the CWD."""
-    return os.path.join(output_dir, CACHE_FILENAME)
+    # realpath also collapses aliases such as ``reports`` and
+    # ``reports/../reports`` (and resolves symlinked output directories), so a
+    # single in-memory store cannot accidentally diverge into two stores.
+    canonical_dir = os.path.realpath(os.path.abspath(os.path.expanduser(os.fspath(output_dir))))
+    return os.path.join(canonical_dir, CACHE_FILENAME)
 
 
-def load_disk_cache(output_dir: str) -> Dict[str, Any]:
-    path = cache_path_for(output_dir)
-    if path in _STORES:
-        return _STORES[path]
+def _lock_path(path: str) -> str:
+    """Return a stable path used for cross-process locking.
+
+    The lock is deliberately separate from the cache file: atomic replacement
+    changes the cache inode, while this companion file remains stable.
+    """
+    return f"{path}.lock"
+
+
+@contextmanager
+def _disk_lock(path: str):
+    """Best-effort advisory lock for cache operations.
+
+    ``fcntl`` is part of the standard library on the Unix platforms we ship
+    on.  If it is unavailable or the filesystem rejects locking, the
+    in-process lock still provides safe behavior and the operation proceeds.
+    """
+    lock_handle = None
+    try:
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        lock_handle = open(_lock_path(path), "a+b")
+        if fcntl is not None:
+            try:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            except OSError:
+                pass
+    except OSError:
+        # A read/write failure on the lock must not make the cache unusable.
+        # The caller still has the process-local lock.
+        pass
+    try:
+        yield
+    finally:
+        if lock_handle is not None:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            try:
+                lock_handle.close()
+            except OSError:
+                pass
+
+
+def _read_store(path: str) -> Dict[str, Any]:
     store: Dict[str, Any] = {}
     if os.path.exists(path):
         try:
@@ -71,21 +108,83 @@ def load_disk_cache(output_dir: str) -> Dict[str, Any]:
                 store = loaded
         except (OSError, ValueError):
             store = {}
-    _STORES[path] = store
     return store
+
+
+def _cache_metadata() -> Dict[str, Any]:
+    return {
+        "schema_version": CACHE_SCHEMA_VERSION,
+        "app_version": CACHE_APP_VERSION,
+    }
+
+
+def _save_store(path: str, store: Dict[str, Any]) -> None:
+    """Write a complete cache document without exposing a partial target."""
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(prefix=f".{os.path.basename(path)}.", suffix=".tmp", dir=parent or None)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fd = -1
+            json.dump({**store, CACHE_METADATA_KEY: _cache_metadata()}, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, path)
+    except Exception:
+        # json serialization errors should retain their existing behavior, but
+        # never leave a misleading temporary cache behind.
+        if fd != -1:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
+
+
+def load_disk_cache(output_dir: str) -> Dict[str, Any]:
+    path = cache_path_for(output_dir)
+    with _CACHE_LOCK:
+        if path in _STORES:
+            return _STORES[path]
+        with _disk_lock(path):
+            store = _read_store(path)
+        _STORES[path] = store
+        return store
 
 
 def save_disk_cache(output_dir: str) -> None:
     path = cache_path_for(output_dir)
-    store = _STORES.get(path, {})
-    try:
-        parent = os.path.dirname(path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(store, f, indent=2)
-    except OSError as exc:
-        print(f"[dp-lookup-pro] WARNING: could not write cache store {path}: {exc}", file=sys.stderr)
+    with _CACHE_LOCK:
+        previous_store = _STORES.get(path)
+        store = _STORES.get(path, {})
+        try:
+            with _disk_lock(path):
+                # Preserve entries written by another process after this
+                # process loaded its snapshot.  Keys intentionally present in
+                # the caller's in-memory store win, matching the historical
+                # "mutate then save" behavior of this public function.
+                on_disk = _read_store(path)
+                if on_disk:
+                    merged = dict(on_disk)
+                    merged.update(store)
+                    store = merged
+                _save_store(path, store)
+        except Exception as exc:
+            if previous_store is None:
+                _STORES.pop(path, None)
+            else:
+                _STORES[path] = previous_store
+            if isinstance(exc, OSError):
+                print(f"[dp-lookup-pro] WARNING: could not write cache store {path}: {exc}", file=sys.stderr)
+            else:
+                raise
+        else:
+            _STORES[path] = store
 
 
 def bundle_is_intact(result: Dict[str, Any]) -> bool:
@@ -96,15 +195,27 @@ def bundle_is_intact(result: Dict[str, Any]) -> bool:
     for key, path in files.items():
         if key == "master_excel_register" or not isinstance(path, str):
             continue
-        if not os.path.exists(path):
+        try:
+            if key == "bundle_folder":
+                if not os.path.isdir(path):
+                    return False
+                continue
+            if not os.path.isfile(path) or os.path.getsize(path) <= 0:
+                return False
+        except OSError:
             return False
     return True
 
 
-def read_cache_entry(output_dir: str, key: str, ttl_seconds: int = DEFAULT_CACHE_TTL_SECONDS) -> Optional[Dict[str, Any]]:
+def read_cache_entry(
+    output_dir: str, key: str, ttl_seconds: int = DEFAULT_CACHE_TTL_SECONDS
+) -> Optional[Dict[str, Any]]:
     """
-    Return a cached result, or None when it is absent, expired, in the legacy
-    format, or no longer backed by files on disk.
+    Return a cached result, or None when it is absent, expired, has a known
+    incompatible schema, or is no longer backed by files on disk.
+
+    Timestamped entries written before cache schema metadata was introduced
+    remain readable so this hardening release does not invalidate user output.
     """
     entry = load_disk_cache(output_dir).get(key)
     if not isinstance(entry, dict):
@@ -112,6 +223,16 @@ def read_cache_entry(output_dir: str, key: str, ttl_seconds: int = DEFAULT_CACHE
     cached_at = entry.get("cached_at")
     result = entry.get("result")
     if not isinstance(cached_at, (int, float)) or not isinstance(result, dict):
+        return None
+    if isinstance(cached_at, bool):
+        return None
+    try:
+        if not math.isfinite(float(cached_at)) or cached_at > time.time():
+            return None
+    except (OverflowError, ValueError):
+        return None
+    entry_schema = entry.get("cache_schema_version")
+    if entry_schema is not None and entry_schema != CACHE_SCHEMA_VERSION:
         return None
     if ttl_seconds >= 0 and (time.time() - cached_at) > ttl_seconds:
         return None
@@ -124,14 +245,36 @@ def read_cache_entry(output_dir: str, key: str, ttl_seconds: int = DEFAULT_CACHE
     meta["cached_result"] = True
     meta["cached_at"] = datetime.datetime.fromtimestamp(cached_at).strftime("%Y-%m-%d %H:%M:%S")
     meta["cache_age_days"] = round(age / 86400.0, 2)
-    meta["cache_expires_in_days"] = (
-        None if ttl_seconds < 0 else round(max(0.0, ttl_seconds - age) / 86400.0, 2)
-    )
+    meta["cache_expires_in_days"] = None if ttl_seconds < 0 else round(max(0.0, ttl_seconds - age) / 86400.0, 2)
     return result
 
 
 def write_cache_entry(output_dir: str, key: str, result: Dict[str, Any]) -> None:
     """Persist a clean lookup result to the local disk cache."""
-    store = load_disk_cache(output_dir)
-    store[key] = {"cached_at": time.time(), "result": result}
-    save_disk_cache(output_dir)
+    path = cache_path_for(output_dir)
+    with _CACHE_LOCK:
+        previous_store = _STORES.get(path)
+        # Refresh from disk while holding the advisory lock so two processes
+        # writing different keys cannot overwrite one another with stale
+        # in-memory snapshots.
+        with _disk_lock(path):
+            store = _read_store(path)
+            store[key] = {
+                "cached_at": time.time(),
+                "cache_schema_version": CACHE_SCHEMA_VERSION,
+                "application_version": CACHE_APP_VERSION,
+                "result": result,
+            }
+            try:
+                _save_store(path, store)
+            except Exception as exc:
+                if previous_store is None:
+                    _STORES.pop(path, None)
+                else:
+                    _STORES[path] = previous_store
+                if isinstance(exc, OSError):
+                    print(f"[dp-lookup-pro] WARNING: could not write cache store {path}: {exc}", file=sys.stderr)
+                else:
+                    raise
+            else:
+                _STORES[path] = store

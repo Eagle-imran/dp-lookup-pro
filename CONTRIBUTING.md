@@ -3,16 +3,21 @@
 ## Setup
 
 ```bash
-uv sync --all-extras --dev
+uv sync --frozen --all-extras --dev
 ```
 
 ## Before you push
 
-CI runs both of these, so run them locally first:
+CI enforces the same gates locally and remotely:
 
 ```bash
-uv run ruff check .     # lint
-uv run pytest -q        # 70 offline tests, no network
+uv lock --check
+uv run ruff check .
+uv run mypy
+uv run pytest -q --cov --cov-report=term-missing
+uv export --frozen --no-dev --no-emit-project --no-hashes \
+  --format requirements-txt --output-file /tmp/dp-lookup-runtime.txt -q
+uv run pip-audit -r /tmp/dp-lookup-runtime.txt
 ```
 
 The test suite never touches the MCGM servers, so it is safe to run repeatedly.
@@ -21,9 +26,17 @@ The test suite never touches the MCGM servers, so it is safe to run repeatedly.
 
 | Job | What it does |
 | :--- | :--- |
-| `ruff` | Lint with the rule set in `pyproject.toml` |
-| `pytest` | Full suite on Python 3.9, 3.11 and 3.13 |
-| CLI smoke | The command starts, prints usage, and lists all 128 villages |
+| `ruff` | Lint and format checks with the rules in `pyproject.toml` |
+| `typing, coverage, dependency audit` | Strict typed-spine check, branch-aware 80% coverage ratchet, and runtime vulnerability audit |
+| `build` | Builds distributions and installs the wheel in a clean environment |
+| `pytest` | Full offline suite across the supported CI Python versions |
+| CLI smoke | The installed command reports help/version and lists all 128 villages |
+
+Separate workflows run CodeQL, review dependency changes, exercise one real
+uncached MCGM lookup on weekdays, and publish only version-matching tags through
+PyPI trusted publishing with checksums and provenance attestations. The live
+smoke is intentionally not part of pull-request CI because upstream availability
+is outside this repository's control.
 
 Python 3.9 is in the matrix because `requires-python` claims support for it —
 verified, not assumed.
@@ -38,8 +51,9 @@ Deliberately excluded, with reasons recorded in `pyproject.toml`:
 - **DTZ** — naive datetimes. These are local report timestamps for one city.
 - **S110** — `try/except/pass`. Several are deliberate (optional ezdxf
   linetypes); reviewed by hand rather than gated.
-- **E501** — 13 long lines are ArcGIS request payloads validated against the
-  live server. Deferred until `lookup_plot_pro` (730 lines) is split.
+- **E501** — retained for the legacy drawing/report modules where reflow would
+  be style-only churn. New application/client modules stay within the formatter
+  contract.
 
 ## Testing against the live server
 
@@ -54,8 +68,12 @@ real failures. Known-good plots for manual checks:
 | `MALABAR HILL 518` | RESERVED / designated |
 | `BANDRA-A 409` | Small plot; 6 m setback correctly omitted |
 
-Clear `output/.cache_store.json` before re-testing, or a cached result will
-replay the old behaviour and make a fix look like it failed.
+Pass `--no-cache` when re-testing, or a cached result can replay old behaviour
+and make a fix look like it failed.
+
+Set `DP_LOOKUP_LOG_JSON=1` to emit one structured JSON event per application
+stage to stderr. Every result also contains `metadata.diagnostics.run_id`, total
+elapsed time, and stage timings for correlation without a logging dependency.
 
 ## Rendering a DXF to look at it
 

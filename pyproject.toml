@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
 dependencies = [
-    "httpx[http2]>=0.28.0",
+    "httpx>=0.28.0",
     # ImageDraw.text(font_size=...) is used for the map legend and north arrow.
     # That keyword arrived in Pillow 10.1.0, so 10.0.x would crash at render time.
     "pillow>=10.1.0",
@@ -18,7 +18,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0", "matplotlib>=3.8.0"]  # matplotlib powers tools/render_dxf.py
+dev = [
+    "pytest>=8.0.0",
+    "matplotlib>=3.8.0",  # matplotlib powers tools/render_dxf.py
+    "mypy>=1.13.0,<1.18.0",
+    "pip-audit>=2.7.3",
+    "pytest-cov>=6.0.0",
+]
 
 [project.scripts]
 dp-lookup-pro = "cts_dp_lookup_pro:main"
@@ -56,8 +62,61 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# ezdxf 1.4.2 is the last Python 3.9-compatible release and still calls
+# pyparsing's compatibility aliases. Keep project/runtime warnings visible
+# while suppressing only that upstream deprecation class on the oldest matrix.
+filterwarnings = ["ignore::pyparsing.exceptions.PyparsingDeprecationWarning"]
+
+[tool.coverage.run]
+branch = true
+source = ["dp_lookup"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
+
+[tool.mypy]
+# Keep strict checking honest while the HTTP/rendering adapters are gradually
+# typed. This spine contains pure contracts and boundary helpers with no
+# missing third-party stubs or intentionally dynamic rendering APIs.
+python_version = "3.9"
+strict = true
+# The selected modules are checked strictly; avoid recursively turning the
+# package's legacy facade and third-party rendering stack into this boundary.
+follow_imports = "skip"
+files = [
+    "dp_lookup/application/artifacts.py",
+    "dp_lookup/application/contracts.py",
+    "dp_lookup/application/dependencies.py",
+    "dp_lookup/application/exporting.py",
+    "dp_lookup/application/output_layout.py",
+    "dp_lookup/application/planning_evidence.py",
+    "dp_lookup/application/reporting.py",
+    "dp_lookup/application/result_factory.py",
+    "dp_lookup/application/telemetry.py",
+    "dp_lookup/clients/arcgis_payloads.py",
+    "dp_lookup/clients/planning_evidence_queries.py",
+    "dp_lookup/clients/responses.py",
+    "dp_lookup/clients/tile_cache.py",
+    "dp_lookup/clients/transport.py",
+    "dp_lookup/clients/validation.py",
+    "dp_lookup/core/constants.py",
+    "dp_lookup/core/models.py",
+    "dp_lookup/core/villages.py",
+    "dp_lookup/exporters/contracts.py",
+    "dp_lookup/planning_evidence/models.py",
+    "dp_lookup/planning_evidence/registry.py",
+]
+
+[[tool.mypy.overrides]]
+module = ["qrcode"]
+ignore_missing_imports = true
 
 [dependency-groups]
 dev = [
     "ruff>=0.16.0",
+    "mypy>=1.13.0,<1.18.0",
+    "pip-audit>=2.7.3",
+    "pytest-cov>=6.0.0",
 ]

@@ -5,6 +5,9 @@ import re
 from typing import Tuple
 
 SERVER_URL = "https://agsmaps.mcgm.gov.in/server/rest/services/Development_Plan_2034/MapServer"
+APPLICATION_VERSION = "3.14.0"
+RESULT_SCHEMA_VERSION = 1
+CACHE_SCHEMA_VERSION = 1
 
 # Web Mercator projection sphere radius
 WEB_MERCATOR_R = 20037508.342789244
@@ -33,7 +36,7 @@ ROAD_EDGE_NUDGES = (6.0, 15.0, 25.0)
 ROAD_EDGE_PROBE_LIMIT = 12
 
 # MCGM records unnamed carriageway under several placeholder names
-GENERIC_ROAD_NAMES = ("Exisiting Road", "EXISTING", "Road", "None")
+GENERIC_ROAD_NAMES = ("", "existing", "exisiting road", "null", "none", "road", "unknown")
 
 # Input validation regexes
 _VILLAGE_RE = re.compile(r"^[A-Za-z0-9 ()./-]{1,64}$")

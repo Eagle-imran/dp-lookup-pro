@@ -1,0 +1,380 @@
+    :root {
+      --bg-panel: rgba(255, 255, 255, 0.95);
+      --border-panel: rgba(226, 232, 240, 0.95);
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --brand-primary: #2563eb;
+      --plot-red: #e11d48;
+      --road-cyan: #0284c7;
+      --net-emerald: #10b981;
+      --res-amber: #f59e0b;
+      --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body, html { height: 100%; width: 100%; font-family: var(--font-sans); color: var(--text-primary); overflow: hidden; background: #0f172a; }
+
+    #map { height: 100%; width: 100%; z-index: 1; }
+
+    /* Dossier HUD Sidebar */
+    .dossier-hud {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      width: 375px;
+      max-height: calc(100vh - 32px);
+      background: var(--bg-panel);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border-panel);
+      border-radius: 14px;
+      box-shadow: 0 16px 40px -4px rgba(0, 0, 0, 0.22), 0 4px 12px -2px rgba(0, 0, 0, 0.08);
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .dossier-hud.collapsed {
+      transform: translateX(-405px);
+    }
+
+    .hud-toggle-btn {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      z-index: 999;
+      background: #ffffff;
+      border: 1px solid var(--border-panel);
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+      display: none;
+    }
+
+    .hud-header {
+      padding: 16px 18px 12px;
+      background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+      border-bottom: 1px solid var(--border-panel);
+    }
+
+    .hud-header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+
+    .hud-tag {
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--brand-primary);
+      background: #eff6ff;
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid #bfdbfe;
+    }
+
+    .hud-close-btn {
+      background: transparent;
+      border: none;
+      font-size: 18px;
+      cursor: pointer;
+      color: var(--text-muted);
+    }
+    .hud-close-btn:hover { color: var(--text-primary); }
+
+    .hud-title {
+      font-size: 19px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+
+    .hud-subtitle {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-top: 1px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 11px;
+      margin-top: 8px;
+      border-radius: 8px;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #ffffff;
+      background: @@A0@@;
+    }
+
+    .hud-body {
+      padding: 14px 18px;
+      overflow-y: auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 13px;
+    }
+
+    /* 2-Way Base Map Toggle Switch */
+    .basemap-switch {
+      background: #e2e8f0;
+      border-radius: 9px;
+      padding: 3px;
+      display: flex;
+      gap: 3px;
+    }
+
+    .basemap-switch-btn {
+      flex: 1;
+      background: transparent;
+      border: none;
+      padding: 7px 10px;
+      border-radius: 7px;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s ease;
+    }
+
+    .basemap-switch-btn.active {
+      background: #ffffff;
+      color: var(--text-primary);
+      box-shadow: 0 2px 5px rgba(0,0,0,0.12);
+    }
+
+    /* Stat Card Grid */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .stat-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 9px 11px;
+    }
+
+    .stat-card-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      margin-bottom: 2px;
+    }
+
+    .stat-card-value {
+      font-size: 15px;
+      font-weight: 800;
+      font-family: var(--font-mono);
+      color: var(--text-primary);
+    }
+
+    .stat-card-sub {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    /* Encumbrance Progress Meter */
+    .meter-section {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+
+    .meter-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 5px;
+    }
+
+    .meter-bar {
+      height: 9px;
+      border-radius: 5px;
+      background: #e2e8f0;
+      display: flex;
+      overflow: hidden;
+      margin-bottom: 6px;
+    }
+
+    .meter-fill-enc {
+      background: var(--plot-red);
+      height: 100%;
+    }
+
+    .meter-fill-net {
+      background: var(--net-emerald);
+      height: 100%;
+    }
+
+    .meter-legend {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    /* Planning details list */
+    .detail-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 11.5px;
+    }
+
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      padding-bottom: 4px;
+      border-bottom: 1px dashed #e2e8f0;
+    }
+
+    .detail-label {
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .detail-val {
+      font-weight: 700;
+      color: var(--text-primary);
+      text-align: right;
+    }
+
+    /* Clean Essential Layer Toggles */
+    .layer-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .layer-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      padding: 5px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s;
+    }
+
+    .layer-pill.active {
+      background: #0f172a;
+      color: #ffffff;
+      border-color: #0f172a;
+    }
+
+    .pill-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    /* HUD Actions */
+    .hud-actions {
+      padding: 12px 18px;
+      background: #f8fafc;
+      border-top: 1px solid var(--border-panel);
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      border: 1px solid transparent;
+      transition: all 0.15s ease;
+    }
+
+    .btn-primary {
+      background: var(--brand-primary);
+      color: #ffffff;
+    }
+    .btn-primary:hover { background: #1d4ed8; }
+
+    .btn-outline {
+      background: #ffffff;
+      color: var(--text-primary);
+      border-color: #cbd5e1;
+    }
+    .btn-outline:hover { background: #f1f5f9; }
+
+    /* Leaflet popup styling */
+    .leaflet-popup-content-wrapper {
+      border-radius: 10px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+      font-family: var(--font-sans);
+      padding: 4px;
+    }
+    .custom-popup {
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .custom-popup h4 {
+      font-size: 13.5px;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+
+    /* Floating map tools (Top-Right) */
+    .floating-tools {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .tool-btn {
+      background: var(--bg-panel);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-panel);
+      border-radius: 8px;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      font-size: 17px;
+      color: var(--text-primary);
+      transition: all 0.2s;
+    }
+    .tool-btn:hover { background: #ffffff; transform: scale(1.05); }

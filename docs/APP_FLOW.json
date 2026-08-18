@@ -22,7 +22,7 @@
     "language": "Python >=3.9 (verified on 3.14)",
     "package_manager": "uv",
     "runtime_dependencies": [
-      "httpx[http2]",
+      "httpx",
       "pillow",
       "openpyxl",
       "reportlab",
