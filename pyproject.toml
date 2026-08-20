@@ -21,7 +21,7 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "matplotlib>=3.8.0",  # matplotlib powers tools/render_dxf.py
-    "mypy>=1.13.0,<1.18.0",
+    "mypy>=1.13.0,<2.4.0",
     "pip-audit>=2.7.3",
     "pytest-cov>=6.0.0",
 ]
@@ -136,7 +136,7 @@ ignore_missing_imports = true
 [dependency-groups]
 dev = [
     "ruff>=0.16.0",
-    "mypy>=1.13.0,<1.18.0",
+    "mypy>=1.13.0,<2.4.0",
     "pip-audit>=2.7.3",
     "pytest-cov>=6.0.0",
 ]
