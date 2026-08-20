@@ -6,6 +6,13 @@ __pycache__/
 # Generated lookup bundles and the audit register
 output/
 
+# Versioned MCGM snapshots are generated source data, not repository content.
+data/*.sqlite
+data/*.sqlite-*
+data/*.json.gz
+data/*.checkpoint.json
+data/*.manifest.json
+
 # Tool caches. Previously only covered by a global gitignore, so a fresh clone
 # or a CI runner saw them as untracked.
 .pytest_cache/

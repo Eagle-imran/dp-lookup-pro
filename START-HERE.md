@@ -10,6 +10,10 @@ You get back a folder with a client-ready PDF, an AutoCAD drawing, maps, and a G
 
 No GIS software. No portal logins. No manual searching.
 
+Once the local database is built, you can also search all plots at once—for
+example, residential sites above 2,000 m² without reservations—and compare
+shortlisted sites side by side. See [Plot intelligence](docs/PLOT_INTELLIGENCE.md).
+
 ---
 
 ## 📋 What it tells you
@@ -252,6 +256,62 @@ A successful fresh lookup becomes the new cache entry. For ordinary feasibility
 and repeated design work, leave caching enabled. Use `--no-cache` for a final
 client issue, transaction, submission, suspected MCGM update, or scheduled
 30-day refresh.
+
+## 🗃️ Optional local source database
+
+The tool can build one local SQLite file containing MCGM's parcel layer and the
+52 planning layers used by the lookup. This makes repeated studies faster and
+more repeatable, gives exact neighbouring plots, and keeps working when a
+planning-layer request is temporarily unavailable. It is an audited snapshot,
+not the 30-day report cache, and the generated database stays on your machine
+(`data/*.sqlite` is ignored by Git).
+
+Build and check it explicitly:
+
+```bash
+uv run dp-lookup-pro database build  --database data/mcgm-layer13.sqlite
+uv run dp-lookup-pro database status --database data/mcgm-layer13.sqlite
+uv run dp-lookup-pro database verify --database data/mcgm-layer13.sqlite
+uv run dp-lookup-pro database activate --database data/mcgm-layer13.sqlite
+
+uv run dp-lookup-pro database build-planning    --database data/mcgm-layer13.sqlite
+uv run dp-lookup-pro database status-planning   --database data/mcgm-layer13.sqlite
+uv run dp-lookup-pro database verify-planning   --database data/mcgm-layer13.sqlite
+uv run dp-lookup-pro database activate-planning --database data/mcgm-layer13.sqlite
+```
+
+Each build downloads a complete official inventory in atomic batches and leaves
+a new snapshot ready for review. If interrupted, rerun the same command to skip
+already committed ObjectIDs; it resumes only when the source inventory still
+matches. It refuses to publish an incomplete download. Complete parcel and
+planning snapshots were built, live-compared, and activated on 2026-08-21.
+Together they occupy about 1.0 GiB in the ignored local database. Ordinary CLI
+lookups now use them first and fall back visibly to live MCGM when necessary.
+
+With an activated snapshot, the normal command is local-first:
+
+```bash
+uv run dp-lookup-pro WORLI 733
+uv run dp-lookup-pro WORLI 733 --source local --database data/mcgm-layer13.sqlite
+uv run dp-lookup-pro WORLI 733 --source auto --database data/mcgm-layer13.sqlite
+uv run dp-lookup-pro WORLI 733 --source live
+```
+
+`local` requires the active local parcel and planning snapshots. `auto` tries
+each local snapshot first and falls back to live MCGM when it cannot answer. A
+parcel snapshot older than 210 days remains usable with a warning; stale
+planning falls back live in `auto`. `--source live` forces the existing live
+path. `auto` is the CLI default and uses `data/mcgm-layer13.sqlite`; set
+`DP_LOOKUP_DATABASE` or pass `--database` to override it. Parcel identity,
+neighbours, zone, reservation, designation, DP modification, CRZ, Metro
+influence and optional evidence are local-first. Road name/width probes, the DP
+map image and satellite image remain live. The database is an audited copy of
+official source data; it is not itself a legal authority.
+
+To switch snapshots safely, use `database diff`, `database activate`, and
+`database rollback` with the same `--database` path. See the [local snapshot
+specification](docs/SPEC-LOCAL-SPATIAL-CACHE.md) for the reliability checks and
+the verified source counts.
 
 ## 🔎 Optional deeper planning evidence
 

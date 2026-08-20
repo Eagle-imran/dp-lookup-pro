@@ -6,6 +6,7 @@ from typing import Iterable, List, Sequence, Tuple
 
 from shapely.geometry import MultiPolygon, Polygon, mapping
 from shapely.geometry.base import BaseGeometry
+from shapely.strtree import STRtree
 
 
 def _clean_ring(ring: Iterable[Sequence[float]]) -> List[Tuple[float, float]]:
@@ -43,22 +44,43 @@ def arcgis_rings_to_geometry(rings: Sequence[Sequence[Sequence[float]]]) -> Base
         return Polygon()
 
     candidates.sort(key=lambda item: item[0].area, reverse=True)
+    polygons = [candidate[0] for candidate in candidates]
+    # A single CRZ feature can contain hundreds of independent rings. Testing
+    # every ring against every larger ring made local evidence queries
+    # quadratic. The spatial tree keeps the same containment-depth policy but
+    # limits each test to geometrically plausible containers.
+    tree = STRtree(polygons)
+    containers_by_ring: List[List[int]] = []
     depths: List[int] = []
-    for index, (polygon, _) in enumerate(candidates):
+    for index, polygon in enumerate(polygons):
         marker = polygon.representative_point()
-        depths.append(sum(1 for container, _ in candidates[:index] if container.contains(marker)))
+        containers = [
+            int(candidate_index)
+            for candidate_index in tree.query(marker, predicate="within")
+            if int(candidate_index) != index
+            and polygons[int(candidate_index)].area > polygon.area
+        ]
+        containers_by_ring.append(containers)
+        depths.append(len(containers))
+
+    holes_by_shell = {index: [] for index, depth in enumerate(depths) if depth % 2 == 0}
+    for index, depth in enumerate(depths):
+        if depth % 2 == 0:
+            continue
+        direct_shells = [
+            container_index
+            for container_index in containers_by_ring[index]
+            if depths[container_index] == depth - 1 and depths[container_index] % 2 == 0
+        ]
+        if direct_shells:
+            parent = min(direct_shells, key=lambda candidate_index: polygons[candidate_index].area)
+            holes_by_shell[parent].append(candidates[index][1])
 
     shells = []
-    for index, (polygon, shell_points) in enumerate(candidates):
+    for index, (_polygon, shell_points) in enumerate(candidates):
         if depths[index] % 2:
             continue
-        holes = []
-        for hole_index, (hole_polygon, hole_points) in enumerate(candidates):
-            if depths[hole_index] != depths[index] + 1:
-                continue
-            if polygon.contains(hole_polygon.representative_point()):
-                holes.append(hole_points)
-        part = Polygon(shell_points, holes)
+        part = Polygon(shell_points, holes_by_shell[index])
         if not part.is_valid:
             part = part.buffer(0)
         if isinstance(part, MultiPolygon):

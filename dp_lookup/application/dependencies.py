@@ -5,7 +5,9 @@ from typing import Any, Awaitable, Dict, List, Optional, Protocol, Sequence, Tup
 
 from PIL import Image
 
+from dp_lookup.application.contracts import NeighbourContext, ParcelContext, RoadContext
 from dp_lookup.application.exporting import ArtifactExporter, RichVectorWriter, SimpleVectorWriter
+from dp_lookup.application.ingestion import fetch_parcel_feature
 from dp_lookup.clients.arcgis import fetch_tile_cached, query_spatial_planning_layers
 from dp_lookup.clients.planning_evidence_queries import collect_planning_evidence
 from dp_lookup.clients.transport import create_arcgis_client
@@ -22,6 +24,28 @@ from dp_lookup.renderers.satellite import stitch_satellite
 
 class ClientFactory(Protocol):
     def __call__(self, timeout_seconds: float, verify_tls: bool = True) -> Any: ...
+
+
+class ParcelFetcher(Protocol):
+    def __call__(self, client: Any, village: str, cts_no: str) -> Awaitable[Optional[Dict[str, Any]]]: ...
+
+
+class NeighbourProvider(Protocol):
+    def __call__(self, parcel: ParcelContext) -> Optional[NeighbourContext]: ...
+
+
+def no_local_neighbours(parcel: ParcelContext) -> Optional[NeighbourContext]:
+    del parcel
+    return None
+
+
+class RoadProvider(Protocol):
+    def __call__(self, parcel: ParcelContext) -> Optional[RoadContext]: ...
+
+
+def no_local_roads(parcel: ParcelContext) -> Optional[RoadContext]:
+    del parcel
+    return None
 
 
 class SpatialPlanningQuery(Protocol):
@@ -87,7 +111,12 @@ class LookupDependencies:
     """
 
     client_factory: ClientFactory = create_arcgis_client
+    parcel_fetcher: ParcelFetcher = fetch_parcel_feature
+    parcel_cache_namespace: str = "live"
+    neighbour_provider: NeighbourProvider = no_local_neighbours
+    road_provider: RoadProvider = no_local_roads
     spatial_planning_query: SpatialPlanningQuery = query_spatial_planning_layers
+    planning_identify_required: bool = True
     tile_fetcher: TileFetcher = fetch_tile_cached
     geojson_writer: SimpleVectorWriter = export_geojson
     dxf_writer: RichVectorWriter = export_dxf

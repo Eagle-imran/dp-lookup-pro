@@ -95,7 +95,14 @@ The following are candidates from the live service audit, ranked by workflow val
 | 10 | 16, 19, 20, 197, 1149, 48, 49 | Infrastructure/environmental screening | Geometry-only layers require explicit screening language and must not invent a legal setback. |
 | 11 | 1210, 1211, 2400, TPS 105–112 | Settlement, amenity and legacy TPS context | Treat as contextual/inventory evidence; never use absence as proof of no restriction. |
 
-Conditional candidates for later modules include TPS, Gaothan/Koliwada, SPA, Gorai-Manori, amenities, railway/highway/infrastructure and coastal boundary layers. They should be queried only when the parcel's location or an earlier finding makes them applicable; “all layers for every parcel” is neither performant nor semantically safe.
+Conditional candidates for later modules include TPS, Gaothan/Koliwada, SPA,
+Gorai-Manori, amenities, railway/highway/infrastructure and coastal boundary
+layers. Runtime interpretation should query/evaluate them only when the parcel's
+location or an earlier finding makes them applicable; “all conclusions for
+every parcel” is neither performant nor semantically safe. The local archival
+snapshot now retains every canonical registry layer so future audits do not
+depend on the live service, but the runtime parser remains curated and
+conditional.
 
 ## Authority tiers
 
@@ -171,7 +178,15 @@ As described above, do not stop at the first CRZ hit. Aggregate all hits, normal
 
 ### `outFields=*`
 
-`outFields=*` is useful during discovery but is too broad for the production evidence path. It increases response size, leaks irrelevant fields into logs, couples the parser to schema churn and makes duplicate comparisons expensive. Production queries should request an allow-listed field set from the layer registry, with a discovery/audit mode that captures the complete schema separately. The allow-list must include the object ID, every recognised alias, decision/date/document fields, and a raw-attributes escape hatch for audit storage—not for report rendering.
+`outFields=*` is useful during discovery but is too broad for the production
+evidence result. It increases response size, leaks irrelevant fields into logs,
+couples the parser to schema churn and makes duplicate comparisons expensive.
+Live runtime queries therefore request the registry allow-list. The local
+archival downloader deliberately captures all source fields once; its runtime
+adapter filters them back through the same allow-list before constructing a
+finding. The allow-list includes the object ID, every recognised alias and the
+required decision/date/document fields. Full raw attributes remain audit
+storage, not report rendering.
 
 ### Geometry and errors
 
@@ -192,7 +207,7 @@ The existing pipeline is already fast enough for a curated lookup, but broadenin
 
 Initial engineering budgets should be treated as gates, not promises: no regression to the existing warm planning-half baseline (roughly 0.7 s on the established fixture), no unbounded increase in request count, and a bounded full-evidence mode with an explicit slow-path label. Measure cold and warm runs on all ten controls, including throttled/error cases.
 
-## Acceptance gates before enabling candidate layers
+## Acceptance gates before exposing candidate layers in public conclusions
 
 1. **Metadata snapshot:** save service root, layer metadata, field aliases, geometry type, edit information, query capabilities and an audit timestamp.
 2. **Corpus:** every one of the ten stable parcel IDs has a raw response manifest and a deterministic rerun test.
@@ -218,6 +233,30 @@ The first optional implementation was validated without changing the default `ba
 * `PRINCESS DOCK 139 --evidence full`: the Layer 112 TPS-property detector activated the TPS family, Layer 107 returned the expected TPS reservation, and CZMP 2019 returned a 100% NDZ-within-CRZ-II screening hit.
 
 These are reproducible engineering observations from the external service on the date above. They are not legal certificates, and future runs can change if MCGM edits the source service.
+
+## Planning snapshot archival validation — 21 August 2026
+
+The later local-source phase archived all 52 canonical registry layers and
+65,604/65,604 official inventory records. This changes source availability, not
+the authority rules above: only curated/conditional layers enter runtime
+findings, and spatial overlap remains screening evidence.
+
+The full build exposed two official-source details now preserved in code and
+the manifest:
+
+- Metro influence zones, traffic road alignments and water bodies use the true
+  OID field `OBJECTID_1`; the downloader now discovers OID and geometry type
+  from official layer metadata instead of trusting a registry default.
+- Designation layer 47 records 1158, 1159 and 4817 exist in the official
+  inventory but publish empty rings. They are kept as complete attribute
+  records and explicit geometry warnings; no geometry is fabricated.
+
+Activation required 15/15 live/local core-planning matches and 5/5 full
+optional-evidence matches. Three fresh CLI runs then produced all seven
+artifacts with complete local planning evidence and no result warning. Current
+offline gates are 399 passing tests, 84.48% branch-aware coverage, Ruff clean
+and strict mypy clean. The detailed record is
+[`audits/PLANNING-SNAPSHOT-VALIDATION-2026-08-21.md`](audits/PLANNING-SNAPSHOT-VALIDATION-2026-08-21.md).
 
 ## Safe rollout sequence
 

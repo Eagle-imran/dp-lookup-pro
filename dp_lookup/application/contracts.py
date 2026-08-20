@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from dp_lookup.core.models import ExportData
 
@@ -36,6 +36,11 @@ class RoadContext:
     geometries: List[List[List[float]]] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     evidence_state: str = "confirmed"
+    method: str = "boundary_probe"
+    source_layer_ids: List[int] = field(default_factory=list)
+    source_object_ids: List[int] = field(default_factory=list)
+    distance_m: Optional[float] = None
+    snapshot_id: Optional[int] = None
 
 
 @dataclass
@@ -43,6 +48,7 @@ class NeighbourContext:
     plots: List[Dict[str, Any]] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     evidence_state: str = "confirmed"
+    method: str = "probe"
 
 
 @dataclass

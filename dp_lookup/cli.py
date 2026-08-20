@@ -4,27 +4,41 @@ Command-Line Interface (CLI) & Terminal Summary Formatter.
 import asyncio
 import json
 import os
+import sqlite3
 import sys
 import time
 from dataclasses import replace
 from importlib import metadata as importlib_metadata
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dp_lookup.application.dependencies import DEFAULT_DEPENDENCIES
+from dp_lookup.application.ingestion import fetch_parcel_feature
+from dp_lookup.application.local_roads import LocalRoadProvider
+from dp_lookup.application.local_spatial import LocalNeighbourProvider
 from dp_lookup.application.lookup_service import lookup_plot_pro
+from dp_lookup.clients.local_parcels import LocalParcelFetcher
+from dp_lookup.clients.local_planning import LocalFirstPlanningQuery
+from dp_lookup.clients.planning_evidence_queries import LocalFirstPlanningEvidenceAnalyzer
 from dp_lookup.clients.validation import sanitize_query_value
 from dp_lookup.core.constants import _CTS_RE, _VILLAGE_RE, APPLICATION_VERSION, MCGM_VILLAGES
 from dp_lookup.core.villages import suggest_villages as _suggest_villages
 from dp_lookup.planning_evidence.models import EvidenceMode
+from dp_lookup.planning_snapshot import PlanningSnapshotStore
+from dp_lookup.spatial_store import SnapshotStore, SpatialStoreError
 
 suggest_villages = _suggest_villages
 
 USAGE = """Usage: dp-lookup-pro <VILLAGE_NAME> <CTS_NUMBER> [OUTPUT_DIR] [options]
+       dp-lookup-pro database <COMMAND> --database PATH [--json]
+       dp-lookup-pro intelligence <COMMAND> --database PATH [--json]
 
 Options:
   --json            print the full JSON response instead of a summary
   --no-cache        force a fresh lookup, ignoring any cached report
   --evidence MODE   basic, shadow, standard, or full (default: basic)
+  --source MODE     auto, live, or local (default: auto: local first, live fallback)
+  --database PATH   override auto's DB path; required with strict local mode
   --list-villages   print all 128 valid village names and exit
 
 Examples:
@@ -48,6 +62,8 @@ EXIT_USAGE = EXIT_ERROR
 EXIT_OK = EXIT_SUCCESS
 EXIT_FAILURE = EXIT_ERROR
 EXIT_INCOMPLETE_RESULT = EXIT_INCOMPLETE
+
+DEFAULT_DATABASE_PATH = "data/mcgm-layer13.sqlite"
 
 try:
     VERSION = importlib_metadata.version("dp-lookup-pro")
@@ -154,6 +170,42 @@ def _print_villages() -> None:
     print("use BANDRA-A..BANDRA-I, KURLA - 1..4, BHANDUP-E/W.\n")
 
 
+def _local_snapshot_selection(source_mode: str, database_path: str) -> tuple[str, Optional[int]]:
+    """Pin active parcel/planning versions in the report-cache namespace."""
+    path = Path(database_path).expanduser().resolve()
+    active_snapshot_id: Optional[int] = None
+    try:
+        if path.is_file():
+            with SnapshotStore.open(path) as store:
+                active_snapshot_id = store.active_snapshot_id()
+    except (OSError, sqlite3.DatabaseError, SpatialStoreError):
+        active_snapshot_id = None
+    planning_snapshot_id: Optional[int] = None
+    try:
+        if path.is_file():
+            with PlanningSnapshotStore.open(path) as planning_store:
+                planning_snapshot_id = planning_store.active_snapshot_id()
+    except (OSError, sqlite3.DatabaseError):
+        planning_snapshot_id = None
+    cache_snapshot: Any = active_snapshot_id if active_snapshot_id is not None else "unavailable"
+    planning_cache_snapshot: Any = planning_snapshot_id if planning_snapshot_id is not None else "unavailable"
+    return (
+        f"{source_mode}:{path}:snapshot={cache_snapshot}:planning_snapshot={planning_cache_snapshot}",
+        active_snapshot_id,
+    )
+
+
+def _local_cache_namespace(source_mode: str, database_path: str) -> str:
+    """Compatibility helper used by cache-contract tests and callers."""
+    return _local_snapshot_selection(source_mode, database_path)[0]
+
+
+def _default_database_path() -> str:
+    """Resolve the internal snapshot location with an environment override."""
+    configured = os.getenv("DP_LOOKUP_DATABASE", "").strip()
+    return configured or DEFAULT_DATABASE_PATH
+
+
 def _parse_cli_args(raw_args: List[str]) -> Dict[str, Any]:
     """Parse the deliberately small CLI grammar without argparse side effects.
 
@@ -168,6 +220,8 @@ def _parse_cli_args(raw_args: List[str]) -> Dict[str, Any]:
     show_help = False
     show_version = False
     evidence_mode = EvidenceMode.BASIC
+    source_mode = "auto"
+    database_path: Optional[str] = None
 
     index = 0
     while index < len(raw_args):
@@ -189,6 +243,22 @@ def _parse_cli_args(raw_args: List[str]) -> Dict[str, Any]:
             evidence_mode = EvidenceMode.parse(raw_args[index])
         elif token.startswith("--evidence="):
             evidence_mode = EvidenceMode.parse(token.split("=", 1)[1])
+        elif token == "--source":
+            index += 1
+            if index >= len(raw_args):
+                raise ValueError("--source requires live, local, or auto")
+            source_mode = raw_args[index].lower()
+        elif token.startswith("--source="):
+            source_mode = token.split("=", 1)[1].lower()
+        elif token == "--database":
+            index += 1
+            if index >= len(raw_args) or not raw_args[index] or raw_args[index].startswith("-"):
+                raise ValueError("--database requires a path")
+            database_path = raw_args[index]
+        elif token.startswith("--database="):
+            database_path = token.split("=", 1)[1]
+            if not database_path:
+                raise ValueError("--database requires a path")
         elif token.startswith("-"):
             raise ValueError(f"unknown option: {token}")
         else:
@@ -199,6 +269,12 @@ def _parse_cli_args(raw_args: List[str]) -> Dict[str, Any]:
         raise ValueError("--villages does not accept positional arguments")
     if show_version and positionals:
         raise ValueError("--version does not accept positional arguments")
+    if source_mode not in {"live", "local", "auto"}:
+        raise ValueError("--source must be one of: live, local, auto")
+    if source_mode == "local" and not database_path:
+        raise ValueError("--database PATH is required for local source mode")
+    if source_mode == "auto" and not database_path:
+        database_path = _default_database_path()
 
     return {
         "positionals": positionals,
@@ -208,12 +284,32 @@ def _parse_cli_args(raw_args: List[str]) -> Dict[str, Any]:
         "show_help": show_help,
         "show_version": show_version,
         "evidence_mode": evidence_mode,
+        "source_mode": source_mode,
+        "database_path": database_path,
     }
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     """Console entry point. Returns a process exit code."""
     raw_args = list(sys.argv[1:] if argv is None else argv)
+    if raw_args and raw_args[0] == "intelligence":
+        from dp_lookup.intelligence_cli import main as intelligence_main
+
+        return intelligence_main(raw_args)
+    if raw_args and raw_args[0] == "database":
+        # Keep database administration behind its own grammar so none of the
+        # historical positional lookup behavior changes.
+        from dp_lookup.planning_snapshot_cli import COMMANDS as planning_commands
+
+        if len(raw_args) > 1 and raw_args[1] in planning_commands:
+            from dp_lookup.application.planning_database_services import LocalPlanningDatabaseServices
+            from dp_lookup.planning_snapshot_cli import main as planning_database_main
+
+            return planning_database_main(raw_args[1:], services=LocalPlanningDatabaseServices())
+        from dp_lookup.application.database_services import LocalDatabaseServices
+        from dp_lookup.database_cli import main as database_main
+
+        return database_main(raw_args, services=LocalDatabaseServices())
     try:
         parsed = _parse_cli_args(raw_args)
     except ValueError as exc:
@@ -249,6 +345,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     as_json = parsed["as_json"]
     use_cache = parsed["use_cache"]
     evidence_mode = parsed["evidence_mode"]
+    source_mode = parsed["source_mode"]
+    database_path = parsed["database_path"]
     village, cts_number = args[0], args[1]
     output_dir = args[2] if len(args) > 2 else "./output"
 
@@ -275,16 +373,54 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("  Building PDF, maps and CAD files...", flush=True)
 
     lookup_started = time.perf_counter()
-    result = asyncio.run(
-        lookup_plot_pro(
-            village=safe_village,
-            cts_number=safe_cts,
-            output_dir=output_dir,
-            use_cache=use_cache,
-            on_data=None if as_json else _show_early,
-            dependencies=replace(DEFAULT_DEPENDENCIES, planning_evidence_mode=evidence_mode),
+    dependencies = replace(DEFAULT_DEPENDENCIES, planning_evidence_mode=evidence_mode)
+    planning_store = None
+    if source_mode != "live":
+        cache_namespace, selected_snapshot_id = _local_snapshot_selection(source_mode, str(database_path))
+        database = Path(database_path)
+        if database.is_file():
+            try:
+                planning_store = PlanningSnapshotStore.open(database)
+            except (OSError, sqlite3.DatabaseError):
+                planning_store = None
+        dependencies = replace(
+            dependencies,
+            parcel_cache_namespace=cache_namespace,
+            parcel_fetcher=LocalParcelFetcher(
+                Path(database_path),
+                fallback=fetch_parcel_feature if source_mode == "auto" else None,
+                snapshot_id=selected_snapshot_id,
+            ),
+            neighbour_provider=LocalNeighbourProvider(Path(database_path)),
+            road_provider=LocalRoadProvider(planning_store),
+            planning_identify_required=False,
+            spatial_planning_query=LocalFirstPlanningQuery(
+                planning_store,
+                mode=source_mode,
+                max_snapshot_age_days=210.0,
+                allow_stale_local=source_mode == "local",
+            ),
+            planning_evidence_analyzer=LocalFirstPlanningEvidenceAnalyzer(
+                planning_store,
+                mode=source_mode,
+                max_snapshot_age_days=210.0,
+                allow_stale_local=source_mode == "local",
+            ),
         )
-    )
+    try:
+        result = asyncio.run(
+            lookup_plot_pro(
+                village=safe_village,
+                cts_number=safe_cts,
+                output_dir=output_dir,
+                use_cache=use_cache,
+                on_data=None if as_json else _show_early,
+                dependencies=dependencies,
+            )
+        )
+    finally:
+        if planning_store is not None:
+            planning_store.close()
     lookup_elapsed_ms = (time.perf_counter() - lookup_started) * 1000
 
     if as_json:

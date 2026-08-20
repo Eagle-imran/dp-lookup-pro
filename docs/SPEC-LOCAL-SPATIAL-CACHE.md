@@ -1,342 +1,236 @@
-# 🗄️ SPEC — Local Spatial Cache
+# Local parcel and planning snapshot database
 
-**Status:** Ready to build
-**Date:** 2026-07-30
-**Supersedes:** `FEATURES_PLANNED.md` § 4.1 (Local Offline SQLite / DuckDB Spatial Database)
-**Affects:** cache layer, `lookup_plot_pro`, neighbour detection
+**Status:** Implemented; first local snapshot built, verified and activated
+**Updated:** 2026-08-21
+**Scope:** MCGM Development Plan 2034 Layer 13 plus the audited planning registry
 
----
+## Purpose
 
-## 📌 In one line
+This component gives the tool reliable local copies of parcel identity,
+geometry and planning-layer evidence. It is a **snapshot database**, not a
+transparent cache of a report: parcel and planning datasets keep independent
+source records, validation, active pointers and lifecycle history in one
+SQLite file. CLI `auto` uses both locally first and falls back visibly when a
+local source cannot answer. Stale parcel data remains usable with a warning;
+stale planning falls back live because planning status is more change-sensitive.
 
-Replace the flat JSON cache with a spatially indexed SQLite one, so parcel geometry
-is fetched once and adjacency is **computed** instead of **guessed** — while every
-planning answer stays live.
+The database is deliberately not committed to Git. Generated files under
+`data/*.sqlite` and their SQLite sidecars are ignored by `.gitignore`.
 
----
+## Verified source facts
 
-## 🔬 Measured facts this spec is built on
+The completed local build and immediate live recheck (2026-08-21) measured:
 
-The original proposal was written against estimates. These are the numbers from the
-live server (2026-07-30), and two of them change the plan.
+| Measure | Count |
+| :--- | ---: |
+| Feature records in the source inventory | **135,342** |
+| Records with a non-empty CTS/CS number | **123,388** |
+| Records without a CTS/CS number | **11,954** |
+| Duplicate village/CTS identity groups | **3,050** |
+| Extra feature records in those groups beyond one each | **3,869** |
+| Canonical planning layers | **52** |
+| Planning-layer records | **65,604** |
+| Planning validation errors | **0** |
+| Planning source-geometry warnings | **3** |
 
-| | Proposal assumed | Measured | How |
-| :--- | :--- | :--- | :--- |
-| Parcels in Mumbai | ~15,000 | **135,337** | `layer 13 /query?returnCountOnly=true` |
-| Pre-baked file size | 18–25 MB | **~90 MB** (5 attrs + R-Tree)<br>**~126 MB** (all 33 fields) | 400 real WORLI parcels sampled |
-| Geometry per parcel | — | median **189 B** WKB, mean **482 B** | same sample |
-| Vertices per parcel | — | median **11**, mean **29.1**, max **4,996** | same sample |
-| Bulk extraction | assumed hard | **easy** — `maxRecordCount: 50000`, `supportsPagination: true` | layer 13 metadata |
+These are feature-record counts, not a claim that there are 135,342 unique
+legal plots. A village/CTS identity can contain multiple source features and
+multipart geometry. The importer preserves those parts and the local lookup
+combines all matching source features. Counts are re-measured on every build;
+the figures above must not be treated as a permanent constant.
 
-Layer 13 is `Global_Property_merge_v7`, 33 fields, carrying `CTS_CS_NO`, `VILLAGE`,
-`WARD`, `TYPE`, `AREA_APP_SQ_MTRS` **and** geometry.
+The three planning warnings are official Designation records 1158, 1159 and
+4817 with empty source rings. They remain complete inventory records but cannot
+produce a spatial intersection. The active combined database is about 1.0 GiB.
 
-**The size cannot be reduced by simplifying geometry.** DXF dimensions are accurate
-to 4.6 cm over 50 m and that is the product promise. Douglas-Peucker on a boundary
-breaks the deliverable.
+## What is implemented
 
----
+### Ingestion
 
-## 🧭 The governing rule
+`dp_lookup.clients.parcel_snapshot` and
+`dp_lookup.application.snapshot_ingestion` provide a bounded, crash-resumable import:
 
-> **Geometry is cached. Planning status is always live.**
+1. Request the complete Layer 13 ObjectID inventory.
+2. Download ObjectIDs in sequential batches with retry/backoff.
+3. Request all source attributes and exact polygon geometry.
+4. Reconcile expected, received, missing, rejected, duplicate, and extra IDs.
+5. Commit each accepted batch atomically into a `building` SQLite snapshot.
+6. Preserve the canonical raw ArcGIS feature JSON, attributes and exact geometry.
+7. On restart, resume only when the persisted inventory hash matches exactly,
+   skipping ObjectIDs already committed to SQLite.
+8. Refuse to finalize or activate an incomplete source result.
 
-Layer 13 carries geometry and identity. It does **not** carry zone, reservation,
-designation, DP modification, CRZ or metro buffer — those come from layers
-`0, 46, 47, 192, 1550` and `14, 1264, 1548`.
+The current service uses a 2,000-feature batch and a gentle delay between
+requests. It does not retain all 135k feature objects in memory. SQLite itself
+is the checkpoint: an interrupted batch rolls back, earlier committed batches
+remain, and rerunning the same command resumes them. It is intentionally
+suitable for a periodic internal update, not an unbounded scraping job.
 
-That is a clean architectural seam, and it maps exactly onto what is safe to cache:
+### SQLite store
 
-* **Geometry barely moves.** MCGM's digitisation of a parcel is stable for years.
-* **Status is what changes, and what an architect acts on.** Reservations get
-  amended; DP modifications get approved.
+`dp_lookup.spatial_store.SnapshotStore` uses the Python standard-library
+`sqlite3` module. It stores:
 
-This codebase has already been burned by serving stale status: `read_cache_entry`
-refuses undated entries specifically because pre-fix records held wrong CRZ answers
-(`test_legacy_untimestamped_entries_are_treated_as_expired`). Baking status into a
-shipped file with no expiry is the same mistake with a longer blast radius.
+- immutable lifecycle states: `building`, `ready`, `active`, `retired`, `failed`;
+- source URL, expected/received counts, timestamps, manifest and validation JSON;
+- canonical raw feature JSON, raw attributes, ObjectID, normalized lookup keys,
+  village, CTS, ward, type, approved area and exact source rings (no
+  simplification or reprojection in the store);
+- the exact source ObjectID inventory used to prove set equality, rather than
+  relying only on a matching record count;
+- per-feature bounding boxes and an R-Tree when the local SQLite build supports
+  it, with a correct indexed bounding-box fallback when it does not;
+- ingestion runs, issues, activation history, duplicate identity groups, and
+  snapshot-to-snapshot diffs.
 
-**A cached parcel must never shorten the planning path.** If geometry is a cache hit,
-the identify calls still fire, every time.
+A `ready` or `active` snapshot cannot be edited. A new build is inserted as a
+separate `building` snapshot, validated, and only then made `ready`; activation
+switches the active pointer atomically. A previous snapshot remains available
+for rollback.
 
----
+### Planning snapshot store
 
-## ✅ Scope — Phase 1 only
+`dp_lookup.planning_snapshot.PlanningSnapshotStore` uses separate
+`planning_*` tables and its own activation history in the same file. The
+planning builder archives all official fields for future audit, but runtime
+evidence exposes only the registry allow-list. Local core and optional evidence
+adapters use the R-Tree to shortlist features and the shared live/local parser
+for exact intersection, sliver removal and authority rules. See the [planning
+snapshot contract](PLANNING_SNAPSHOT.md) for counts, warnings and refresh rules.
 
-Build a spatial cache that **grows as the tool is used**. Ships at 0 MB, needs no
-bulk extraction, and raises no redistribution question.
+### Local lookup and exact adjacency
 
-**In scope**
+The CLI can use an active local snapshot through `LocalParcelFetcher` and
+`LocalNeighbourProvider`. A local lookup combines every Layer 13 feature with
+the requested village/CTS identity, preserving multipart plots and retaining
+the source ObjectIDs.
 
-1. SQLite store with an R-Tree index, replacing `.cache_store.json`.
-2. Parcel geometry cached on every successful lookup.
-3. Cache hit skips the one *sequential* network request in the pipeline.
-4. Adjoining parcels computed from the cache when coverage allows, with the method
-   recorded in the output.
-5. Migration from the existing JSON cache, and a documented rollback.
+Local adjacency uses the snapshot's spatial index to shortlist nearby features,
+then Shapely to calculate shared boundaries and small digitisation gaps. The
+result is marked `method: "spatial_database"` and `evidence_state: "confirmed"`.
+This is exact for the coverage in the active snapshot; it is not the old four
+point-probe approximation.
 
-**Explicitly not in scope**
+## CLI contract
 
-| Not building | Why |
-| :--- | :--- |
-| A pre-baked 126 MB city-wide database | 5× the proposal's size estimate; changes the install story for the non-technical audience. Revisit as an opt-in download (Phase 2). |
-| SpatiaLite | A native library, contrary to the "simple install" goal. Not needed — see below. |
-| City-wide feasibility search | A different product. Needs cached *status*, which this spec forbids. Phase 3. |
-| Geometry simplification | Breaks the dimensional accuracy the DXF promises. |
-| Offline generation of a full report | Without live status the PDF has no verdict. A confident-looking drawing missing its constraints is the most dangerous artefact this tool can emit. |
+Database administration requires an explicit file path:
 
----
+```bash
+dp-lookup-pro database build    --database data/mcgm-layer13.sqlite
+dp-lookup-pro database status   --database data/mcgm-layer13.sqlite
+dp-lookup-pro database verify   --database data/mcgm-layer13.sqlite
+dp-lookup-pro database diff     --database data/mcgm-layer13.sqlite
+dp-lookup-pro database activate --database data/mcgm-layer13.sqlite
+dp-lookup-pro database rollback --database data/mcgm-layer13.sqlite
 
-## 🧱 No new dependencies
-
-Verified on this machine:
-
-```
-sqlite3 (stdlib)   R-Tree compiled in — verified, no extra dependency
-shapely 2.1.2      already a dependency (setback offsets)
-```
-
-Confirm on the target machine rather than assuming — R-Tree is optional at SQLite
-compile time, which is why the error-handling table below carries a fallback for it.
-
-**R-Tree for bounding-box candidate filtering, shapely for exact predicates.** That
-covers everything this spec needs. SpatiaLite is only worth revisiting if a query
-appears that shapely genuinely cannot express.
-
----
-
-## 🗃️ Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS parcel (
-    objectid      INTEGER PRIMARY KEY,
-    cts_no        TEXT NOT NULL,
-    village       TEXT NOT NULL,
-    ward          TEXT,
-    type          TEXT,
-    area_app_sqm  REAL,              -- MCGM AREA_APP_SQ_MTRS; may be NULL
-    geom          TEXT NOT NULL,     -- see geom_format
-    geom_format   TEXT NOT NULL DEFAULT 'rings_json',
-    centroid_lon  REAL NOT NULL,
-    centroid_lat  REAL NOT NULL,
-    fetched_at    REAL NOT NULL,     -- unix seconds; the snapshot date
-    source        TEXT NOT NULL      -- 'live' | 'bulk'
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS parcel_key ON parcel(village, cts_no);
-
-CREATE VIRTUAL TABLE IF NOT EXISTS parcel_bbox USING rtree(
-    objectid, min_lon, max_lon, min_lat, max_lat
-);
-
-CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
--- meta: schema_version, created_at
+dp-lookup-pro database build-planning    --database data/mcgm-layer13.sqlite
+dp-lookup-pro database status-planning   --database data/mcgm-layer13.sqlite
+dp-lookup-pro database verify-planning   --database data/mcgm-layer13.sqlite
+dp-lookup-pro database activate-planning --database data/mcgm-layer13.sqlite
+dp-lookup-pro database rollback-planning --database data/mcgm-layer13.sqlite
 ```
 
-**`geom_format` exists from day one so the Phase 2 migration is free.** Phase 1
-stores `rings_json` — WGS84 `[[[lon,lat], …], …]`, matching what `export_geojson`
-and `export_dxf` already consume, and inspectable with `sqlite3` alone. Phase 2 bulk
-loading should write `wkb` (roughly half the size); readers dispatch on the column.
+Each build downloads and validates a new independent snapshot but deliberately
+leaves it `ready`; review it with its status/verify command, then activate it.
+Parcel `diff` requires at least two finalized parcel snapshots. Each rollback
+activates the previous snapshot in its own lifecycle.
 
-**`fetched_at` is per row, not per file.** A cache assembled over months has rows of
-different ages, and the age of *this* parcel is what matters.
+Plot lookup source selection is explicit:
 
----
+```bash
+dp-lookup-pro WORLI 733
+# default auto: local data/mcgm-layer13.sqlite, then live fallback
 
-## 🔌 API surface
+dp-lookup-pro WORLI 733 --source local --database data/mcgm-layer13.sqlite
+# local active snapshot only; errors if the file or active snapshot is absent
 
-```python
-def spatial_cache_path(output_dir: str) -> str
-def open_spatial_cache(output_dir: str) -> sqlite3.Connection      # creates schema if absent
+dp-lookup-pro WORLI 733 --source auto --database data/mcgm-layer13.sqlite
+# local first; fall back to the existing live Layer 13 fetch if local lookup fails
 
-def cache_parcel(conn, *, cts_no, village, rings, ward=None, type_=None,
-                 area_app_sqm=None, objectid=None, source="live") -> None
-def lookup_parcel(conn, village: str, cts_no: str,
-                  max_age_seconds: Optional[float]) -> Optional[Dict[str, Any]]
-
-def parcels_near(conn, lon: float, lat: float, radius_m: float) -> List[Dict[str, Any]]
-def adjoining_parcels(conn, rings: list, village: str, cts_no: str,
-                      tolerance_m: float = 0.5) -> Optional[List[Dict[str, Any]]]
+dp-lookup-pro WORLI 733 --source live
+# force the existing live ArcGIS path
 ```
 
-`adjoining_parcels` returns `None` — not `[]` — when cache coverage is too thin to
-trust. `[]` means "checked, genuinely none"; `None` means "cannot answer, fall back".
-Conflating the two is how a plot silently loses its neighbours.
+The CLI default is `auto` after parcel and planning parity and end-to-end gates
+passed. Auto uses explicit `--database`, then `DP_LOOKUP_DATABASE`, then
+`data/mcgm-layer13.sqlite`. Strict `local` requires an explicit database path
+and active parcel/planning snapshots; `live` never reads the database.
 
----
+`--no-cache` still controls the existing report-result cache. It does not build,
+refresh, or mutate the parcel snapshot. Snapshot selection is controlled by the
+source mode and the active snapshot pointer.
 
-## 🔀 Flow changes in `lookup_plot_pro`
+## Governing data rule
 
-**Parcel fetch.** The parcel query is the single sequential request before the 24
-concurrent ones, so a hit removes it from the critical path:
+> **Use verified local snapshots first; expose their date; fall back visibly.**
 
-```
-miss → query layer 13 (as today) → cache_parcel() → continue
-hit  → skip the query, dispatch the identifies immediately
-```
+Layer 13 supplies local parcel identity, boundary geometry and exact adjacency.
+The planning snapshot supplies local-first zoning, reservations, designations,
+DP modifications, CRZ, Metro influence and optional evidence. Auto falls back
+to live planning when the snapshot is missing, invalid, query-failing or older
+than 210 days. Strict local can use stale data only with a clear warning. Road
+edge/name/width probes, DP map rendering and satellite imagery remain live.
 
-**Planning identifies — unchanged.** Always live. No cache path.
+The local database is an audited copy of an official source, not itself a legal
+authority. Reports show both snapshot IDs/dates and whether any live fallback
+was used.
 
-**Neighbours.** Today this fires 4 point-identify probes at fixed offsets — a guess
-about where neighbours are, returning 2 at AMBIVALI 807 and 3 at WORLI 733 with no
-way to know whether that is complete.
+## Completed first-build reliability record
 
-```
-adjoining_parcels() returns a list → use it,   method = "spatial"
-adjoining_parcels() returns None   → 4 probes, method = "probe"
-```
+Snapshot 1 was built and activated locally on 2026-08-21. The generated file is
+ignored by Git. Its recorded content hash is
+`4ce5af608b211f4b9f6e6921927d49848830bdcb8d1084c20f98ae8190ebef97`.
+The detailed evidence is retained in
+[`audits/LOCAL-FIRST-VALIDATION-2026-08-21.md`](audits/LOCAL-FIRST-VALIDATION-2026-08-21.md).
+The completed checks were:
 
-**Record the method in the output.** `plot_identity.adjacency_method` in the JSON, and
-a line in the DXF PLOT DATA panel. One result is exact and the other is an
-approximation; a consumer must be able to tell which they were given.
+- all 135,342 inventory IDs exactly matched the stored parcel IDs;
+- geometry, JSON, foreign-key, SQLite and R-Tree validation passed without an
+  error or warning;
+- duplicate village/CTS groups were reported rather than deduplicated;
+- 15 seeded ObjectIDs matched the immediate live Layer 13 raw feature,
+  attributes and geometry exactly, and the full live inventory matched;
+- offline multipart, topology, failure, activation and rollback contracts pass;
+- an interrupted transport attempt left the partial snapshot non-active and the
+  corrected POST build resumed the same persisted inventory;
+- an end-to-end local WORLI 733 lookup completed with local planning evidence
+  and exact spatial-database neighbours CTS 733A and 734;
+- five paired auto/live end-to-end cases produced every exporter successfully.
+  Ordinary single-part cases matched planning results. Multipart cases were
+  intentionally more complete locally because auto combines every Layer 13
+  source part while the legacy live query selects its first returned feature;
+  reports now disclose the part count and combined-geometry scope;
+- the later planning activation gate matched live core results on 15/15 CTS
+  cases and full optional evidence on 5/5 cases;
+- three fresh CLI cases used local core and optional planning evidence, returned
+  no warning and generated all seven artifacts; and
+- the full project suite passes 399 tests at 84.48% branch-aware coverage, with
+  strict mypy and Ruff clean.
 
-### Adjacency algorithm
+The CLI now defaults to `auto` after expanded parity and stress testing. Keep
+the forced-live escape hatch and programmatic live default until longer-term
+field use covers more reviewed irregular/multipart cases.
 
-1. Bounding box of the subject rings, expanded by `tolerance_m`.
-2. R-Tree query for candidate `objectid`s (cheap, no geometry parsed).
-3. shapely `intersects` / `touches` against a `buffer(tolerance_m)` of the subject.
-4. Exclude the subject's own `(village, cts_no)`.
+## Storage and later work
 
-**Coverage test (returns `None` if it fails):** at least one cached parcel other than
-the subject within `radius = max(plot_width, plot_height) + 30 m`. An empty
-neighbourhood means an empty cache, not an isolated plot.
+The active combined database is about 1.0 GiB after removing the failed partial
+planning attempt and compacting SQLite. It contains the 536 MiB parcel snapshot
+plus the complete planning archive, canonical raw source features, query-ready
+attributes, exact geometry and spatial indexes. The application does not
+currently publish or host the database online. A future storage optimization
+can losslessly compress raw audit JSON, and a cloud repository can implement
+the same source contracts after local updates are proven.
 
-The `0.5 m` tolerance accommodates digitisation gaps between adjacent parcels — MCGM's
-boundaries do not always share vertices. **Tune it against known plots and record the
-evidence; do not guess it.** WORLI 733 (3 known neighbours) and AMBIVALI 807 (2) are
-the starting fixtures.
+The derived [plot-intelligence database](PLOT_INTELLIGENCE.md) now builds on
+this foundation with village/ward/area/planning searches, one-plot dossiers,
+site comparison, local road/access analysis and refresh-alignment checks.
+Future work can add:
 
----
+- plot assemblies and amalgamation studies beyond the present adjacency facts;
+- automated scheduler installation around the documented biannual refresh;
+- deterministic feasibility, FSI and massing inputs;
+- cloud storage or a server repository.
 
-## ⏱️ TTL
-
-Geometry and bundles expire on different clocks:
-
-| Cached thing | TTL | Reason |
-| :--- | :--- | :--- |
-| Bundle result (existing) | 30 days (`DEFAULT_CACHE_TTL_SECONDS`) | Carries planning status. Unchanged. |
-| Parcel geometry (new) | **180 days**, surfaced as `geometry_age_days` | Digitisation is stable; re-fetching it buys nothing. |
-
-`--no-cache` must bypass **both**. A user reaching for it is asking for ground truth.
-
----
-
-## 🔁 Migration and rollback
-
-- On first run, create `.spatial_cache.sqlite` beside the existing
-  `.cache_store.json` in `output_dir`. **Do not delete the JSON store.**
-- Do not backfill from JSON: it holds results, not parcel geometry, and inventing
-  rows from it would produce entries with no honest `fetched_at`.
-- The JSON store keeps its current role for bundle results. This spec adds a store,
-  it does not replace that one.
-- **Rollback:** delete `.spatial_cache.sqlite`. The tool must run correctly with the
-  file absent, unreadable, or corrupt — every code path degrades to today's live
-  behaviour. Add this to `ROLLBACK.md` § Scenario 3 when the feature lands.
-
----
-
-## 🚨 Error handling
-
-| Condition | Behaviour |
-| :--- | :--- |
-| Cache file missing | Create it; continue live |
-| Cache file corrupt / not a database | Warn to stderr, **rename to `.corrupt`**, recreate, continue live |
-| `sqlite3` compiled without R-Tree | Fall back to a full-table bbox scan; warn once. Correct, just slower |
-| Disk full / read-only output dir | Warn once, run entirely live. Never fail a lookup because a cache write failed |
-| Cached rings fail to parse | Delete that row, re-fetch live |
-| Cached geometry older than TTL | Treat as a miss |
-| Concurrent processes | WAL mode; writes are `INSERT OR REPLACE`, so a race overwrites with equivalent data |
-
-**A cache is an optimisation. No cache failure may change an answer or abort a run.**
-
----
-
-## 🧪 Testing
-
-All offline, no network, consistent with the existing 147 tests.
-
-**Store**
-- Schema creates cleanly; opening twice is idempotent.
-- Round-trip: `cache_parcel` → `lookup_parcel` returns identical rings.
-- `(village, cts_no)` uniqueness; re-caching updates rather than duplicating.
-- Expiry: a row older than TTL is a miss; `max_age_seconds=None` disables expiry.
-- Corrupt file is renamed and recreated, and the lookup still succeeds.
-- A read-only directory does not raise.
-
-**Spatial**
-- `parcels_near` returns a parcel inside the radius and excludes one outside it.
-- Adjacency finds a parcel sharing an edge.
-- Adjacency finds a parcel separated by a 0.3 m digitisation gap (within tolerance).
-- Adjacency **excludes** a parcel 5 m away.
-- Adjacency excludes the subject itself.
-- Empty cache → `None`, never `[]`.
-- Result equals the known neighbour set for WORLI 733 (3) and AMBIVALI 807 (2),
-  from fixtures.
-
-**Integration**
-- A cache hit produces byte-identical GeoJSON to a live fetch.
-- A cache hit still performs the planning identifies (assert on a request spy) —
-  **this is the test that protects the governing rule.**
-- `--no-cache` bypasses the spatial cache.
-- `adjacency_method` is present and correct in both branches.
-
----
-
-## 📈 Performance — targets and honesty
-
-| Metric | Today | Target |
-| :--- | ---: | ---: |
-| Parcel geometry fetch | ~300–800 ms | **< 5 ms** |
-| Answer latency (warm geometry) | ~0.7 s typical | ~0.2–0.5 s |
-| Adjacency | 4 network probes | < 10 ms, and **correct** |
-
-**State the honest ceiling in the changelog when this ships.** The answer cannot
-arrive before the planning identify, which measures **414 ms – 4,470 ms**. Removing a
-~500 ms sequential hop from a ~900–5,000 ms answer is worth having and is not a 250×
-speed-up. Measure three consecutive runs on WORLI 733, warm and cold, and publish
-both — the same discipline as the v3.10.0 entry.
-
-**The adjacency improvement is the real prize, and it is a correctness gain, not a
-speed one.** Amalgamation studies are where a missed neighbour costs real money.
-
----
-
-## 🔭 Later phases (not specified here)
-
-**Phase 2 — opt-in per-village pre-bake.** A few hundred parcels each, ~1 MB, so
-adjacency is complete in the villages someone actually works in without a 126 MB
-payload. Bulk load writes `geom_format = 'wkb'`. Extraction is ~70 paginated requests
-at 2,000/page; space them ~12 s apart.
-
-**Phase 3 — city-wide feasibility search.** The genuine commercial unlock, and the one
-that needs cached *status*. Requires a visible snapshot date and screening-only
-framing: "find candidates" is a legitimate use of month-old data, "confirm a
-reservation" is not.
-
----
-
-## ❓ Open questions — resolve before Phase 2, not Phase 1
-
-1. **Redistribution rights.** Bulk-extracting and shipping 135,337 MCGM parcel records
-   inside a distributed file is a different act from proxying live queries, and this is
-   a commercial product. Read MCGM's and the ArcGIS endpoint's terms before building on
-   the assumption it is permitted. **Phase 1 sidesteps this entirely** — the cache is
-   built by the user's own queries, on their own machine.
-2. **Tolerance value.** `0.5 m` is a starting point, not a measurement. Calibrate
-   against known-adjacent plots and record the result.
-3. **Multi-ring parcels.** `export_dxf` already treats every ring as an outer boundary
-   (`FEATURES_PLANNED.md` § Next up, item 4). Adjacency must not inherit that bug —
-   decide explicitly how a parcel with an interior hole is indexed.
-
----
-
-## 📐 Definition of done
-
-- [ ] All tests above pass; suite stays green (147 + new).
-- [ ] `ruff check .` clean.
-- [ ] Deleting the cache file changes no output, only timing.
-- [ ] A cache hit still fetches planning status live, proven by a test.
-- [ ] `adjacency_method` visible in JSON and on the DXF sheet.
-- [ ] Measured before/after published in `CHANGELOG.md`, with the ceiling stated.
-- [ ] `ROLLBACK.md` § Scenario 3 gains a "disable the spatial cache" entry.
-- [ ] `MEMORY.md` records the geometry-local / status-live rule.
+None of those features changes the present safety boundary: no incomplete
+snapshot is active, local evidence always exposes snapshot provenance, and a
+cached report is never presented as a fresh source query.

@@ -1,7 +1,7 @@
 """MCGM planning-layer fetch and deterministic polygon intersection policy."""
 
 import asyncio
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import httpx
 from shapely.ops import unary_union
@@ -66,12 +66,19 @@ async def _fetch_layers(client: httpx.AsyncClient, bbox: str, layer_ids: List[in
     return features_by_layer, warnings
 
 
-async def query_spatial_planning_layers(client: httpx.AsyncClient, rings: list) -> Dict[str, Any]:
-    """Query all planning layers and compute exact parcel intersections."""
-    parcel = arcgis_rings_to_geometry(rings)
-    if parcel.is_empty or parcel.area <= 0:
-        raise ValueError("Parcel geometry has no valid polygon rings")
-    bbox = ",".join(str(value) for value in parcel.bounds)
+def build_spatial_planning_result(
+    parcel: Any,
+    by_layer: Dict[int, List[Dict[str, Any]]],
+    warnings: List[str],
+    *,
+    provenance: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build the stable planning result from already spatially-selected records.
+
+    Live ArcGIS and local snapshot adapters both use this function. Keeping
+    intersection and output policy in one place prevents the local path from
+    silently acquiring different reservation, CRZ, or sliver semantics.
+    """
     layer_ids = [
         LAYER_ZONE,
         LAYER_RESERVATION,
@@ -80,7 +87,6 @@ async def query_spatial_planning_layers(client: httpx.AsyncClient, rings: list) 
         LAYER_METRO,
         *CRZ_LAYER_IDS,
     ]
-    by_layer, warnings = await _fetch_layers(client, bbox, layer_ids)
     threshold = max(SLIVER_AREA_THRESHOLD_SQM, parcel.area * SLIVER_PERCENT_THRESHOLD)
 
     reservations = []
@@ -234,7 +240,7 @@ async def query_spatial_planning_layers(client: httpx.AsyncClient, rings: list) 
         encumbered_area = 0.0
         encumbered_percent = 0.0
 
-    return {
+    result = {
         "primary_zone": zones[0]["zone"] if zones else "Unknown",
         "zones": zones,
         "reservations": reservations,
@@ -255,3 +261,24 @@ async def query_spatial_planning_layers(client: httpx.AsyncClient, rings: list) 
             if not any(warning.startswith(f"Layer {layer_id} ") for warning in warnings)
         ],
     }
+    if provenance is not None:
+        result["provenance"] = provenance
+    return result
+
+
+async def query_spatial_planning_layers(client: httpx.AsyncClient, rings: list) -> Dict[str, Any]:
+    """Query all planning layers and compute exact parcel intersections."""
+    parcel = arcgis_rings_to_geometry(rings)
+    if parcel.is_empty or parcel.area <= 0:
+        raise ValueError("Parcel geometry has no valid polygon rings")
+    bbox = ",".join(str(value) for value in parcel.bounds)
+    layer_ids = [
+        LAYER_ZONE,
+        LAYER_RESERVATION,
+        LAYER_DESIGNATION,
+        LAYER_MODIFICATION,
+        LAYER_METRO,
+        *CRZ_LAYER_IDS,
+    ]
+    by_layer, warnings = await _fetch_layers(client, bbox, layer_ids)
+    return build_spatial_planning_result(parcel, by_layer, warnings)

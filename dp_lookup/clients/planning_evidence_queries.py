@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from collections import Counter
+from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Mapping, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 
 from shapely.errors import GEOSException  # type: ignore[import-untyped]
 
@@ -26,6 +28,7 @@ from dp_lookup.planning_evidence.models import (
 from dp_lookup.planning_evidence.registry import CURRENT_CORE_LAYER_IDS, specs_for_mode
 
 MAX_CONCURRENT_LAYER_QUERIES = 4
+DEFAULT_MAX_PLANNING_EVIDENCE_AGE_DAYS = 210.0
 
 
 def _query_payload(bounds: Tuple[float, float, float, float], spec: LayerSpec) -> Dict[str, str]:
@@ -105,6 +108,29 @@ async def _query_layer(
             warnings=(f"Layer {spec.layer_id} returned a malformed feature collection",),
         )
 
+    return _parse_layer_features(
+        parcel,
+        spec,
+        features,
+        duration_ms,
+        transfer_limited=payload.get("exceededTransferLimit") is True,
+    )
+
+
+def _parse_layer_features(
+    parcel: Any,
+    spec: LayerSpec,
+    features: Sequence[Any],
+    duration_ms: float,
+    *,
+    transfer_limited: bool = False,
+) -> LayerQueryOutcome:
+    """Apply the deterministic evidence policy to source-shaped features.
+
+    Both the live ArcGIS adapter and the local snapshot adapter call this
+    function.  Keeping parsing, sliver filtering, authority guards, and
+    outcome state transitions in one place prevents source-specific drift.
+    """
     threshold = max(SLIVER_AREA_THRESHOLD_SQM, parcel.area * SLIVER_PERCENT_THRESHOLD)
     findings: List[EvidenceFinding] = []
     malformed = 0
@@ -112,11 +138,19 @@ async def _query_layer(
         if not isinstance(feature, Mapping):
             malformed += 1
             continue
-        attributes = feature.get("attributes")
+        raw_attributes = feature.get("attributes")
         geometry = feature.get("geometry")
-        if not isinstance(attributes, Mapping) or not isinstance(geometry, Mapping):
+        if not isinstance(raw_attributes, Mapping) or not isinstance(geometry, Mapping):
             malformed += 1
             continue
+        # The archival snapshot intentionally retains every published source
+        # field. Runtime evidence remains on the same audited allow-list as the
+        # live query so local mode cannot leak unrelated/schema-drift fields.
+        attributes = {
+            field: raw_attributes.get(field)
+            for field in spec.out_fields
+            if field in raw_attributes
+        }
         rings = geometry.get("rings")
         if not isinstance(rings, list) or not rings:
             malformed += 1
@@ -151,7 +185,7 @@ async def _query_layer(
     if malformed:
         state = QueryState.MALFORMED
         warnings.append(f"Layer {spec.layer_id} contained {malformed} malformed feature(s)")
-    if payload.get("exceededTransferLimit") is True:
+    if transfer_limited:
         state = QueryState.TRUNCATED
         warnings.append(f"Layer {spec.layer_id} exceeded the ArcGIS transfer limit")
     return LayerQueryOutcome(
@@ -225,6 +259,29 @@ def _build_summary(outcomes: Sequence[LayerQueryOutcome], context: EvidenceConte
     }
 
 
+def _report_for_outcomes(
+    selected_mode: EvidenceMode,
+    retrieved_at: str,
+    outcomes: Sequence[LayerQueryOutcome],
+    context: EvidenceContext,
+    *,
+    warnings: Sequence[str] = (),
+    provenance: Optional[Mapping[str, Any]] = None,
+) -> PlanningEvidenceReport:
+    """Build a report from already parsed outcomes for any source adapter."""
+    bad_states = {QueryState.FAILED, QueryState.MALFORMED, QueryState.TRUNCATED}
+    all_warnings = tuple(warning for outcome in outcomes for warning in outcome.warnings) + tuple(warnings)
+    return PlanningEvidenceReport(
+        mode=selected_mode,
+        retrieved_at=retrieved_at,
+        complete=all(outcome.state not in bad_states for outcome in outcomes),
+        outcomes=tuple(outcomes),
+        summary=_build_summary(outcomes, context),
+        warnings=all_warnings,
+        provenance=dict(provenance or {}),
+    )
+
+
 async def collect_planning_evidence(
     client: Any,
     rings: List[Any],
@@ -256,17 +313,245 @@ async def collect_planning_evidence(
         )
         outcomes.extend(await _query_specs(client, parcel, extra_specs))
 
-    bad_states = {QueryState.FAILED, QueryState.MALFORMED, QueryState.TRUNCATED}
-    warnings = tuple(warning for outcome in outcomes for warning in outcome.warnings)
-    complete = all(outcome.state not in bad_states for outcome in outcomes)
-    return PlanningEvidenceReport(
-        mode=selected_mode,
-        retrieved_at=retrieved_at,
-        complete=complete,
-        outcomes=tuple(outcomes),
-        summary=_build_summary(outcomes, context),
-        warnings=warnings,
-    )
+    return _report_for_outcomes(selected_mode, retrieved_at, outcomes, context)
 
 
-__all__ = ["MAX_CONCURRENT_LAYER_QUERIES", "collect_planning_evidence"]
+class LocalPlanningEvidenceError(RuntimeError):
+    """A local planning snapshot cannot provide a trustworthy evidence pass."""
+
+
+def _snapshot_value(snapshot: Any, name: str, default: Any = None) -> Any:
+    if isinstance(snapshot, Mapping):
+        return snapshot.get(name, default)
+    return getattr(snapshot, name, default)
+
+
+def _snapshot_age_days(finalized_at: Any) -> Optional[float]:
+    if finalized_at is None:
+        return None
+    if isinstance(finalized_at, datetime):
+        timestamp = finalized_at.timestamp()
+    elif isinstance(finalized_at, (int, float)) and not isinstance(finalized_at, bool):
+        timestamp = float(finalized_at)
+    else:
+        text = str(finalized_at).strip()
+        try:
+            timestamp = datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            try:
+                timestamp = float(text)
+            except ValueError:
+                return None
+    if not math.isfinite(timestamp):
+        return None
+    return round(max(0.0, (time.time() - timestamp) / 86_400.0), 3)
+
+
+class LocalFirstPlanningEvidenceAnalyzer:
+    """Run STANDARD/FULL evidence against one pinned local snapshot first.
+
+    ``mode`` selects the source policy (``auto``, ``local``, or ``live``),
+    while the mode passed to ``__call__`` remains the evidence profile.  Local
+    records go through the exact parser used by ArcGIS so findings and state
+    transitions are source-independent.
+    """
+
+    def __init__(
+        self,
+        store: Optional[Any],
+        *,
+        live_analyzer: Any = collect_planning_evidence,
+        mode: str = "auto",
+        max_snapshot_age_days: Optional[float] = DEFAULT_MAX_PLANNING_EVIDENCE_AGE_DAYS,
+        allow_stale_local: bool = False,
+        snapshot_id: Optional[int] = None,
+    ) -> None:
+        selected_mode = str(mode).strip().lower()
+        if selected_mode not in {"auto", "local", "live"}:
+            raise ValueError("planning evidence source mode must be auto, local, or live")
+        if max_snapshot_age_days is not None and (
+            isinstance(max_snapshot_age_days, bool) or max_snapshot_age_days <= 0
+        ):
+            raise ValueError("max_snapshot_age_days must be positive or None")
+        self.store = store
+        self.live_analyzer = live_analyzer
+        self.mode = selected_mode
+        self.max_snapshot_age_days = max_snapshot_age_days
+        self.allow_stale_local = allow_stale_local
+        self.snapshot_id = snapshot_id
+
+    def _pin(self) -> Any:
+        if self.store is None:
+            raise LocalPlanningEvidenceError("no local planning snapshot store is configured")
+        if self.snapshot_id is not None:
+            snapshot_reader = getattr(self.store, "snapshot", None)
+            if not callable(snapshot_reader):
+                raise LocalPlanningEvidenceError("planning snapshot store cannot select a snapshot by ID")
+            try:
+                return snapshot_reader(self.snapshot_id)
+            except Exception as exc:
+                raise LocalPlanningEvidenceError(
+                    f"planning snapshot {self.snapshot_id} could not be pinned: {exc}"
+                ) from exc
+        pin = getattr(self.store, "pin_active_snapshot", None)
+        if pin is None:
+            pin = getattr(self.store, "active_snapshot", None)
+        try:
+            snapshot = pin() if callable(pin) else None
+        except Exception as exc:
+            raise LocalPlanningEvidenceError(f"active planning snapshot could not be pinned: {exc}") from exc
+        if snapshot is None:
+            raise LocalPlanningEvidenceError("no active planning snapshot is available")
+        snapshot_id = _snapshot_value(snapshot, "snapshot_id")
+        if snapshot_id is None or isinstance(snapshot_id, bool) or str(snapshot_id).strip() == "":
+            raise LocalPlanningEvidenceError("active planning snapshot has no valid snapshot ID")
+        complete = _snapshot_value(snapshot, "complete")
+        if complete is False:
+            raise LocalPlanningEvidenceError(f"planning snapshot {snapshot_id} is incomplete")
+        return snapshot
+
+    def _local_report(self, rings: List[Any], village: str, selected_mode: EvidenceMode) -> PlanningEvidenceReport:
+        snapshot = self._pin()
+        snapshot_id = _snapshot_value(snapshot, "snapshot_id")
+        finalized_at = _snapshot_value(snapshot, "finalized_at")
+        if finalized_at is None:
+            raise LocalPlanningEvidenceError(f"planning snapshot {snapshot_id} has no finalized timestamp")
+        age_days = _snapshot_age_days(finalized_at)
+        if age_days is None:
+            raise LocalPlanningEvidenceError(f"planning snapshot {snapshot_id} has an invalid finalized timestamp")
+        stale = (
+            self.max_snapshot_age_days is not None and age_days > self.max_snapshot_age_days
+        )
+        if stale and not self.allow_stale_local:
+            raise LocalPlanningEvidenceError(
+                f"planning snapshot {snapshot_id} is stale ({age_days} days old; "
+                f"limit {self.max_snapshot_age_days} days)"
+            )
+
+        parcel = arcgis_rings_to_geometry(rings)
+        if parcel.is_empty or parcel.area <= 0:
+            raise ValueError("Parcel geometry has no valid polygon rings")
+        query = getattr(self.store, "query_layer", None)
+        if query is None:
+            query = getattr(self.store, "records_intersecting", None)
+        if not callable(query):
+            raise LocalPlanningEvidenceError("planning snapshot store has no spatial layer query method")
+
+        def query_specs(specs: Sequence[LayerSpec]) -> List[LayerQueryOutcome]:
+            result: List[LayerQueryOutcome] = []
+            for spec in specs:
+                started = time.perf_counter()
+                try:
+                    records = query(snapshot_id, spec.layer_id, parcel)
+                except Exception as exc:
+                    raise LocalPlanningEvidenceError(
+                        f"planning snapshot {snapshot_id} query failed for layer {spec.layer_id}: {exc}"
+                    ) from exc
+                if records is None or not isinstance(records, (list, tuple)):
+                    raise LocalPlanningEvidenceError(
+                        f"planning snapshot {snapshot_id} returned a malformed collection for layer {spec.layer_id}"
+                    )
+                result.append(
+                    _parse_layer_features(
+                        parcel,
+                        spec,
+                        records,
+                        round((time.perf_counter() - started) * 1000, 1),
+                    )
+                )
+            return result
+
+        retrieved_at = datetime.now(timezone.utc).isoformat()
+        initial_specs = specs_for_mode(selected_mode)
+        outcomes = query_specs(initial_specs)
+        context = EvidenceContext(
+            coastal=_hit(outcomes, 2250),
+            tps=_hit(outcomes, 112),
+            spa=_hit(outcomes, 1524),
+            gorai=_hit(outcomes, 1502) or village.strip().upper() in {"GORAI", "MANORI"},
+        )
+        if selected_mode is EvidenceMode.FULL:
+            queried_ids = {outcome.layer_id for outcome in outcomes}
+            extra_specs = tuple(
+                spec
+                for spec in specs_for_mode(selected_mode, context=context)
+                if spec.layer_id not in queried_ids and spec.layer_id not in CURRENT_CORE_LAYER_IDS
+            )
+            outcomes.extend(query_specs(extra_specs))
+
+        stale_warning = (
+            f"Local planning snapshot {snapshot_id} is stale ({age_days} days old); "
+            "verify planning status against live ArcGIS."
+            if stale
+            else None
+        )
+        provenance = {
+            "source": "local_snapshot",
+            "method": "local_snapshot_spatial_query",
+            "snapshot_id": snapshot_id,
+            "snapshot_finalized_at": finalized_at,
+            "snapshot_age_days": age_days,
+            "snapshot_stale": stale,
+            "fallback": False,
+        }
+        return _report_for_outcomes(
+            selected_mode,
+            retrieved_at,
+            outcomes,
+            context,
+            warnings=(stale_warning,) if stale_warning else (),
+            provenance=provenance,
+        )
+
+    async def __call__(
+        self,
+        client: Any,
+        rings: List[Any],
+        village: str,
+        mode: EvidenceMode,
+    ) -> PlanningEvidenceReport:
+        selected_mode = EvidenceMode.parse(mode)
+        if selected_mode is EvidenceMode.BASIC:
+            return PlanningEvidenceReport(selected_mode, datetime.now(timezone.utc).isoformat(), True)
+        if self.mode == "live":
+            report = cast(PlanningEvidenceReport, await self.live_analyzer(client, rings, village, selected_mode))
+            return replace(
+                report,
+                provenance={
+                    "source": "live_arcgis",
+                    "method": "bounded_layer_queries",
+                    "fallback": False,
+                },
+            )
+        try:
+            return self._local_report(rings, village, selected_mode)
+        except Exception as exc:
+            if self.mode == "local":
+                if isinstance(exc, LocalPlanningEvidenceError):
+                    raise
+                raise LocalPlanningEvidenceError(str(exc)) from exc
+            reason = str(exc)
+            report = cast(PlanningEvidenceReport, await self.live_analyzer(client, rings, village, selected_mode))
+            warning = (
+                "Local planning snapshot was unavailable; live ArcGIS planning evidence was used "
+                f"({reason})."
+            )
+            return replace(
+                report,
+                warnings=(*tuple(report.warnings), warning),
+                provenance={
+                    "source": "live_arcgis",
+                    "method": "bounded_layer_queries",
+                    "fallback": True,
+                    "fallback_reason": reason,
+                },
+            )
+
+
+__all__ = [
+    "DEFAULT_MAX_PLANNING_EVIDENCE_AGE_DAYS",
+    "MAX_CONCURRENT_LAYER_QUERIES",
+    "LocalFirstPlanningEvidenceAnalyzer",
+    "LocalPlanningEvidenceError",
+    "collect_planning_evidence",
+]

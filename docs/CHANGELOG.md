@@ -4,6 +4,99 @@ All notable changes to this project. Newest first.
 
 > **If something breaks after an update, see [ROLLBACK.md](ROLLBACK.md).**
 
+## [Unreleased] — 2026-08-21
+
+### Plot intelligence and local road analysis
+
+* Added independently versioned plot-intelligence builds tied to exact parcel
+  and planning snapshots, source fingerprints and a deterministic algorithm
+  version. Builds resume safely, verify completeness and source references, and
+  publish only through explicit activation.
+* Added one query-ready record per unique village/CTS identity with area basis,
+  zoning, reservations, designations, modifications, CRZ, Metro, encumbrance,
+  local road/access, adjacency, full evidence summary, confidence and facts hash.
+* Added `intelligence build`, `status`, `verify`, `activate`, `analyze`, `search`,
+  `compare` and `check`. Search supports structured site/planning filters without
+  a vector database.
+* Moved road name/width/distance analysis to the archived road layers for local
+  parcels. Existing live road probes remain the fallback when local evidence is
+  unavailable.
+* Separated approved area from digitized boundary area. Area totals use the
+  approved record while overlaps use geometry; differences above 5% are flagged.
+
+### Local planning snapshot and local-first planning
+
+* Added independent planning snapshot tables, downloader, R-Tree queries,
+  manifests, completeness verification, activation and rollback in the same
+  SQLite file as the parcel snapshot.
+* Added `database build-planning`, `status-planning`, `verify-planning`,
+  `activate-planning`, and `rollback-planning` commands.
+* Activated planning snapshot 2 with all 52 canonical registry layers and all
+  65,604 official inventory records. Verification has zero errors and three
+  source-geometry warnings: Designation ObjectIDs 1158, 1159 and 4817 publish
+  empty rings and are retained without invented geometry.
+* CLI `auto` and `local` now use local-first core planning and optional evidence
+  through the same deterministic parsers as live ArcGIS. Auto falls back
+  visibly when local data is unavailable, invalid or older than 210 days.
+  Road edge/name/width probes, DP rendering and satellite imagery remain live.
+* Added planning snapshot provenance and both snapshot IDs to result evidence
+  and cache namespaces, preventing results from crossing activated versions.
+* Corrected ingestion to discover official ObjectID fields and geometry types;
+  Metro influence zones, traffic road alignments and water bodies publish
+  `OBJECTID_1` rather than the earlier registry default.
+* Optimized local spatial queries by starting at the SQLite R-Tree and using a
+  Shapely spatial tree for multipart ring containment instead of quadratic
+  comparisons.
+* Activation gates passed 15/15 live/local core comparisons, 5/5 full-evidence
+  comparisons and three fresh end-to-end runs with all seven artifacts. The
+  full suite passes 399 tests at 84.48% coverage; Ruff and strict mypy are clean.
+* Removed the non-active failed first attempt after validation and compacted the
+  combined active parcel/planning database from 1.6 GiB to 1.0 GiB.
+
+### Local Layer 13 snapshot database foundation
+
+* Added an audited SQLite snapshot store for MCGM Development Plan 2034 Layer
+  13. Snapshots retain raw attributes and exact source geometry, source
+  manifests, validation issues, ingestion runs, activation history, and
+  snapshot diffs. Ready and active snapshots cannot be mutated.
+* Added a bounded, retrying Layer 13 importer that starts with the complete
+  ObjectID inventory, reconciles expected/received/missing/rejected/extra IDs,
+  and refuses to finalize an incomplete source result.
+* Added `database build`, `status`, `verify`, `diff`, `activate`, and `rollback`
+  commands, each requiring an explicit `--database PATH`.
+* Added explicit parcel source modes: CLI-default `auto` (local active snapshot
+  with visible live Layer 13 fallback), strict `local`, and forced `live`.
+  Auto resolves explicit `--database`, `DP_LOOKUP_DATABASE`, then
+  `data/mcgm-layer13.sqlite`; strict local requires an explicit path.
+  `--no-cache` continues to control only the report-result cache.
+* Added exact local adjacency using indexed bounding-box candidates and
+  Shapely shared-boundary/gap checks. Multipart and duplicate village/CTS
+  source features are combined rather than silently selecting the first.
+* Initially kept planning evidence live while the parcel snapshot was proven.
+  The planning snapshot subsection above records the later, separately gated
+  move to local-first planning with visible live fallback.
+* The database is generated source data and is ignored under `data/*.sqlite`.
+  The first workstation-local snapshot was built, verified, live-sampled and
+  activated on 2026-08-21. The CLI default became local-first `auto` after
+  parity and end-to-end validation; programmatic dependencies remain live by
+  default for backwards compatibility.
+* The importer now streams atomic POST batches into SQLite and resumes an exact
+  persisted ObjectID inventory after interruption. POST avoids ArcGIS/web-server
+  URL-length rejection for 2,000-ID batches.
+* Verified 2026-08-21 snapshot: 135,342 feature records; 123,388 with CTS;
+  11,954 without CTS; 3,050 duplicate village/CTS groups; 3,869 extra features
+  in those groups; 536 MiB file; zero validation/integrity errors. All 15 seeded
+  live parity samples matched raw features, attributes and geometry exactly.
+  These are source feature counts, not unique legal-plot counts.
+* A stratified 30-identity audit across 18 wards compared 274 source parts,
+  including duplicate/multipart, small, large and irregular cases: 274/274
+  attributes and geometries matched live Layer 13 exactly. Five paired
+  auto/live end-to-end cases all completed with all seven exports, including
+  the 74-part COLABA 479 stress case.
+* Local-first lookups pin one snapshot ID across parcel and neighbour reads,
+  isolate report caches by snapshot, show snapshot ID/date, warn after 210 days,
+  and visibly record every automatic live fallback.
+
 ## [3.14.0] — 2026-08-18
 
 ### Application-stage and evidence architecture hardening

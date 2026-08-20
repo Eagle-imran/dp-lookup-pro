@@ -98,3 +98,27 @@ def test_incomplete_result_has_distinct_nonzero_exit(monkeypatch, capsys):
     monkeypatch.setattr(cli, "lookup_plot_pro", fake_lookup)
     assert cli.main(["WORLI", "733"]) == cli.EXIT_INCOMPLETE
     assert "INCOMPLETE" in capsys.readouterr().out
+
+
+def test_local_source_is_explicit_and_requires_database(monkeypatch, capsys, tmp_path):
+    assert cli.main(["WORLI", "733", "--source", "local"]) == cli.EXIT_USAGE
+    assert "--database PATH is required" in capsys.readouterr().out
+
+    calls = {}
+
+    async def fake_lookup(**kwargs):
+        calls.update(kwargs)
+        return _result()
+
+    monkeypatch.setattr(cli, "lookup_plot_pro", fake_lookup)
+    database = tmp_path / "parcels.sqlite"
+    assert cli.main(["WORLI", "733", "--source=auto", "--database", str(database)]) == cli.EXIT_SUCCESS
+    assert calls["dependencies"].parcel_fetcher.database == database
+    assert calls["dependencies"].parcel_fetcher.fallback is not None
+    assert calls["dependencies"].neighbour_provider.database == database
+
+
+def test_database_command_routes_before_lookup_grammar(capsys, tmp_path):
+    database = tmp_path / "not-built.sqlite"
+    assert cli.main(["database", "status", "--database", str(database), "--json"]) == cli.EXIT_SUCCESS
+    assert '"exists": false' in capsys.readouterr().out

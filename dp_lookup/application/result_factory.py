@@ -35,30 +35,75 @@ def build_lookup_result(
 ) -> Dict[str, Any]:
     """Serialize typed stage contracts to the backwards-compatible wire shape."""
     evidence = dict(planning.evidence)
+    parcel_warning_items: list[str] = []
+    if parcel.attrs.get("_DP_SNAPSHOT_STALE"):
+        parcel_warning_items.append(
+            f"Local parcel snapshot is {parcel.attrs.get('_DP_SNAPSHOT_AGE_DAYS')} days old; verify against live Layer 13."
+        )
+    fallback_reason = parcel.attrs.get("_DP_LOCAL_FALLBACK_REASON")
+    if fallback_reason:
+        parcel_warning_items.append(f"Local database was not used: {fallback_reason}")
+    parcel_warnings = tuple(parcel_warning_items)
     if planning_due_diligence is not None:
         evidence["planning_due_diligence"] = dict(planning_due_diligence)
     evidence.update(
         {
             "parcel": SourceEvidence(
-                value={"village": parcel.village.upper(), "cts_no": parcel.cts_no},
+                value={
+                    "village": parcel.village.upper(),
+                    "cts_no": parcel.cts_no,
+                    **(
+                        {"snapshot_id": parcel.attrs.get("_DP_SNAPSHOT_ID")}
+                        if parcel.attrs.get("_DP_SNAPSHOT_ID") is not None
+                        else {}
+                    ),
+                    **(
+                        {
+                            "feature_part_count": parcel.attrs.get("FEATURE_PART_COUNT"),
+                            "source_objectids": parcel.attrs.get("SOURCE_OBJECTIDS"),
+                        }
+                        if parcel.attrs.get("FEATURE_PART_COUNT") is not None
+                        else {}
+                    ),
+                },
                 state=EvidenceState.CONFIRMED,
                 source="MCGM Development Plan 2034",
-                method="attribute_query",
+                method=(
+                    "local_snapshot_attribute_query"
+                    if parcel.attrs.get("_DP_PARCEL_SOURCE") == "local_snapshot"
+                    else "attribute_query"
+                ),
                 layer_ids=(13,),
+                retrieved_at=(
+                    str(parcel.attrs.get("_DP_SNAPSHOT_FINALIZED_AT_ISO"))
+                    if parcel.attrs.get("_DP_SNAPSHOT_FINALIZED_AT_ISO") is not None
+                    else None
+                ),
+                warnings=parcel_warnings,
             ).to_dict(),
             "abutting_road": SourceEvidence(
-                value={"name": road.name, "width": road.width},
+                value={
+                    "name": road.name,
+                    "width": road.width,
+                    **({"distance_m": road.distance_m} if road.distance_m is not None else {}),
+                    **({"snapshot_id": road.snapshot_id} if road.snapshot_id is not None else {}),
+                    **(
+                        {"source_object_ids": list(road.source_object_ids)}
+                        if road.source_object_ids
+                        else {}
+                    ),
+                },
                 state=EvidenceState(road.evidence_state),
                 source="MCGM Development Plan 2034",
-                method="boundary_probe",
-                layer_ids=(193, 194, 44, 45, 2224),
+                method=road.method,
+                layer_ids=tuple(road.source_layer_ids) or (193, 194, 44, 45, 2224),
                 warnings=tuple(road.warnings),
             ).to_dict(),
             "adjoining_plots": SourceEvidence(
                 value=len(neighbours.plots),
                 state=EvidenceState(neighbours.evidence_state),
                 source="MCGM Development Plan 2034",
-                method="probe",
+                method=neighbours.method,
                 layer_ids=(13,),
                 warnings=tuple(neighbours.warnings),
             ).to_dict(),
@@ -94,7 +139,7 @@ def build_lookup_result(
             road_name=road.name,
             road_width=road.width,
         ),
-        spatial_cluster=SpatialCluster(neighbours=neighbours.plots, method="probe"),
+        spatial_cluster=SpatialCluster(neighbours=neighbours.plots, method=neighbours.method),
         export_files=ArtifactManifest(
             bundle_folder=paths.bundle_folder,
             pdf_report=paths.pdf,

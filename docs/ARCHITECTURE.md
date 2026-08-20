@@ -18,7 +18,11 @@ application.lookup_service (composition shell, <375 lines)
         |
         +--> reporting --> typed artifact registry --> exporters / renderers
         |
-        +--> clients: payloads / planning queries / transport / caches
+        +--> clients: live/local source adapters / transport / report cache
+        |
+        +--> spatial_store + planning_snapshot: independent immutable snapshots
+        |
+        +--> intelligence: immutable derived facts, provenance and SQL search
         |
         +--> optional planning_evidence registry/models
                      ^
@@ -29,10 +33,18 @@ application.lookup_service (composition shell, <375 lines)
 - `core` contains constants, geometry/topology, planning classification, and
   typed result models. It must not import clients, exporters, or renderers.
 - `clients` owns external protocols: ArcGIS request/response adaptation,
-  verified HTTP transport, and the persistent cache.
+  verified HTTP transport, the report-result cache, and local-first parcel and
+  planning adapters. `clients.parcel_snapshot` and
+  `application.snapshot_ingestion` own source extraction contracts; the
+  SQLite lifecycle and queries live in `spatial_store`, below the application
+  boundary.
 - `planning_evidence` owns immutable due-diligence models and the audited,
   dependency-free layer registry. Its ArcGIS adapter remains in `clients`, so
   source transport cannot leak into the evidence/domain contracts.
+- `intelligence` owns derived-data models, lifecycle, provenance references and
+  structured queries. It imports neither clients nor application services.
+  `application.intelligence_builder` is the only coordinator allowed to combine
+  the two source repositories into a publishable intelligence build.
 - `application` coordinates one use case and isolates optional artifact
   failures. Its stage contracts are in `application/contracts.py`; concrete
   adapters are supplied through `LookupDependencies`, so tests and future UIs
@@ -65,6 +77,19 @@ The boundary and compatibility facades are protected by
 | `clients/planning_queries.py` | Layer fetching and deterministic polygon intersection |
 | `clients/planning_evidence_queries.py` | Bounded, explicit-field optional evidence queries and audit outcomes |
 | `clients/tile_cache.py` | Atomic satellite tile caching |
+| `clients/parcel_snapshot.py` | Layer 13 source feature and completeness contracts |
+| `clients/local_parcels.py` | Active local snapshot lookup with explicit live fallback |
+| `clients/local_planning.py` | Local-first core planning query with freshness guard and live fallback |
+| `application/snapshot_ingestion.py` | Bounded Layer 13 inventory/batch importer and manifest |
+| `application/database_services.py` | Database build/status/verify/diff/activate/rollback services |
+| `spatial_store/` | Standard-library SQLite snapshots, spatial index, validation and lifecycle |
+| `application/planning_snapshot.py` | Canonical planning-layer inventory/batch downloader and manifests |
+| `application/planning_database_services.py` | Planning build/status/verify/activate/rollback services |
+| `planning_snapshot/` | Independent planning tables, R-Tree queries, validation and lifecycle |
+| `application/intelligence_builder.py` | Resumable derivation pinned to exact source snapshot IDs |
+| `application/intelligence_services.py` | Analyze/search/compare/check application facade |
+| `application/local_roads.py` | Deterministic local road distance, name and width evidence |
+| `intelligence/` | Immutable derived builds, source references, SQL filters and activation |
 | `planning_evidence/models.py` | Immutable evidence modes, findings, layer outcomes, and report |
 | `planning_evidence/registry.py` | Audited layer schemas, authority classes, duplicate and applicability policy |
 
@@ -99,7 +124,9 @@ incomplete instead of silently asserting that constraints are absent.
 
 ## ArcGIS ingestion contract
 
-The current lookup depends on these MCGM Development Plan layers:
+The current lookup depends on these MCGM Development Plan layers. Active local
+snapshots satisfy parcel and polygon-planning reads; live calls remain the
+fallback and the source for road probes and rendered imagery:
 
 - base parcel: `13`
 - zoning: `0` (required evidence; lookup fails closed when unavailable)
@@ -123,11 +150,14 @@ vendor.
 
 The optional planning-evidence profile runs only after the validated Layer 13
 parcel is available and never re-queries it. `basic` preserves the historical
-request/cache contract; `shadow` and `standard` query the curated decision and
-CZMP set; `full` adds wider screening sources and activates TPS, SPA, and
-Gorai-Manori families only after a detector polygon intersects. Non-basic cache
-keys include the evidence profile and registry version, and incomplete optional
-evidence is never cached. Findings are nested under
+request/cache contract; `shadow` and `standard` evaluate the curated decision
+and CZMP set; `full` adds wider screening sources and activates TPS, SPA, and
+Gorai-Manori families only after a detector polygon intersects. In CLI `auto`
+and `local`, the same deterministic parser consumes the active planning
+snapshot; `auto` visibly falls back to live ArcGIS when local evidence is
+unavailable, invalid, or stale. Non-basic cache keys include the evidence
+profile, registry version, parcel snapshot ID, and planning snapshot ID;
+incomplete optional evidence is never cached. Findings are nested under
 `metadata.evidence.planning_due_diligence`, leaving the public top-level result
 shape and status calculation intact.
 
@@ -135,6 +165,73 @@ shape and status calculation intact.
 request and a complete result replaces the relevant mode-specific cache entry.
 This makes the normal workflow fast while providing an explicit refresh path
 for client issues, submissions, transactions, and upstream-change validation.
+
+## Local source snapshots
+
+The local database is separate from the existing report-result cache. It holds
+two independently activated datasets. `spatial_store.SnapshotStore` keeps
+Layer 13 records in immutable
+lifecycle states (`building`, `ready`, `active`, `retired`, `failed`) with
+canonical raw source features, exact geometry, source manifest, validation
+issues, activation history, and snapshot diffs. A build obtains and persists the
+complete ObjectID inventory, commits bounded POST batches atomically, resumes
+only an exact inventory match, and refuses to finalize an incomplete result.
+The generated SQLite file is ignored under `data/*.sqlite`; no full snapshot is
+checked into the repository. The first workstation-local snapshot was built,
+verified, live-sampled and activated on 2026-08-21. The CLI now defaults to
+local-first `auto`; the programmatic dependency default remains live for
+backwards compatibility. `planning_snapshot.PlanningSnapshotStore` applies the
+same publish-after-verification lifecycle to every canonical planning layer in
+the audited registry. Both stores share one SQLite file without sharing tables,
+version numbers, or active pointers.
+
+The parcel source is selected at the CLI boundary:
+
+```text
+default / auto  -> active parcel + planning snapshots first; visible live fallback
+--source live   -> bypass both snapshots for live ArcGIS source queries
+--source local  -> require active local parcel + planning snapshots
+--source auto   -> explicit local-first selection, optionally with --database
+```
+
+`--database PATH` is required for strict `local`. Auto resolves an explicit
+path, `DP_LOOKUP_DATABASE`, then `data/mcgm-layer13.sqlite`. Local lookup combines all
+source features for a village/CTS identity, so multipart or duplicate identity
+groups are not silently truncated. `LocalNeighbourProvider` uses the snapshot
+spatial index for candidates and Shapely for exact shared-boundary/gap tests;
+its output is marked `spatial_database` and `confirmed`. Core zoning,
+reservations, designations, modifications, CRZ, Metro influence and optional
+evidence use exact local spatial intersections against one pinned planning
+snapshot. The shared parser prevents local/live policy drift. Automatic live
+fallback is visibly recorded in result notes and field evidence. Each lookup
+pins both snapshot IDs, so an activation cannot mix versions during a run.
+
+The local planning snapshot has a 210-day freshness limit in `auto`. After that
+limit, auto queries live; strict local may still use the snapshot with a visible
+staleness warning. Road edge/name/width analysis is now local-first against the
+five archived road layers; a live boundary probe remains the visible fallback
+when local road evidence is unavailable. Rendered DP imagery and satellite
+tiles remain live. The programmatic dependency defaults remain live for
+compatibility; the CLI assembles the local-first adapters.
+
+Plot-intelligence builds are a third, independent lifecycle layered over the
+two canonical source snapshots. A build records both source IDs, their content
+fingerprint and its deterministic algorithm version. Sample builds cannot be
+activated. Full activation requires completeness and active-source alignment.
+See [PLOT_INTELLIGENCE.md](PLOT_INTELLIGENCE.md).
+
+Database administration is intentionally separate from plot lookup:
+
+```text
+parcel:   database build | status | verify | diff | activate | rollback
+planning: database build-planning | status-planning | verify-planning
+          | activate-planning | rollback-planning
+```
+
+Activation is an explicit pointer switch, and rollback selects a previous
+finalized snapshot. This gives the future city-wide search and amalgamation
+features a stable repository boundary without locking the application to
+SQLite, cloud hosting, or a vector database.
 
 ## Automated planning extension
 

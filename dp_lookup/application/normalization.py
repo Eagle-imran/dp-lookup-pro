@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from copy import deepcopy
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 from dp_lookup.application.contracts import NeighbourContext, PlanningContext, RoadContext
 from dp_lookup.clients.responses import usable_json
@@ -252,7 +252,12 @@ def normalize_planning_evidence(
 
     warnings: List[str] = []
     method = "spatial_polygon"
+    planning_provenance: Dict[str, Any] = {}
     if isinstance(spatial_result, dict):
+        raw_provenance = spatial_result.get("provenance")
+        if isinstance(raw_provenance, Mapping):
+            planning_provenance = dict(raw_provenance)
+            method = str(planning_provenance.get("method") or method)
         reservations = deepcopy(_mapping_items(spatial_result.get("reservations")))
         designations = deepcopy(_mapping_items(spatial_result.get("designations")))
         modifications = deepcopy(_mapping_items(spatial_result.get("modifications")))
@@ -403,6 +408,20 @@ def normalize_planning_evidence(
             warnings=tuple(warnings),
         ).to_dict(),
     }
+    if planning_provenance:
+        evidence["planning_source"] = SourceEvidence(
+            value=planning_provenance,
+            state=planning_state,
+            source="MCGM Development Plan 2034",
+            method=method,
+            layer_ids=(0, 46, 47, 192, 1550, 14, 1264, 1548),
+            retrieved_at=(
+                str(planning_provenance.get("snapshot_finalized_at"))
+                if planning_provenance.get("snapshot_finalized_at") is not None
+                else None
+            ),
+            warnings=tuple(warnings),
+        ).to_dict()
     return PlanningContext(
         zone=str(zone),
         zones=zones,

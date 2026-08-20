@@ -4,7 +4,11 @@
 
 The planning-evidence capability extends the existing DP lookup with a source-backed due-diligence register. It does not replace Layer 13 parcel ingestion, the established planning result, a sanctioned plan, an official DP Remark, title review, or professional legal advice.
 
-The main workflow remains unchanged in `basic` mode. Expanded modes query curated additional layers only after Layer 13 has returned and validated the parcel geometry. Results are added under:
+The main workflow remains unchanged in `basic` mode. Expanded modes evaluate
+curated additional layers only after Layer 13 has returned and validated the
+parcel geometry. CLI `auto` reads the active planning snapshot first and falls
+back visibly to live ArcGIS when it is unavailable, invalid or stale. Results
+are added under:
 
 ```text
 metadata.evidence.planning_due_diligence
@@ -28,26 +32,34 @@ dp-lookup-pro "VILE PARLE" 1449 --evidence full --no-cache --json
 | `standard` | Queries the highest-value decision/correction layers and consolidated CZMP 2019 source. Incomplete optional evidence is visible in its own result. |
 | `full` | Adds audited heritage, ASI, infrastructure, environmental, settlement and amenity sources. TPS, SPA and Gorai-Manori families are activated only after an applicability-boundary hit. |
 
-Non-basic cache entries are namespaced by evidence mode and registry version. A cached `basic` result can therefore never satisfy a `standard` or `full` request. `--no-cache` bypasses the existing entry; a complete refreshed lookup is then stored normally, while incomplete core or optional evidence is not cached.
+Non-basic cache entries are namespaced by evidence mode, registry version and
+the active parcel/planning snapshot IDs. A cached `basic` result can therefore
+never satisfy a `standard` or `full` request or cross a snapshot activation.
+`--no-cache` bypasses the existing entry; a complete refreshed lookup is then
+stored normally, while incomplete core or optional evidence is not cached.
 
 ## Architecture and understanding
 
 ```text
-Layer 13 parcel ingestion (unchanged, required)
+Validated Layer 13 parcel (local-first CLI, required)
         │
         ├── existing zoning/planning/road/report pipeline
         │
         └── optional planning-evidence adapter
                 ├── typed immutable models
                 ├── audited layer registry
-                ├── explicit ArcGIS out-fields
-                ├── bounded concurrency (maximum four layer requests)
+                ├── explicit runtime attribute allow-list
+                ├── local snapshot or bounded live ArcGIS adapter
                 ├── local exact polygon intersections
                 ├── per-layer hit/absence/failure/malformed/truncated state
                 └── independent evidence report in metadata
 ```
 
-The operational registry is in `dp_lookup/planning_evidence/registry.py`. Network/query behaviour is isolated in `dp_lookup/clients/planning_evidence_queries.py`. The application accesses it through `LookupDependencies`, so tests, future UIs, or a different GIS adapter can replace it without editing the cadastral ingestion stage.
+The operational registry is in `dp_lookup/planning_evidence/registry.py`.
+Live/local query behaviour and the shared deterministic parser are isolated in
+`dp_lookup/clients/planning_evidence_queries.py`. The application accesses them
+through `LookupDependencies`, so tests, future UIs, or a different GIS adapter
+can replace the source without editing cadastral ingestion.
 
 Every finding preserves:
 
@@ -78,7 +90,7 @@ Layer 83 deliberately retains raw sanction/refusal text because a feature in `Sa
 Deterministic:
 
 - registry selection and duplicate canonicalisation;
-- bounded ArcGIS request construction;
+- bounded live ArcGIS request construction or indexed local snapshot reads;
 - response/error-state validation;
 - multipart/hole-aware polygon conversion;
 - exact intersection area and percentage;

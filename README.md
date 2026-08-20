@@ -32,6 +32,8 @@ It automatically generates a complete export bundle containing an **Interactive 
   * **Retina HD DP 2034 Map**: High-resolution zoning map complete with North Arrow ($N \uparrow$) and scale legend.
   * **Tile-Stitched Satellite Aerial View**: Pixel-aligned Esri World Imagery satellite view showing actual building structures and ground coverage.
 * **🏘️ Adjoining CTS Plot Cluster Identification**: Identifies neighboring land parcels and their areas for site amalgamation and layout analysis.
+* **🗃️ Audited local source database**: Keeps complete, independently versioned parcel and planning-layer snapshots in one SQLite file. Normal CLI lookup uses active local data first, records its snapshot provenance, and falls back visibly to live MCGM when local data is missing, stale, or invalid.
+* **🔎 Plot Intelligence & Site Search**: Builds one verified record per unique village/CTS identity for instant dossiers, citywide filtering and side-by-side site comparison, with every fact linked to its source snapshot, layer and ObjectID.
 * **📐 Native AutoCAD CAD & Google Earth Exports**:
   * **`.dxf`**: Native AutoCAD Drawing file ready to double-click and open instantly in **AutoCAD, AutoCAD LT, Civil 3D, and TurboCAD**! Includes layer styling & text annotations.
   * **`.geojson`**: Scale-accurate WGS84 (`EPSG:4326`) polygon for QGIS and ArcGIS.
@@ -117,6 +119,88 @@ Navigate to the newly created subfolder `./output/worli_cts_748A/` to access all
 * 🌍 **Google Earth 3D**: Double-click `plot_G-S_748A_worli.kml` to launch interactive 3D mapping in Google Earth.
 * 🌐 **QGIS / ArcGIS**: Import `plot_G-S_748A_worli.geojson` into GIS software for spatial analysis.
 * 📊 **Excel Register**: Open `output/dp-lookups.xlsx` to review the master query log.
+
+### Optional: build the local source database
+
+For internal and repeated work, the repository includes a reliable local copy
+of MCGM's parcel layer and 52 audited planning layers. Both datasets live in one
+SQLite file but have separate versions, verification, activation and rollback.
+This is separate from the 30-day report cache and is not checked into Git. Each
+builder starts from the complete source ObjectID inventory, commits bounded
+batches atomically, preserves the official attributes and geometry, resumes a
+matching interrupted build, and refuses to activate an incomplete result.
+
+Build and review a database explicitly:
+
+```bash
+dp-lookup-pro database build  --database data/mcgm-layer13.sqlite
+dp-lookup-pro database status --database data/mcgm-layer13.sqlite
+dp-lookup-pro database verify --database data/mcgm-layer13.sqlite
+dp-lookup-pro database activate --database data/mcgm-layer13.sqlite
+
+dp-lookup-pro database build-planning    --database data/mcgm-layer13.sqlite
+dp-lookup-pro database status-planning   --database data/mcgm-layer13.sqlite
+dp-lookup-pro database verify-planning   --database data/mcgm-layer13.sqlite
+dp-lookup-pro database activate-planning --database data/mcgm-layer13.sqlite
+```
+
+Complete parcel and planning snapshots were built, verified, sampled against
+the live source, and activated on 2026-08-21. The current database is about
+1.0 GiB and contains 135,342 parcel records plus 65,604 records across 52
+planning layers. It remains ignored by Git and is not bundled with the package.
+Normal CLI lookup uses it automatically when available:
+
+```bash
+dp-lookup-pro WORLI 733
+# auto: data/mcgm-layer13.sqlite first, live Layer 13 fallback
+
+dp-lookup-pro WORLI 733 --source local --database data/mcgm-layer13.sqlite
+dp-lookup-pro WORLI 733 --source auto --database data/mcgm-layer13.sqlite
+dp-lookup-pro WORLI 733 --source live
+```
+
+`local` requires active local parcel and planning snapshots. `auto` uses each
+active local snapshot first and falls back visibly when it cannot answer. A
+parcel snapshot older than 210 days remains usable with a warning; stale
+planning falls back live in `auto` because planning status is more sensitive to
+change. `auto` is the CLI default; `DP_LOOKUP_DATABASE` or `--database` can
+override the database path.
+Explicit `live` remains the verification escape hatch. Parcel identity,
+neighbours, zoning, reservations, designations, DP modifications, CRZ, Metro
+influence, optional planning evidence and road access are local-first. Live road
+probes remain the fallback; the rendered DP map and satellite imagery remain
+live. See the [local
+snapshot specification](docs/SPEC-LOCAL-SPATIAL-CACHE.md) and [planning snapshot
+contract](docs/PLANNING_SNAPSHOT.md) for validation and lifecycle details.
+
+### Build and query plot intelligence
+
+The derived intelligence layer contains one record for each of the 119,519
+queryable village/CTS identities in the active source snapshot. It is versioned
+independently and cannot be activated unless every selected identity was
+processed and its source versions match the active source snapshots.
+
+```bash
+# Validate the pipeline with a non-publishable sample
+dp-lookup-pro intelligence build --database data/mcgm-layer13.sqlite --limit 25 --json
+
+# Complete resumable publication build
+dp-lookup-pro intelligence build --database data/mcgm-layer13.sqlite
+dp-lookup-pro intelligence verify --database data/mcgm-layer13.sqlite
+dp-lookup-pro intelligence activate --database data/mcgm-layer13.sqlite
+
+# Real workflow commands
+dp-lookup-pro intelligence analyze WORLI 733 --database data/mcgm-layer13.sqlite --json
+dp-lookup-pro intelligence search --database data/mcgm-layer13.sqlite \
+  --zone R --min-area 2000 --has-reservation no --max-encumbered 10
+dp-lookup-pro intelligence compare WORLI:733 COLABA:1/600 \
+  --database data/mcgm-layer13.sqlite --json
+dp-lookup-pro intelligence check --database data/mcgm-layer13.sqlite
+```
+
+This is an internal operational system of record, not a replacement for MCGM
+or statutory/title documents. The complete lifecycle, refresh runbook and area
+quality rules are in [Plot intelligence](docs/PLOT_INTELLIGENCE.md).
 
 ---
 
@@ -227,7 +311,18 @@ uv run python dp-lookup-pro "<VILLAGE_NAME>" "<CTS_NUMBER>" [OUTPUT_DIR] [option
 | `--json` | full JSON response instead of the summary (clean on stdout) |
 | `--no-cache` | ignore any cached report, refetch, and replace it after a complete run |
 | `--evidence MODE` | select `basic`, `shadow`, `standard`, or conditional `full` planning evidence; default is `basic` |
+| `--source MODE` | choose `auto` (default), `live`, or strict `local` parcel and planning sources |
+| `--database PATH` | override auto's default SQLite path; required with strict `local` |
 | `--list-villages` | print all 128 valid village names and exit |
+
+Database administration is separate from plot lookup:
+
+```bash
+dp-lookup-pro database <COMMAND> --database PATH
+# Parcel: build, status, verify, diff, activate, rollback
+# Planning: build-planning, status-planning, verify-planning,
+#           activate-planning, rollback-planning
+```
 
 ### Examples:
 ```bash

@@ -8,12 +8,26 @@ import httpx
 
 from dp_lookup.application.contracts import ParcelContext
 from dp_lookup.clients.responses import usable_json
-from dp_lookup.core.constants import SERVER_URL
+from dp_lookup.core.constants import MCGM_VILLAGES, SERVER_URL
 from dp_lookup.core.geometry import prepare_geometry, resolve_plot_area
+from dp_lookup.core.villages import suggest_villages
 
 
 class ParcelIngestionError(RuntimeError):
     """The required Layer 13 source could not be read safely."""
+
+
+def not_found_result(village: str, cts_no: str) -> Dict[str, Any]:
+    """Explain an exact parcel miss without confusing it with source failure."""
+    if village in MCGM_VILLAGES:
+        message = (
+            f"Village '{village}' is valid, but it has no plot numbered '{cts_no}'. "
+            "Check the CTS number - suffixes and slashes matter ('748A' and '748' "
+            "are different plots, as are '16/738' and '16-738')."
+        )
+    else:
+        message = f"'{village}' is not a valid MCGM village name."
+    return {"error": message, "suggestions": suggest_villages(village)}
 
 
 async def fetch_parcel_feature(client: Any, village: str, cts_no: str) -> Optional[Dict[str, Any]]:

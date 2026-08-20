@@ -218,11 +218,13 @@ class PlanningEvidenceReport:
     warnings: Sequence[str] = field(default_factory=tuple)
     registry_version: int = 1
     disclaimer: str = SPATIAL_OVERLAP_DISCLAIMER
+    provenance: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "outcomes", tuple(self.outcomes))
         object.__setattr__(self, "summary", MappingProxyType(deepcopy(dict(self.summary))))
         object.__setattr__(self, "warnings", tuple(str(warning) for warning in self.warnings))
+        object.__setattr__(self, "provenance", MappingProxyType(deepcopy(dict(self.provenance))))
 
     @property
     def findings(self) -> Tuple[EvidenceFinding, ...]:
@@ -238,4 +240,5 @@ class PlanningEvidenceReport:
             "outcomes": [outcome.to_dict() for outcome in self.outcomes],
             "warnings": list(self.warnings),
             "disclaimer": self.disclaimer,
+            "provenance": deepcopy(dict(self.provenance)),
         }

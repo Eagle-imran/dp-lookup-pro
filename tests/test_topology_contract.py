@@ -21,6 +21,17 @@ def test_arcgis_rings_support_a_hole():
     assert geometry.area == pytest.approx(300.0)
 
 
+def test_arcgis_rings_preserve_nested_island_topology():
+    shell = [[0, 0], [30, 0], [30, 30], [0, 30], [0, 0]]
+    hole = [[5, 5], [5, 25], [25, 25], [25, 5], [5, 5]]
+    island = [[10, 10], [20, 10], [20, 20], [10, 20], [10, 10]]
+
+    geometry = arcgis_rings_to_geometry([island, shell, hole])
+
+    assert geometry.geom_type == "MultiPolygon"
+    assert geometry.area == pytest.approx(600.0)
+
+
 def test_arcgis_rings_support_disjoint_multipart_parcels():
     first = [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]
     second = [[20, 0], [25, 0], [25, 5], [20, 5], [20, 0]]

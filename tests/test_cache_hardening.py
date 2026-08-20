@@ -124,7 +124,7 @@ def test_atomic_write_failure_preserves_previous_cache(tmp_path, monkeypatch):
     output = str(tmp_path)
     cache.write_cache_entry(output, "FIRST", _result(tmp_path, "first.pdf"))
     path = cache.cache_path_for(output)
-    before = open(path, "rb").read()
+    before = Path(path).read_bytes()
     previous_store = cache._STORES[path]
 
     def fail_replace(_source, _target):
@@ -132,7 +132,7 @@ def test_atomic_write_failure_preserves_previous_cache(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cache.os, "replace", fail_replace)
     cache.write_cache_entry(output, "SECOND", _result(tmp_path, "second.pdf"))
-    assert open(path, "rb").read() == before
+    assert Path(path).read_bytes() == before
     assert cache._STORES[path] is previous_store
     assert cache.read_cache_entry(output, "SECOND", ttl_seconds=-1) is None
     assert not [name for name in os.listdir(tmp_path) if name.endswith(".tmp")]

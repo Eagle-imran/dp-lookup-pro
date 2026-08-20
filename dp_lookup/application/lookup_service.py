@@ -8,11 +8,8 @@ from typing import Any, Callable, Dict, Optional
 
 from dp_lookup.application.contracts import ArtifactContext, MapFetchContext
 from dp_lookup.application.dependencies import DEFAULT_DEPENDENCIES, LookupDependencies
-from dp_lookup.application.ingestion import (
-    ParcelIngestionError,
-    build_parcel_context,
-    fetch_parcel_feature,
-)
+from dp_lookup.application.ingestion import ParcelIngestionError, build_parcel_context, not_found_result
+from dp_lookup.application.local_spatial import parcel_source_notes
 from dp_lookup.application.normalization import (
     PlanningEvidenceError,
     normalize_planning_evidence,
@@ -38,13 +35,13 @@ from dp_lookup.clients.arcgis import (
     planning_layers,
 )
 from dp_lookup.clients.cache import read_cache_entry, write_cache_entry
+from dp_lookup.clients.local_parcels import LocalParcelError
 from dp_lookup.clients.validation import sanitize_query_value
 from dp_lookup.core.constants import (
     _CTS_RE,
     _VILLAGE_RE,
     CRZ_LAYER_IDS,
     DEFAULT_CACHE_TTL_SECONDS,
-    MCGM_VILLAGES,
     NEIGHBOUR_LAYERS,
     ROAD_LAYERS,
     SERVER_URL,
@@ -67,18 +64,6 @@ async def _cancel_and_drain(task: Any) -> None:
         await task
     except asyncio.CancelledError:
         pass
-
-
-def _not_found_result(village: str, cts_no: str) -> Dict[str, Any]:
-    if village in MCGM_VILLAGES:
-        message = (
-            f"Village '{village}' is valid, but it has no plot numbered '{cts_no}'. "
-            "Check the CTS number - suffixes and slashes matter ('748A' and '748' "
-            "are different plots, as are '16/738' and '16-738')."
-        )
-    else:
-        message = f"'{village}' is not a valid MCGM village name."
-    return {"error": message, "suggestions": suggest_villages(village)}
 
 
 async def lookup_plot_pro(
@@ -114,7 +99,10 @@ async def lookup_plot_pro(
     diagnostics.mark("validation", outcome="accepted")
 
     village_upper = safe_village.upper()
-    cache_key = evidence_cache_key(f"{village_upper}:{safe_cts}", evidence_mode)
+    parcel_key = f"{village_upper}:{safe_cts}"
+    if deps.parcel_cache_namespace != "live":
+        parcel_key = f"{deps.parcel_cache_namespace}:{parcel_key}"
+    cache_key = evidence_cache_key(parcel_key, evidence_mode)
     output_root = os.path.realpath(os.path.abspath(os.path.expanduser(os.fspath(output_dir))))
     os.makedirs(output_root, exist_ok=True)
     if use_cache:
@@ -132,35 +120,51 @@ async def lookup_plot_pro(
     warnings, notes = [], []
     async with deps.client_factory(timeout_seconds, verify_tls=verify_tls) as client:
         try:
-            feature = await fetch_parcel_feature(client, village_upper, safe_cts)
+            feature = await deps.parcel_fetcher(client, village_upper, safe_cts)
             if feature is None:
                 diagnostics.mark("parcel_ingestion", outcome="not_found")
-                result = _not_found_result(village_upper, safe_cts)
+                result = not_found_result(village_upper, safe_cts)
                 result["diagnostics"] = diagnostics.snapshot()
                 return result
             parcel, area_note = build_parcel_context(feature, safe_village, safe_cts)
-        except ParcelIngestionError as exc:
+        except (ParcelIngestionError, LocalParcelError) as exc:
             diagnostics.mark("parcel_ingestion", outcome="failed")
             return {"error": str(exc), "diagnostics": diagnostics.snapshot()}
         diagnostics.mark("parcel_ingestion", outcome="confirmed")
         if area_note:
             notes.append(area_note)
+        notes.extend(parcel_source_notes(parcel))
 
+        try:
+            local_neighbours = deps.neighbour_provider(parcel)
+        except Exception as exc:
+            local_neighbours = None
+            notes.append(f"Local adjacency was unavailable; live neighbour probes were used ({exc}).")
+
+        try:
+            local_road = deps.road_provider(parcel)
+        except Exception as exc:
+            local_road = None
+            notes.append(f"Local road analysis was unavailable; live road probes were used ({exc}).")
         paths = build_output_paths(output_root, parcel)
         os.makedirs(paths.bundle_folder, exist_ok=True)
         crz_layers = list(CRZ_LAYER_IDS)
-        identify_task = client.post(
-            f"{SERVER_URL}/identify",
-            data=identify_payload(
-                parcel.cx,
-                parcel.cy,
-                planning_layers(crz_layers),
-                parcel.mcx,
-                parcel.mcy,
-                parcel.window_radius,
-                tolerance=30,
-                return_geometry=False,
-            ),
+        identify_task = (
+            client.post(
+                f"{SERVER_URL}/identify",
+                data=identify_payload(
+                    parcel.cx,
+                    parcel.cy,
+                    planning_layers(crz_layers),
+                    parcel.mcx,
+                    parcel.mcy,
+                    parcel.window_radius,
+                    tolerance=30,
+                    return_geometry=False,
+                ),
+            )
+            if deps.planning_identify_required
+            else asyncio.sleep(0, result=None)
         )
 
         half = max(
@@ -185,7 +189,7 @@ async def lookup_plot_pro(
             async with semaphore:
                 return await client.post(f"{SERVER_URL}/identify", data=data)
 
-        road_points = road_probe_points(
+        road_points = [] if local_road else road_probe_points(
             parcel.rings[0],
             parcel.mcx,
             parcel.mcy,
@@ -207,20 +211,14 @@ async def lookup_plot_pro(
             )
             for x, y in road_points
         ]
-        neighbour_points = neighbour_probe_points(parcel.mcx, parcel.mcy, parcel.window_radius)
+        neighbour_points = [] if local_neighbours else neighbour_probe_points(
+            parcel.mcx, parcel.mcy, parcel.window_radius
+        )
         neighbour_tasks = [
-            post_limited(
-                identify_payload(
-                    x,
-                    y,
-                    NEIGHBOUR_LAYERS,
-                    parcel.mcx,
-                    parcel.mcy,
-                    parcel.window_radius,
-                    tolerance=30,
-                    return_geometry=True,
-                )
-            )
+            post_limited(identify_payload(
+                x, y, NEIGHBOUR_LAYERS, parcel.mcx, parcel.mcy,
+                parcel.window_radius, tolerance=30, return_geometry=True,
+            ))
             for x, y in neighbour_points
         ]
 
@@ -253,15 +251,17 @@ async def lookup_plot_pro(
             return_exceptions=True,
         )
         diagnostics.mark("source_queries")
-        road = parse_road_responses(fast_results[2], len(road_points))
-        neighbours = parse_neighbour_responses(
-            fast_results[3],
-            len(neighbour_points),
-            safe_cts,
-            safe_village,
+        road = local_road or parse_road_responses(fast_results[2], len(road_points))
+        neighbours = local_neighbours or parse_neighbour_responses(
+            fast_results[3], len(neighbour_points), safe_cts, safe_village
         )
         warnings.extend(road.warnings)
         warnings.extend(neighbours.warnings)
+        if isinstance(fast_results[1], dict):
+            planning_provenance = fast_results[1].get("provenance")
+            if isinstance(planning_provenance, dict) and planning_provenance.get("fallback"):
+                fallback_reason = planning_provenance.get("fallback_reason") or "local planning data was unavailable"
+                notes.append(f"Local planning database was not used: {fallback_reason}")
         try:
             planning = normalize_planning_evidence(
                 fast_results[1],

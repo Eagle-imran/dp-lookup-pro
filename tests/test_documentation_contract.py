@@ -7,6 +7,7 @@ README = (ROOT / "README.md").read_text(encoding="utf-8")
 START_HERE = (ROOT / "START-HERE.md").read_text(encoding="utf-8")
 LAYER_AUDIT = (ROOT / "docs" / "ARCGIS_LAYER_AUDIT.md").read_text(encoding="utf-8")
 PLANNING_EVIDENCE = (ROOT / "docs" / "PLANNING_EVIDENCE.md").read_text(encoding="utf-8")
+PLOT_INTELLIGENCE = (ROOT / "docs" / "PLOT_INTELLIGENCE.md").read_text(encoding="utf-8")
 
 
 def test_docs_identify_the_current_release_and_cache_policy():
@@ -42,4 +43,14 @@ def test_planning_evidence_docs_preserve_audit_and_runtime_contracts():
     assert "Layer 192 returns field names `LABEL` and `APPROVAL_DOCUMENTS`" in LAYER_AUDIT
     for mode in ("`basic`", "`shadow`", "`standard`", "`full`"):
         assert mode in PLANNING_EVIDENCE
-    assert "Layer 13 parcel ingestion (unchanged, required)" in PLANNING_EVIDENCE
+    assert "Validated Layer 13 parcel (local-first CLI, required)" in PLANNING_EVIDENCE
+    assert "local snapshot or bounded live ArcGIS adapter" in PLANNING_EVIDENCE
+
+
+def test_plot_intelligence_docs_preserve_authority_and_refresh_boundaries():
+    assert "119,519" in PLOT_INTELLIGENCE
+    assert "internal operational system of record" in PLOT_INTELLIGENCE
+    assert "not a statutory declaration" in PLOT_INTELLIGENCE
+    assert "183 days" in PLOT_INTELLIGENCE
+    for command in ("build", "verify", "activate", "analyze", "search", "compare", "check"):
+        assert f"intelligence {command}" in PLOT_INTELLIGENCE
