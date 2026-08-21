@@ -149,7 +149,7 @@ Before rolling back, check whether it is one of these:
 | A plot reports `CRZ: YES (CRZ II)` where it used to say `NO` | **The fix working.** The old answer was wrong. | Verify against the generated map image — CRZ II is printed on it. |
 | The DXF prints two different plot areas | **Intended.** MCGM's record and MCGM's own digitised polygon disagree — by 6.10% on AMBIVALI 807. | Reconcile both, and the Property Card, before any FSI calculation. |
 | A boundary segment has no dimension label | Sub-metre sliver, or a label that could not be placed without overlapping | Expected. Measure the segment in CAD. |
-| Area shows as *derived* | MCGM has no approved area for that parcel | Expected. Check `plot_identity.area_source`. |
+| Area shows as *calculated* | The MCGM cadastral parcel record has no recorded plot area for that parcel | Expected. Check `plot_identity.area_source`. |
 | First lookup after switching versions is slow | Cache formats differ between versions | Normal. |
 
 ---

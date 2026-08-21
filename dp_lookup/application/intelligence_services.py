@@ -48,6 +48,8 @@ def _summary(record: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 def _dossier(record: Mapping[str, Any], build: Mapping[str, Any]) -> Dict[str, Any]:
+    evidence_summary = record["evidence_summary"]
+    assessment = evidence_summary.get("area_assessment") if isinstance(evidence_summary, Mapping) else None
     return {
         "plot_identity": {
             "village": record["village"],
@@ -58,6 +60,13 @@ def _dossier(record: Mapping[str, Any], build: Mapping[str, Any]) -> Dict[str, A
             "area_sqm": record["area_sqm"],
             "area_source": record["area_source"],
             "geometry_area_sqm": record["geometry_area_sqm"],
+            **({"area_assessment": dict(assessment)} if isinstance(assessment, Mapping) else {}),
+            **(
+                {"authority_resolution": dict(evidence_summary["authority_resolution"])}
+                if isinstance(evidence_summary, Mapping)
+                and isinstance(evidence_summary.get("authority_resolution"), Mapping)
+                else {}
+            ),
             "centroid": {
                 "x": record["centroid_x"],
                 "y": record["centroid_y"],
@@ -86,7 +95,7 @@ def _dossier(record: Mapping[str, Any], build: Mapping[str, Any]) -> Dict[str, A
             "neighbour_count": record["neighbour_count"],
             "neighbours": record["neighbours"],
         },
-        "evidence_summary": record["evidence_summary"],
+        "evidence_summary": evidence_summary,
         "quality": {
             "confidence": record["confidence"],
             "warnings": record["warnings"],

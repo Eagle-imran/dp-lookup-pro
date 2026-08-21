@@ -102,7 +102,7 @@
 
 ### 8. 📐 Blank Plot Areas (2026-07-28)
 * **Issue**: `AREA_APP_SQ_MTRS` is null for some parcels (MALABAR HILL 518, TARDEO 264), so area rendered blank.
-* **Resolution**: Fall back to `SHAPE.AREA`, which is populated and already in true ground square metres (verified: matches exactly where both exist). Labelled via `plot_identity.area_source` — it is the *digitised* area, not the approved one, and the two differ by up to 7%.
+* **Superseded resolution**: The first implementation fell back to `SHAPE.AREA`. The current implementation calculates boundary area from the archived coordinates after transformation to UTM zone 43N; raw Web Mercator `SHAPE.AREA` is not presented as ground area. `plot_identity.area_assessment` retains both area facts and their difference.
 
 ### 9. 💾 Cache Policy (2026-07-28)
 * **Issue**: no expiry, no bypass, stored failures permanently, ignored `output_dir`, and returned paths to files that no longer existed.
@@ -152,13 +152,14 @@ passing; WORLI 733 and AMBIVALI 807 each carried **16 faults**.
 * **Modular Package (`dp_lookup/`)**: Monolithic 3,180-line `cts_dp_lookup_pro.py` decomposed into 10 domain modules (`core/`, `clients/`, `exporters/`, `renderers/`, `cli.py`), while `cts_dp_lookup_pro.py` acts as a 100% backward-compatible facade.
 * **🌐 Single-file Interactive HTML Map Dossier (`dp_lookup/exporters/html_map.py`)**: Generates a Leaflet.js dossier (`plot_map_*.html`) with a 2-way Satellite/Cadastral switcher, net developable polygon, and high-contrast color scheme. Plot data and first-party CSS/JS are embedded; Leaflet, fonts, and basemap tiles require network access when opened.
 * **⚡ Request Semaphore Throttling**: Added an `asyncio.Semaphore(6)` around probe requests to bound ArcGIS Server load.
-* **🔬 Cadastral Area Scaling**: Fixed Web Mercator latitude distortion factor on net developable area calculation. Encumbered and net developable metrics are strictly scaled against approved plot area (`AREA_APP_SQ_MTRS`).
+* **🔬 Cadastral Area Scaling**: Fixed Web Mercator latitude distortion factor on net developable area calculation. Encumbered and net developable metrics are strictly scaled against the recorded plot area (`AREA_APP_SQ_MTRS`) when available.
 * Explicit lineweights per layer, so the boundary no longer plots at the same weight as the grid. Plot fill is 65% transparent so a survey or satellite underlay shows through.
 
 ### ⚠️ Plot area: three sources, three answers
 
-`GROSS PLOT AREA` is MCGM's `AREA_APP_SQ_MTRS`. It is **not** guaranteed to match
-MCGM's own digitised polygon, and neither matches the Property Card:
+`RECORDED PLOT AREA` is MCGM's `AREA_APP_SQ_MTRS`. It is **not** guaranteed to
+match the calculated boundary area from MCGM's supplied polygon, and neither is
+guaranteed to match the Property Card:
 
 | Plot | MCGM record | Drawn boundary | Gap |
 | :--- | ---: | ---: | ---: |
@@ -192,7 +193,7 @@ plot area as authoritative.**
     "ward": "E",
     "type": "CTS",
     "area_sqm": 1877.87,
-    "area_source": "approved (MCGM AREA_APP_SQ_MTRS)",
+    "area_source": "Recorded plot area",
     "coordinates_wgs84": {
       "latitude": 18.972385,
       "longitude": 72.82255

@@ -70,6 +70,13 @@ def test_package_layers_follow_the_documented_dependency_direction():
             "dp_lookup.renderers",
             "dp_lookup.cli",
         ),
+        "authority": (
+            "dp_lookup.application",
+            "dp_lookup.clients",
+            "dp_lookup.exporters",
+            "dp_lookup.renderers",
+            "dp_lookup.cli",
+        ),
     }
     exceptions = {PROJECT_ROOT / "dp_lookup" / "core" / "orchestrator.py"}
     for layer, forbidden in forbidden_by_layer.items():

@@ -11,7 +11,7 @@ The rest of this README is the technical reference for developers.
 > ⚖️ **Proprietary software** — © 2026 Imran Patel. All rights reserved. Not open-source.
 > Free for personal evaluation; commercial use requires a licence. See [LICENSE](LICENSE).
 
-**v3.14.0** · [Architecture](docs/ARCHITECTURE.md) · [Planning evidence](docs/PLANNING_EVIDENCE.md) · [ArcGIS layer audit](docs/ARCGIS_LAYER_AUDIT.md) · [What changed](docs/CHANGELOG.md) · [Reading the DXF](docs/DXF-GUIDE.md) · [How to roll back](docs/ROLLBACK.md) · [System flow map](docs/APP_FLOW.html)
+**v3.14.0** · [Architecture](docs/ARCHITECTURE.md) · [Planning evidence](docs/PLANNING_EVIDENCE.md) · [Certified sources](docs/CERTIFIED_SOURCES.md) · [ArcGIS layer audit](docs/ARCGIS_LAYER_AUDIT.md) · [What changed](docs/CHANGELOG.md) · [Reading the DXF](docs/DXF-GUIDE.md) · [How to roll back](docs/ROLLBACK.md) · [System flow map](docs/APP_FLOW.html)
 
 ---
 
@@ -152,7 +152,7 @@ Normal CLI lookup uses it automatically when available:
 
 ```bash
 dp-lookup-pro WORLI 733
-# auto: data/mcgm-layer13.sqlite first, live Layer 13 fallback
+# auto: local MCGM cadastral parcel snapshot first, live service fallback
 
 dp-lookup-pro WORLI 733 --source local --database data/mcgm-layer13.sqlite
 dp-lookup-pro WORLI 733 --source auto --database data/mcgm-layer13.sqlite
@@ -172,6 +172,28 @@ probes remain the fallback; the rendered DP map and satellite imagery remain
 live. See the [local
 snapshot specification](docs/SPEC-LOCAL-SPATIAL-CACHE.md) and [planning snapshot
 contract](docs/PLANNING_SNAPSHOT.md) for validation and lifecycle details.
+
+### Certified-source registry
+
+When you receive a Property Card, certified CTS/Final Plot plan, measurement
+record, licensed survey, or official DP Remarks plan, register it alongside the
+snapshots. The registry is additive: it keeps the original MCGM parcel and
+planning records untouched, while preserving every supplied file, checksum,
+version and review event.
+
+```bash
+dp-lookup-pro sources add evidence/worli-733.json --database data/mcgm-layer13.sqlite --actor imran
+dp-lookup-pro sources verify 12 --database data/mcgm-layer13.sqlite --reviewed-by imran
+dp-lookup-pro sources recommend WORLI 733 --database data/mcgm-layer13.sqlite
+dp-lookup-pro sources activate 12 --purpose geometry --database data/mcgm-layer13.sqlite --activated-by imran --reason "accepted boundary evidence"
+```
+
+Activation is explicit and purpose-specific (`area`, `geometry`, or
+`planning`). Normal lookup uses only active selections. Equal-ranked sources
+are reported as a conflict until a person resolves them. A source change
+invalidates the affected report-cache and plot-intelligence fingerprints. See
+[Certified sources](docs/CERTIFIED_SOURCES.md) for the manifest format and
+complete lifecycle.
 
 ### Build and query plot intelligence
 
@@ -201,6 +223,20 @@ dp-lookup-pro intelligence check --database data/mcgm-layer13.sqlite
 This is an internal operational system of record, not a replacement for MCGM
 or statutory/title documents. The complete lifecycle, refresh runbook and area
 quality rules are in [Plot intelligence](docs/PLOT_INTELLIGENCE.md).
+
+### Plot-area terminology
+
+Reports keep two area facts visible instead of silently choosing one:
+
+- **Recorded plot area** is the area value stored in the MCGM cadastral parcel
+  record.
+- **Calculated boundary area** is calculated from the polygon coordinates
+  supplied with that record.
+- **Area difference** shows how far those two values disagree.
+
+The user-facing source label is **MCGM cadastral parcel record**. The ArcGIS
+layer number remains available in technical provenance and audit logs, but is
+not used as the primary description of the data.
 
 ---
 
@@ -373,7 +409,7 @@ The tool outputs a structured, intuitive JSON object containing 6 logical sectio
     "ward": "<WARD_LETTER>",
     "type": "CTS",
     "area_sqm": 1250.0,
-    "area_source": "approved (MCGM AREA_APP_SQ_MTRS)",
+    "area_source": "Recorded plot area",
     "coordinates_wgs84": {
       "latitude": 19.000000,
       "longitude": 72.800000

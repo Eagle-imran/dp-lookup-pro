@@ -132,6 +132,7 @@ class FakeArcGISClient:
 def _stub_dependencies(client_factory):
     def vector_writer(_rings, _props, path, **_kwargs):
         assert isinstance(_props, ExportData)
+        assert _props.area_assessment is not None
         Path(path).write_text("artifact", encoding="utf-8")
 
     def pdf_writer(path, *_args, **_kwargs):
@@ -200,6 +201,11 @@ def test_complete_lookup_preserves_arcgis_contract(tmp_path):
     assert result["metadata"]["application_version"] == "3.14.0"
     assert result["metadata"]["result_schema_version"] == 1
     assert result["metadata"]["evidence"]["parcel"]["state"] == "confirmed"
+    assessment = result["plot_identity"]["area_assessment"]
+    assert assessment["recorded_plot_area_sqm"] == 100.0
+    assert assessment["calculated_boundary_area_sqm"] is not None
+    assert assessment["selected_area_basis"] == "recorded_plot_area"
+    assert assessment["reliability_label"] in {"Screening", "Qualified with warnings"}
     assert result["metadata"]["evidence"]["zoning"]["layer_ids"] == [0]
     assert result["spatial_cluster"]["adjacency_method"] == "probe"
     assert snapshots and snapshots[0]["metadata"]["documents_pending"] is True
@@ -210,6 +216,9 @@ def test_complete_lookup_preserves_arcgis_contract(tmp_path):
     }
     assert queried_layers == {0, 14, 46, 47, 192, 1264, 1548, 1550}
     assert any(url.endswith("/13/query") for method, url, _ in client.calls if method == "GET")
+    parcel_query = next(params for method, url, params in client.calls if method == "GET" and url.endswith("/13/query"))
+    assert parcel_query["outFields"] == "WARD,TYPE,VILLAGE,CTS_CS_NO,AREA_APP_SQ_MTRS,SHAPE.AREA"
+    assert parcel_query["outSR"] == "102100"
     assert all(
         Path(path).exists()
         for key, path in result["export_files"].items()

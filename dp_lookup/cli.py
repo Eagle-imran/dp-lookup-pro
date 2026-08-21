@@ -1,6 +1,7 @@
 """
 Command-Line Interface (CLI) & Terminal Summary Formatter.
 """
+
 import asyncio
 import json
 import os
@@ -12,11 +13,13 @@ from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dp_lookup.application.authority_resolver import AuthorityResolver
 from dp_lookup.application.dependencies import DEFAULT_DEPENDENCIES
 from dp_lookup.application.ingestion import fetch_parcel_feature
 from dp_lookup.application.local_roads import LocalRoadProvider
 from dp_lookup.application.local_spatial import LocalNeighbourProvider
 from dp_lookup.application.lookup_service import lookup_plot_pro
+from dp_lookup.authority import AuthorityStore, AuthorityStoreError
 from dp_lookup.clients.local_parcels import LocalParcelFetcher
 from dp_lookup.clients.local_planning import LocalFirstPlanningQuery
 from dp_lookup.clients.planning_evidence_queries import LocalFirstPlanningEvidenceAnalyzer
@@ -32,6 +35,7 @@ suggest_villages = _suggest_villages
 USAGE = """Usage: dp-lookup-pro <VILLAGE_NAME> <CTS_NUMBER> [OUTPUT_DIR] [options]
        dp-lookup-pro database <COMMAND> --database PATH [--json]
        dp-lookup-pro intelligence <COMMAND> --database PATH [--json]
+       dp-lookup-pro sources <COMMAND> --database PATH [--json]
 
 Options:
   --json            print the full JSON response instead of a summary
@@ -72,7 +76,10 @@ except importlib_metadata.PackageNotFoundError:
     VERSION = APPLICATION_VERSION
 
 
-HELP = USAGE + "\n\nOptions:\n  -h, --help        show this help message and exit\n  --version         show the installed version and exit"
+HELP = (
+    USAGE
+    + "\n\nOptions:\n  -h, --help        show this help message and exit\n  --version         show the installed version and exit"
+)
 
 
 def format_result_human(result: Dict[str, Any]) -> str:
@@ -90,8 +97,11 @@ def format_result_human(result: Dict[str, Any]) -> str:
 
     area = ident.get("area_sqm")
     area_txt = f"{area:,.2f} m\u00b2" if isinstance(area, (int, float)) else "not on record"
-    if "derived" in str(ident.get("area_source", "")):
-        area_txt += "  (derived from boundary, not MCGM-approved)"
+    assessment = ident.get("area_assessment")
+    if isinstance(assessment, dict) and assessment.get("selected_area_basis") == "calculated_boundary_area":
+        area_txt += "  (calculated from boundary)"
+    elif not isinstance(assessment, dict) and "derived" in str(ident.get("area_source", "")).casefold():
+        area_txt += "  (derived from boundary; legacy result)"
 
     res_list = plan.get("reservations") or []
     if res_list:
@@ -109,8 +119,38 @@ def format_result_human(result: Dict[str, Any]) -> str:
     else:
         des_txt = "None"
 
-    rows = [
-        ("Plot area", area_txt),
+    rows = [("Working plot area", area_txt)]
+    if isinstance(assessment, dict):
+        recorded = assessment.get("recorded_plot_area_sqm")
+        calculated = assessment.get("calculated_boundary_area_sqm")
+        difference = assessment.get("difference_percent")
+        rows.extend(
+            [
+                (
+                    "Recorded area",
+                    f"{recorded:,.2f} m²" if isinstance(recorded, (int, float)) else "not available",
+                ),
+                (
+                    "Boundary area",
+                    f"{calculated:,.2f} m²" if isinstance(calculated, (int, float)) else "not available",
+                ),
+                (
+                    "Area difference",
+                    f"{difference:.2f}%" if isinstance(difference, (int, float)) else "not comparable",
+                ),
+                ("Reliability", assessment.get("reliability_label", "Screening")),
+            ]
+        )
+    authority = ident.get("authority_resolution")
+    if isinstance(authority, dict) and authority.get("active_record_ids"):
+        rows.append(
+            (
+                "Authority source",
+                f"{authority.get('status', 'active')} - records "
+                + ", ".join(str(value) for value in authority["active_record_ids"]),
+            )
+        )
+    rows += [
         ("Zone", plan.get("zone")),
         ("Reservation", res_txt),
         ("Designation", des_txt),
@@ -119,8 +159,18 @@ def format_result_human(result: Dict[str, Any]) -> str:
 
     enc = plan.get("encumbrance") or {}
     if enc.get("encumbered_percent", 0) > 0:
-        rows.append(("Encumbered area", f"{enc.get('encumbered_area_sqm', 0):,.2f} m² ({enc.get('encumbered_percent', 0):.2f}% of plot)"))
-        rows.append(("Net developable", f"{enc.get('net_unencumbered_sqm', 0):,.2f} m² ({enc.get('net_unencumbered_percent', 0):.2f}% - Zone {plan.get('zone')})"))
+        rows.append(
+            (
+                "Encumbered area",
+                f"{enc.get('encumbered_area_sqm', 0):,.2f} m² ({enc.get('encumbered_percent', 0):.2f}% of plot)",
+            )
+        )
+        rows.append(
+            (
+                "Net developable",
+                f"{enc.get('net_unencumbered_sqm', 0):,.2f} m² ({enc.get('net_unencumbered_percent', 0):.2f}% - Zone {plan.get('zone')})",
+            )
+        )
 
     rows += [
         ("CRZ", reg.get("crz_status")),
@@ -129,23 +179,44 @@ def format_result_human(result: Dict[str, Any]) -> str:
         ("Adjoining plots", str(cluster.get("adjoining_plots_count"))),
     ]
 
-    out = ["", f"  {plan.get('status_badge')}",
-           f"  {ident.get('village')}  ·  CTS {ident.get('cts_no')}  ·  Ward {ident.get('ward')}", ""]
+    out = [
+        "",
+        f"  {plan.get('status_badge')}",
+        f"  {ident.get('village')}  ·  CTS {ident.get('cts_no')}  ·  Ward {ident.get('ward')}",
+        "",
+    ]
     for label, value in rows:
         out.append(f"    {label:<17} {value}")
+
+    if isinstance(assessment, dict):
+        quality_flags = assessment.get("quality_flags") or []
+        for flag in quality_flags:
+            if isinstance(flag, dict) and flag.get("message"):
+                out.append(f"    Area check       {flag['message']}")
 
     neighbours = [n.get("cts_no") for n in cluster.get("adjoining_cts_plots", [])][:6]
     if neighbours:
         out.append(f"    {'Neighbours':<17} CTS " + ", ".join(str(n) for n in neighbours))
 
-    bundle_f_count = len([p for k, p in (files or {}).items() if k not in ("bundle_folder", "master_excel_register") and p and os.path.exists(p)])
-    out += ["", f"    Files            {files.get('bundle_folder')}  ({bundle_f_count} files)",
-            f"    Report           {files.get('pdf_report')}",
-            f"    Register         {files.get('master_excel_register')}"]
+    bundle_f_count = len(
+        [
+            p
+            for k, p in (files or {}).items()
+            if k not in ("bundle_folder", "master_excel_register") and p and os.path.exists(p)
+        ]
+    )
+    out += [
+        "",
+        f"    Files            {files.get('bundle_folder')}  ({bundle_f_count} files)",
+        f"    Report           {files.get('pdf_report')}",
+        f"    Register         {files.get('master_excel_register')}",
+    ]
 
     if meta.get("cached_result"):
-        out.append(f"\n    Cached result from {meta.get('cached_at')} "
-                   f"({meta.get('cache_age_days')} days old). Use --no-cache to refetch.")
+        out.append(
+            f"\n    Cached result from {meta.get('cached_at')} "
+            f"({meta.get('cache_age_days')} days old). Use --no-cache to refetch."
+        )
     else:
         out.append(f"\n    Fetched in {meta.get('execution_time_ms', 0) / 1000:.1f}s")
 
@@ -165,7 +236,7 @@ def _print_villages() -> None:
     """Print the village catalogue shared by ``--list-villages``/``--villages``."""
     print(f"\n{len(MCGM_VILLAGES)} valid MCGM village names:\n")
     for i in range(0, len(MCGM_VILLAGES), 3):
-        print("  " + "".join(f"{v:<26}" for v in MCGM_VILLAGES[i:i + 3]).rstrip())
+        print("  " + "".join(f"{v:<26}" for v in MCGM_VILLAGES[i : i + 3]).rstrip())
     print("\nNames are exact. BANDRA, KURLA and BHANDUP alone are NOT valid -")
     print("use BANDRA-A..BANDRA-I, KURLA - 1..4, BHANDUP-E/W.\n")
 
@@ -189,8 +260,16 @@ def _local_snapshot_selection(source_mode: str, database_path: str) -> tuple[str
         planning_snapshot_id = None
     cache_snapshot: Any = active_snapshot_id if active_snapshot_id is not None else "unavailable"
     planning_cache_snapshot: Any = planning_snapshot_id if planning_snapshot_id is not None else "unavailable"
+    authority_revision: Any = "unavailable"
+    try:
+        if path.is_file():
+            with AuthorityStore.open(path, create=False) as authority_store:
+                authority_revision = authority_store.revision()
+    except (OSError, sqlite3.DatabaseError, AuthorityStoreError):
+        authority_revision = "unavailable"
     return (
-        f"{source_mode}:{path}:snapshot={cache_snapshot}:planning_snapshot={planning_cache_snapshot}",
+        f"{source_mode}:{path}:snapshot={cache_snapshot}:planning_snapshot={planning_cache_snapshot}:"
+        f"authority_revision={authority_revision}",
         active_snapshot_id,
     )
 
@@ -296,6 +375,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         from dp_lookup.intelligence_cli import main as intelligence_main
 
         return intelligence_main(raw_args)
+    if raw_args and raw_args[0] == "sources":
+        from dp_lookup.authority_cli import main as authority_main
+
+        return authority_main(raw_args)
     if raw_args and raw_args[0] == "database":
         # Keep database administration behind its own grammar so none of the
         # historical positional lookup behavior changes.
@@ -358,9 +441,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         return EXIT_ERROR
 
     if not as_json:
-        print(f"  Looking up {safe_village} CTS {safe_cts}"
-              f"{' (fresh)' if not use_cache else ''}"
-              f"{' [' + evidence_mode.value + ' evidence]' if evidence_mode is not EvidenceMode.BASIC else ''}...")
+        print(
+            f"  Looking up {safe_village} CTS {safe_cts}"
+            f"{' (fresh)' if not use_cache else ''}"
+            f"{' [' + evidence_mode.value + ' evidence]' if evidence_mode is not EvidenceMode.BASIC else ''}..."
+        )
 
     shown = {"done": False}
 
@@ -375,6 +460,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     lookup_started = time.perf_counter()
     dependencies = replace(DEFAULT_DEPENDENCIES, planning_evidence_mode=evidence_mode)
     planning_store = None
+    authority_store = None
     if source_mode != "live":
         cache_namespace, selected_snapshot_id = _local_snapshot_selection(source_mode, str(database_path))
         database = Path(database_path)
@@ -407,6 +493,21 @@ def main(argv: Optional[List[str]] = None) -> int:
                 allow_stale_local=source_mode == "local",
             ),
         )
+    if database_path and Path(database_path).is_file():
+        try:
+            authority_store = AuthorityStore.open(Path(database_path), create=False)
+        except (OSError, sqlite3.DatabaseError, AuthorityStoreError):
+            authority_store = None
+        if authority_store is not None:
+            cache_namespace = dependencies.parcel_cache_namespace
+            if cache_namespace == "live":
+                database = Path(database_path).expanduser().resolve()
+                cache_namespace = f"live:{database}:authority_revision={authority_store.revision()}"
+            dependencies = replace(
+                dependencies,
+                parcel_cache_namespace=cache_namespace,
+                authority_resolver=AuthorityResolver(authority_store),
+            )
     try:
         result = asyncio.run(
             lookup_plot_pro(
@@ -421,6 +522,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     finally:
         if planning_store is not None:
             planning_store.close()
+        if authority_store is not None:
+            authority_store.close()
     lookup_elapsed_ms = (time.perf_counter() - lookup_started) * 1000
 
     if as_json:
@@ -445,7 +548,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif shown["done"]:
         meta = result.get("metadata", {})
         files = result.get("export_files") or {}
-        bundle_f_count = len([p for k, p in files.items() if k not in ("bundle_folder", "master_excel_register") and p and os.path.exists(p)])
+        bundle_f_count = len(
+            [
+                p
+                for k, p in files.items()
+                if k not in ("bundle_folder", "master_excel_register") and p and os.path.exists(p)
+            ]
+        )
         print(f"  Done in {meta.get('execution_time_ms', 0) / 1000:.1f}s - all {bundle_f_count} files written.")
         for w in meta.get("warnings") or []:
             print(f"  Warning: {w}")

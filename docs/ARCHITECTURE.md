@@ -21,6 +21,8 @@ application.lookup_service (composition shell, <375 lines)
         +--> clients: live/local source adapters / transport / report cache
         |
         +--> spatial_store + planning_snapshot: independent immutable snapshots
+
+        +--> authority registry: additive certified/official source versions
         |
         +--> intelligence: immutable derived facts, provenance and SQL search
         |
@@ -30,8 +32,9 @@ application.lookup_service (composition shell, <375 lines)
               clients.planning_evidence_queries
 ```
 
-- `core` contains constants, geometry/topology, planning classification, and
-  typed result models. It must not import clients, exporters, or renderers.
+- `core` contains constants, geometry/topology, the shared area assessment,
+  planning classification, and typed result models. It must not import clients,
+  exporters, or renderers.
 - `clients` owns external protocols: ArcGIS request/response adaptation,
   verified HTTP transport, the report-result cache, and local-first parcel and
   planning adapters. `clients.parcel_snapshot` and
@@ -45,6 +48,11 @@ application.lookup_service (composition shell, <375 lines)
   structured queries. It imports neither clients nor application services.
   `application.intelligence_builder` is the only coordinator allowed to combine
   the two source repositories into a publishable intelligence build.
+- `authority` owns versioned documents and professional-source evidence for a
+  village/CTS identity. It shares the SQLite file with immutable snapshots but
+  uses separate tables and activation pointers. It never mutates raw MCGM
+  parcel or planning records. Authority selection is field-specific: `area`,
+  `geometry`, and `planning` may each have a different active source.
 - `application` coordinates one use case and isolates optional artifact
   failures. Its stage contracts are in `application/contracts.py`; concrete
   adapters are supplied through `LookupDependencies`, so tests and future UIs
@@ -65,6 +73,7 @@ The boundary and compatibility facades are protected by
 
 | Module | Single responsibility |
 | :--- | :--- |
+| `core/area_assessment.py` | Recorded/calculated area separation, UTM calculation, reliability and deterministic quality flags |
 | `application/ingestion.py` | Required Layer 13 parcel acquisition and validation |
 | `application/normalization.py` | Road, neighbour, and planning evidence reconciliation |
 | `application/output_layout.py` | Canonical, collision-free artifact paths and typed `ExportData` |
@@ -92,6 +101,7 @@ The boundary and compatibility facades are protected by
 | `intelligence/` | Immutable derived builds, source references, SQL filters and activation |
 | `planning_evidence/models.py` | Immutable evidence modes, findings, layer outcomes, and report |
 | `planning_evidence/registry.py` | Audited layer schemas, authority classes, duplicate and applicability policy |
+| `authority/` | Versioned source files, checksums, reviews, purpose-specific recommendations, activation and audit history |
 
 ## Output extension and persistence contracts
 
@@ -121,6 +131,23 @@ Each public result now includes field-level source evidence in
 for example, an ArcGIS road placeholder is reported as unknown rather than as a
 real road name, and a point-identify planning fallback makes the result visibly
 incomplete instead of silently asserting that constraints are absent.
+
+`plot_identity.area_assessment` is additive to the legacy `area_sqm` and
+`area_source` fields. It preserves Recorded plot area and Calculated boundary
+area separately, identifies the selected working basis, and carries the
+calculation method, difference thresholds, source snapshot and reliability.
+Exporters receive the same immutable assessment through `ExportData`; they do
+not recalculate or reinterpret the canonical area decision.
+
+The certified-source registry is an additive evidence layer above these
+snapshots. Its lifecycle is `register -> verify -> recommend -> activate`.
+Only an explicit activation for `area`, `geometry`, or `planning` affects
+normal lookup. Recommendations are deterministic and field-specific;
+equal-rank valid sources produce a visible conflict rather than an implicit
+choice. Every source version, checksum, reviewer, selection and withdrawal is
+auditable. Changing an active source changes the authority fingerprint used by
+report-cache and intelligence freshness checks, so affected derived results
+cannot be silently reused.
 
 ## ArcGIS ingestion contract
 

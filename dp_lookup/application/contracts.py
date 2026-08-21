@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from dp_lookup.core.models import ExportData
+from dp_lookup.core.models import AreaAssessment, ExportData
 
 
 @dataclass
@@ -27,6 +27,8 @@ class ParcelContext:
     xs: List[float]
     ys: List[float]
     window_radius: float
+    area_assessment: Optional[AreaAssessment] = None
+    authority_resolution: Optional[Mapping[str, Any]] = None
 
 
 @dataclass

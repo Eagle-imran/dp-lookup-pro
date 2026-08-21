@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence
 
+from shapely.geometry.base import BaseGeometry  # type: ignore[import-untyped]
+
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.spatial_store import SnapshotStore, SpatialStoreError
 
@@ -41,30 +43,42 @@ def merge_local_features(rows: Sequence[Mapping[str, Any]]) -> Optional[Dict[str
         return None
     ordered = sorted(rows, key=lambda row: int(row["objectid"]))
     combined_rings: List[Any] = []
+    unique_geometries: List[BaseGeometry] = []
+    duplicate_geometry_count = 0
     for row in ordered:
-        combined_rings.extend(_rings(row))
+        row_rings = _rings(row)
+        row_geometry = arcgis_rings_to_geometry(row_rings)
+        if any(row_geometry.equals(existing) for existing in unique_geometries):
+            duplicate_geometry_count += 1
+            continue
+        unique_geometries.append(row_geometry)
+        combined_rings.extend(row_rings)
     geometry = arcgis_rings_to_geometry(combined_rings)
     if geometry.is_empty:
         raise LocalParcelError("local parcel parts produced an empty combined geometry")
 
     attrs = dict(ordered[0].get("raw_attrs") or {})
     objectids = [int(row["objectid"]) for row in ordered]
-    approved_values = {
+    recorded_values = {
         float(row["area_app_sqm"])
         for row in ordered
         if row.get("area_app_sqm") is not None and float(row["area_app_sqm"]) > 0
     }
-    # A single repeated approved value can safely remain authoritative. When
+    # A single repeated recorded value can safely remain the stated value. When
     # parts disagree, fall back to the combined boundary and surface that it
     # is derived rather than inventing a sum of possibly repeated totals.
-    attrs["AREA_APP_SQ_MTRS"] = next(iter(approved_values)) if len(approved_values) == 1 else None
+    attrs["AREA_APP_SQ_MTRS"] = next(iter(recorded_values)) if len(recorded_values) == 1 else None
     attrs["SHAPE.AREA"] = float(geometry.area)
     attrs["OBJECTID"] = objectids[0]
     attrs["SOURCE_OBJECTIDS"] = objectids
     attrs["FEATURE_PART_COUNT"] = len(objectids)
     attrs["_DP_PARCEL_SOURCE"] = "local_snapshot"
-    if len(approved_values) > 1:
-        attrs["_DP_AREA_CONFLICT_VALUES"] = sorted(approved_values)
+    if len(recorded_values) > 1:
+        attrs["_DP_AREA_CONFLICT_VALUES"] = sorted(recorded_values)
+    if recorded_values and any(row.get("area_app_sqm") is None for row in ordered):
+        attrs["_DP_RECORDED_AREA_MISSING_PARTS"] = True
+    if duplicate_geometry_count:
+        attrs["_DP_DUPLICATE_GEOMETRY_COUNT"] = duplicate_geometry_count
 
     spatial_reference: Mapping[str, Any] = {"wkid": 102100}
     first_geometry = ordered[0].get("geometry")

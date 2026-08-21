@@ -22,6 +22,79 @@ class EvidenceState(str, Enum):
     FAILED = "failed"
 
 
+class ReliabilityStatus(str, Enum):
+    """Operational evidence status; certification is reserved for future sources."""
+
+    SCREENING = "screening"
+    VERIFIED_SOURCE = "verified_source"
+    QUALIFIED_WITH_WARNINGS = "qualified_with_warnings"
+    CERTIFIED = "certified"
+
+
+@dataclass(frozen=True)
+class AreaQualityFlag:
+    """One deterministic, machine-readable area or geometry warning."""
+
+    code: str
+    severity: str
+    message: str
+
+    def to_dict(self) -> Dict[str, str]:
+        return {"code": self.code, "severity": self.severity, "message": self.message}
+
+
+@dataclass(frozen=True)
+class AreaAssessment:
+    """Recorded and geometry-calculated parcel areas kept explicitly separate."""
+
+    recorded_area_sqm: Optional[float]
+    calculated_boundary_area_sqm: Optional[float]
+    selected_area_sqm: Optional[float]
+    selected_area_basis: str
+    calculation_method: str
+    recorded_area_source: str
+    geometry_source: str
+    difference_sqm: Optional[float]
+    difference_percent: Optional[float]
+    thresholds_exceeded: Sequence[int]
+    reliability_status: ReliabilityStatus
+    flags: Sequence[AreaQualityFlag] = field(default_factory=tuple)
+    source_objectids: Sequence[int] = field(default_factory=tuple)
+    feature_part_count: int = 1
+    source_snapshot_id: Optional[int] = None
+    source_snapshot_date: Optional[str] = None
+
+    @property
+    def reliability_label(self) -> str:
+        return {
+            ReliabilityStatus.SCREENING: "Screening",
+            ReliabilityStatus.VERIFIED_SOURCE: "Verified source",
+            ReliabilityStatus.QUALIFIED_WITH_WARNINGS: "Qualified with warnings",
+            ReliabilityStatus.CERTIFIED: "Certified",
+        }[self.reliability_status]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "recorded_plot_area_sqm": self.recorded_area_sqm,
+            "calculated_boundary_area_sqm": self.calculated_boundary_area_sqm,
+            "selected_area_sqm": self.selected_area_sqm,
+            "selected_area_basis": self.selected_area_basis,
+            "recorded_area_source": self.recorded_area_source,
+            "geometry_source": self.geometry_source,
+            "calculation_method": self.calculation_method,
+            "difference_sqm": self.difference_sqm,
+            "difference_percent": self.difference_percent,
+            "thresholds_exceeded_percent": list(self.thresholds_exceeded),
+            "reliability_status": self.reliability_status.value,
+            "reliability_label": self.reliability_label,
+            "quality_flags": [flag.to_dict() for flag in self.flags],
+            "source_objectids": list(self.source_objectids),
+            "feature_part_count": self.feature_part_count,
+            "source_snapshot_id": self.source_snapshot_id,
+            "source_snapshot_date": self.source_snapshot_date,
+        }
+
+
 @dataclass(frozen=True)
 class ExportData:
     """Typed, renderer-neutral payload for bundle artifact exporters."""
@@ -50,10 +123,12 @@ class ExportData:
     encumbered_percent: float
     net_unencumbered_sqm: float
     net_unencumbered_percent: float
+    area_assessment: Optional[AreaAssessment] = None
+    authority_resolution: Optional[Mapping[str, Any]] = None
 
     def to_legacy_dict(self) -> Dict[str, Any]:
         """Adapt at a legacy renderer edge without leaking mutable state."""
-        return {
+        result = {
             "village": self.village,
             "cts_no": self.cts_no,
             "ward": self.ward,
@@ -79,6 +154,11 @@ class ExportData:
             "net_unencumbered_sqm": self.net_unencumbered_sqm,
             "net_unencumbered_percent": self.net_unencumbered_percent,
         }
+        if self.area_assessment is not None:
+            result["area_assessment"] = self.area_assessment.to_dict()
+        if self.authority_resolution is not None:
+            result["authority_resolution"] = deepcopy(dict(self.authority_resolution))
+        return result
 
 
 @dataclass(frozen=True)
@@ -115,9 +195,11 @@ class PlotIdentity:
     area_source: str
     latitude: float
     longitude: float
+    area_assessment: Optional[AreaAssessment] = None
+    authority_resolution: Optional[Mapping[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "village": self.village,
             "cts_no": self.cts_no,
             "ward": self.ward,
@@ -129,6 +211,11 @@ class PlotIdentity:
                 "longitude": self.longitude,
             },
         }
+        if self.area_assessment is not None:
+            result["area_assessment"] = self.area_assessment.to_dict()
+        if self.authority_resolution is not None:
+            result["authority_resolution"] = deepcopy(dict(self.authority_resolution))
+        return result
 
 
 @dataclass(frozen=True)

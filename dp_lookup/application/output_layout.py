@@ -76,6 +76,8 @@ def build_export_data(
         encumbered_percent=planning.encumbered_percent,
         net_unencumbered_sqm=planning.net_unencumbered_sqm,
         net_unencumbered_percent=planning.net_unencumbered_percent,
+        area_assessment=parcel.area_assessment,
+        authority_resolution=parcel.authority_resolution,
     )
 
 

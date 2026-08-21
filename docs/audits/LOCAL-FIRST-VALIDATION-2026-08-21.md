@@ -54,7 +54,7 @@ Planning differences on multipart identities are intentional: the local path
 combines every exact Layer 13 source feature for the village/CTS identity,
 whereas the legacy live query selects its first returned feature. Reports now
 state the source-part count, ObjectIDs, combined-geometry scope, snapshot ID,
-snapshot date, and any approved-area conflict.
+snapshot date, and any recorded-area conflict.
 
 ## Planning snapshot follow-on gate
 

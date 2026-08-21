@@ -1,6 +1,7 @@
 """MCGM planning-layer fetch and deterministic polygon intersection policy."""
 
 import asyncio
+import math
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -8,6 +9,7 @@ from shapely.ops import unary_union
 
 from dp_lookup.clients.arcgis_payloads import spatial_query_payload
 from dp_lookup.clients.responses import usable_json
+from dp_lookup.core.area_assessment import web_mercator_ground_area_scale
 from dp_lookup.core.constants import (
     CRZ_LAYER_IDS,
     LAYER_DESIGNATION,
@@ -72,6 +74,7 @@ def build_spatial_planning_result(
     warnings: List[str],
     *,
     provenance: Optional[Dict[str, Any]] = None,
+    area_scale: float = 1.0,
 ) -> Dict[str, Any]:
     """Build the stable planning result from already spatially-selected records.
 
@@ -87,7 +90,9 @@ def build_spatial_planning_result(
         LAYER_METRO,
         *CRZ_LAYER_IDS,
     ]
-    threshold = max(SLIVER_AREA_THRESHOLD_SQM, parcel.area * SLIVER_PERCENT_THRESHOLD)
+    if not math.isfinite(area_scale) or area_scale <= 0:
+        raise ValueError("area_scale must be finite and positive")
+    threshold = max(SLIVER_AREA_THRESHOLD_SQM / area_scale, parcel.area * SLIVER_PERCENT_THRESHOLD)
 
     reservations = []
     reservation_polygons = []
@@ -112,8 +117,8 @@ def build_spatial_planning_result(
                     "final_type": str(final_type or "None"),
                     "description": str((attributes.get("DISCRIPTION") or "").strip() or "Reservation"),
                     "u_r_id": str(attributes.get("U_R_ID") or "N/A"),
-                    "overlap_sqm": round(intersection.area, 2),
-                    "total_res_sqm": round(polygon.area, 2),
+                    "overlap_sqm": round(intersection.area * area_scale, 2),
+                    "total_res_sqm": round(polygon.area * area_scale, 2),
                     "overlap_percent": round(intersection.area / parcel.area * 100, 2),
                     "wgs_rings": _wgs_rings(feature),
                     "raw_attributes": attributes,
@@ -145,8 +150,8 @@ def build_spatial_planning_result(
                     "final_type": str(final_type or "None"),
                     "description": str((attributes.get("DISCRIPTION") or "").strip() or "Designation"),
                     "u_d_id": str(attributes.get("U_D_ID") or "N/A"),
-                    "overlap_sqm": round(intersection.area, 2),
-                    "total_des_sqm": round(polygon.area, 2),
+                    "overlap_sqm": round(intersection.area * area_scale, 2),
+                    "total_des_sqm": round(polygon.area * area_scale, 2),
                     "overlap_percent": round(intersection.area / parcel.area * 100, 2),
                     "wgs_rings": _wgs_rings(feature),
                     "raw_attributes": attributes,
@@ -169,7 +174,7 @@ def build_spatial_planning_result(
                     "document_link": str(
                         attributes.get("APPROVAL_DOCUMENTS") or attributes.get("Approval Documents") or "None"
                     ),
-                    "overlap_sqm": round(intersection.area, 2),
+                    "overlap_sqm": round(intersection.area * area_scale, 2),
                     "overlap_percent": round(intersection.area / parcel.area * 100, 2),
                     "raw_attributes": attributes,
                 }
@@ -187,7 +192,7 @@ def build_spatial_planning_result(
             zones.append(
                 {
                     "zone": str(attributes.get("ZONE_CODE2") or attributes.get("Zone_Code2") or "Unknown"),
-                    "overlap_sqm": round(intersection.area, 2),
+                    "overlap_sqm": round(intersection.area * area_scale, 2),
                     "overlap_percent": round(intersection.area / parcel.area * 100, 2),
                 }
             )
@@ -221,7 +226,7 @@ def build_spatial_planning_result(
                     {
                         "layer_id": layer_id,
                         "category": label,
-                        "overlap_sqm": round(intersection.area, 2),
+                        "overlap_sqm": round(intersection.area * area_scale, 2),
                         "overlap_percent": round(intersection.area / parcel.area * 100, 3),
                     }
                 )
@@ -234,7 +239,7 @@ def build_spatial_planning_result(
     encumbered_polygons = reservation_polygons + designation_polygons
     if encumbered_polygons:
         encumbered = unary_union(encumbered_polygons)
-        encumbered_area = round(encumbered.area, 2)
+        encumbered_area = round(encumbered.area * area_scale, 2)
         encumbered_percent = round(encumbered.area / parcel.area * 100, 2)
     else:
         encumbered_area = 0.0
@@ -251,7 +256,7 @@ def build_spatial_planning_result(
         "crz_categories": crz_hits,
         "encumbered_area_sqm": encumbered_area,
         "encumbered_percent": encumbered_percent,
-        "net_unencumbered_sqm": max(0.0, round(parcel.area - encumbered_area, 2)),
+        "net_unencumbered_sqm": max(0.0, round(parcel.area * area_scale - encumbered_area, 2)),
         "net_unencumbered_percent": max(0.0, round(100.0 - encumbered_percent, 2)),
         "warnings": warnings,
         "queried_layers": layer_ids,
@@ -272,6 +277,7 @@ async def query_spatial_planning_layers(client: httpx.AsyncClient, rings: list) 
     if parcel.is_empty or parcel.area <= 0:
         raise ValueError("Parcel geometry has no valid polygon rings")
     bbox = ",".join(str(value) for value in parcel.bounds)
+    area_scale = web_mercator_ground_area_scale(rings, float(parcel.area)) or 1.0
     layer_ids = [
         LAYER_ZONE,
         LAYER_RESERVATION,
@@ -281,4 +287,4 @@ async def query_spatial_planning_layers(client: httpx.AsyncClient, rings: list) 
         *CRZ_LAYER_IDS,
     ]
     by_layer, warnings = await _fetch_layers(client, bbox, layer_ids)
-    return build_spatial_planning_result(parcel, by_layer, warnings)
+    return build_spatial_planning_result(parcel, by_layer, warnings, area_scale=area_scale)

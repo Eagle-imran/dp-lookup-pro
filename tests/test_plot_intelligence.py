@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ from dp_lookup.application.intelligence_builder import PlotIntelligenceBuilder
 from dp_lookup.application.intelligence_services import PlotIntelligenceServices
 from dp_lookup.application.local_roads import LocalRoadProvider
 from dp_lookup.application.planning_snapshot import canonical_planning_specs
+from dp_lookup.authority import AuthorityManifest, AuthorityStore, SelectionPurpose, SourceType
 from dp_lookup.clients.local_parcels import merge_local_features
 from dp_lookup.intelligence import IntelligenceStateError, IntelligenceStore, PlotIntelligence
 from dp_lookup.intelligence_cli import main as intelligence_main
@@ -94,9 +96,7 @@ def _database(tmp_path: Path) -> Path:
                 object_id_field=spec.object_id_field,
                 expected_count=len(layer_features),
             )
-            object_ids = [
-                int(item["attributes"][spec.object_id_field]) for item in layer_features
-            ]
+            object_ids = [int(item["attributes"][spec.object_id_field]) for item in layer_features]
             planning.set_layer_inventory(snapshot_id, spec.layer_id, object_ids)
             if layer_features:
                 planning.insert_batch(snapshot_id, spec.layer_id, layer_features)
@@ -179,6 +179,45 @@ def test_sample_build_is_queryable_but_cannot_be_activated(tmp_path: Path):
             store.activate(outcome["build_id"])
 
 
+def test_intelligence_uses_only_active_authority_and_fingerprint_tracks_registry(tmp_path: Path):
+    database = _database(tmp_path)
+    document = tmp_path / "property-card.pdf"
+    document.write_bytes(b"property card")
+    with AuthorityStore.open(database) as authority:
+        record = authority.register(
+            AuthorityManifest(
+                village="WORLI",
+                cts_no="100",
+                source_type=SourceType.PROPERTY_CARD,
+                source_uri=str(document),
+                source_sha256=hashlib.sha256(document.read_bytes()).hexdigest(),
+                issuer="City Survey Office",
+                recorded_area_sqm=140.0,
+            )
+        )
+        authority.verify(record.record_id, actor="reviewer")
+        authority.activate(record.record_id, SelectionPurpose.AREA, actor="reviewer", reason="accepted area")
+
+    first = PlotIntelligenceBuilder(database).build(limit=1, include_neighbours=False, workers=1)
+    assert first["authority_registry_revision"] is not None
+    with IntelligenceStore.open(database) as intelligence:
+        result = intelligence.get("WORLI", "100", build_id=first["build_id"])
+    assert result is not None
+    assert result["area_sqm"] == 140.0
+    assert result["evidence_summary"]["authority_resolution"]["active_record_ids"] == [record.record_id]
+    dossier = PlotIntelligenceServices().analyze(database, "WORLI", "100", build_id=first["build_id"])
+    assert dossier["plot_identity"]["authority_resolution"]["status"] == "applied"
+
+    with AuthorityStore.open(database, create=False) as authority:
+        authority.withdraw(record.record_id, actor="reviewer", reason="test withdrawal")
+    second = PlotIntelligenceBuilder(database).build(limit=1, include_neighbours=False, workers=1)
+    assert second["source_fingerprint"] != first["source_fingerprint"]
+    with IntelligenceStore.open(database) as intelligence:
+        baseline = intelligence.get("WORLI", "100", build_id=second["build_id"])
+    assert baseline is not None
+    assert baseline["area_sqm"] == 100.0
+
+
 def test_intelligence_cli_contract_is_explicit_and_small():
     parsed = parse_intelligence_args(
         [
@@ -196,9 +235,7 @@ def test_intelligence_cli_contract_is_explicit_and_small():
     assert parsed["min_area_sqm"] == 500.0
     assert parsed["reservations"] is False
     with pytest.raises(ValueError, match="VILLAGE:CTS"):
-        parse_intelligence_args(
-            ["intelligence", "compare", "WORLI", "COLABA:1", "--database", "plots.sqlite"]
-        )
+        parse_intelligence_args(["intelligence", "compare", "WORLI", "COLABA:1", "--database", "plots.sqlite"])
 
 
 class _FakeIntelligenceServices:
@@ -320,13 +357,16 @@ def test_store_resume_issue_filters_compare_and_failure_guards(tmp_path: Path):
             expected_count=2,
             source_fingerprint="hash",
         )
-        assert store.begin_build(
-            parcel_snapshot_id=1,
-            planning_snapshot_id=2,
-            algorithm_version="fixture",
-            expected_count=2,
-            source_fingerprint="hash",
-        ) == build_id
+        assert (
+            store.begin_build(
+                parcel_snapshot_id=1,
+                planning_snapshot_id=2,
+                algorithm_version="fixture",
+                expected_count=2,
+                source_fingerprint="hash",
+            )
+            == build_id
+        )
         first = PlotIntelligence(
             "WORLI",
             "1",

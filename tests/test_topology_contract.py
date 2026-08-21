@@ -74,6 +74,55 @@ def test_kml_preserves_polygon_holes(tmp_path):
     assert root.find(".//k:innerBoundaryIs", namespace) is not None
 
 
+def test_vector_exports_include_structured_area_assessment_without_legacy_approval_wording(tmp_path):
+    ring = [[[72.8, 19.0], [72.81, 19.0], [72.81, 19.01], [72.8, 19.01], [72.8, 19.0]]]
+    assessment = {
+        "recorded_plot_area_sqm": 100.0,
+        "calculated_boundary_area_sqm": 106.1,
+        "selected_area_basis": "recorded_plot_area",
+        "difference_sqm": 6.1,
+        "difference_percent": 6.1,
+        "reliability_status": "qualified_with_warnings",
+        "reliability_label": "Qualified with warnings",
+        "recorded_area_source": "MCGM cadastral parcel record",
+        "geometry_source": "MCGM cadastral parcel boundary",
+        "quality_flags": [{"code": "area_difference_over_5_percent", "severity": "warning"}],
+        "source_snapshot_date": "2026-08-21T00:00:00+00:00",
+    }
+    properties = {
+        "cts_no": "1",
+        "village": "WORLI",
+        "area_sqm": 100.0,
+        "area_source": "approved (legacy input)",
+        "area_assessment": assessment,
+    }
+    geojson_path = tmp_path / "area.geojson"
+    kml_path = tmp_path / "area.kml"
+
+    export_geojson(ring, properties, str(geojson_path))
+    export_kml(ring, properties, str(kml_path))
+
+    import json
+
+    exported_properties = json.loads(geojson_path.read_text())["features"][0]["properties"]
+    assert exported_properties["area_sqm"] == 100.0
+    assert exported_properties["area_source"] == "Recorded plot area"
+    assert exported_properties["area_assessment"] == assessment
+
+    root = ET.parse(kml_path).getroot()
+    namespace = {"k": "http://www.opengis.net/kml/2.2"}
+    extended = {
+        item.attrib["name"]: item.findtext("k:value", namespaces=namespace)
+        for item in root.findall(".//k:ExtendedData/k:Data", namespace)
+    }
+    assert extended["Recorded_Plot_Area_sqm"] == "100.0"
+    assert extended["Calculated_Boundary_Area_sqm"] == "106.1"
+    assert extended["Area_Difference_Percent"] == "6.1"
+    assert extended["Area_Reliability"] == "Qualified with warnings"
+    assert extended["Area_Quality_Flags"] == "area_difference_over_5_percent"
+    assert "approved" not in kml_path.read_text().casefold()
+
+
 def test_prepare_geometry_uses_an_interior_point_for_concave_plot():
     concave = [
         [

@@ -4,7 +4,7 @@ AutoCAD DXF Exporter with Precision Scaling, Layer Weights, and Text Collision P
 
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import ezdxf
 from ezdxf.enums import TextEntityAlignment
@@ -453,18 +453,60 @@ def legend_data_rows(
 ) -> List[str]:
     sb3 = "drawn" if setback_status.get(3.0) else "NOT VIABLE - plot too narrow"
     sb6 = "drawn" if setback_status.get(6.0) else "NOT VIABLE - plot too narrow"
+    raw_assessment = properties.get("area_assessment")
+    assessment = raw_assessment if isinstance(raw_assessment, Mapping) else None
     area_note = properties.get("area_source") or ""
-    derived = "derived" in area_note
+    derived = any(token in str(area_note).casefold() for token in ("derived", "calculated boundary"))
     record_area = properties.get("area_sqm")
 
-    rows = legend_data_row("GROSS PLOT AREA", f"{record_area} sq m", policy)
-    rows += legend_data_row("AREA SOURCE", "DERIVED from boundary" if derived else "MCGM approved record", policy)
-    if measured_area_sqm:
+    if assessment is not None:
+        recorded_area = assessment.get("recorded_plot_area_sqm")
+        calculated_area = assessment.get("calculated_boundary_area_sqm")
+        selected_basis = assessment.get("selected_area_basis")
+        if selected_basis == "recorded_plot_area":
+            source_label = assessment.get("recorded_area_source")
+        elif selected_basis == "calculated_boundary_area":
+            source_label = assessment.get("geometry_source")
+        else:
+            source_label = "Unavailable"
+        rows = legend_data_row(
+            "RECORDED PLOT AREA",
+            f"{recorded_area} sq m" if isinstance(recorded_area, (int, float)) else "Not available",
+            policy,
+        )
+        if isinstance(calculated_area, (int, float)):
+            delta = ""
+            difference_percent = assessment.get("difference_percent")
+            difference_sqm = assessment.get("difference_sqm")
+            if isinstance(difference_percent, (int, float)):
+                sign = "+" if not isinstance(difference_sqm, (int, float)) or difference_sqm >= 0 else "-"
+                delta = f"  ({sign}{abs(difference_percent):.2f}% vs record)"
+            rows += legend_data_row("CALCULATED (BDY)", f"{calculated_area:.2f} sq m{delta}", policy)
+        else:
+            rows += legend_data_row("CALCULATED (BDY)", "Not available", policy)
+        rows += legend_data_row("AREA SOURCE", source_label or "Unavailable", policy)
+        rows += legend_data_row(
+            "AREA RELIABILITY",
+            assessment.get("reliability_label") or assessment.get("reliability_status") or "Unknown",
+            policy,
+        )
+    else:
+        rows = legend_data_row("GROSS PLOT AREA", f"{record_area} sq m", policy)
+        rows += legend_data_row(
+            "AREA SOURCE",
+            "Calculated boundary area" if derived else "MCGM cadastral parcel record",
+            policy,
+        )
+    if measured_area_sqm and assessment is None:
         delta = ""
         if not derived and isinstance(record_area, (int, float)) and record_area:
             pct = (measured_area_sqm - record_area) / record_area * 100.0
             delta = f"  ({pct:+.2f}% vs record)"
         rows += legend_data_row("MEASURED (BDY)", f"{measured_area_sqm:.2f} sq m{delta}", policy)
+    raw_authority = properties.get("authority_resolution")
+    if isinstance(raw_authority, Mapping) and raw_authority.get("active_record_ids"):
+        record_ids = ", ".join(str(value) for value in raw_authority["active_record_ids"])
+        rows += legend_data_row("AUTHORITY RECORDS", record_ids, policy)
     rows += legend_data_row("CTS / VILLAGE", f"{properties.get('cts_no')} / {properties.get('village')}", policy)
     rows += legend_data_row("WARD / ZONE", f"{properties.get('ward')} / {properties.get('zone')}", policy)
     rows += legend_data_row(

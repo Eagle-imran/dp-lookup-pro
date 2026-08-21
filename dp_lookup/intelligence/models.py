@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Mapping, Optional, Tuple
 
-ALGORITHM_VERSION = "plot-intelligence/1.1.0"
+ALGORITHM_VERSION = "plot-intelligence/1.3.0"
 
 
 @dataclass(frozen=True)
@@ -76,6 +76,7 @@ class PlotIntelligence:
     calculated_at: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
+        assessment = self.evidence_summary.get("area_assessment")
         return {
             "plot_identity": {
                 "village": self.village,
@@ -86,6 +87,7 @@ class PlotIntelligence:
                 "area_sqm": self.area_sqm,
                 "area_source": self.area_source,
                 "geometry_area_sqm": self.geometry_area_sqm,
+                **({"area_assessment": dict(assessment)} if isinstance(assessment, Mapping) else {}),
                 "centroid": {"x": self.centroid_x, "y": self.centroid_y, "wkid": 102100},
             },
             "planning": {

@@ -482,7 +482,7 @@
 
   <div class="trap"><b>LAST_EDITED_DATE cannot revalidate the cache.</b> It reads 2019-01-23 on <em>every</em> parcel &mdash; it is the bulk load date, not a per-parcel edit stamp. DP modifications don't appear on the parcel record either (<code>APPROVAL_NO</code> is null even for plots that have one, such as Byculla 1605 with its 2024 order); they live in layer&nbsp;192.</div>
 
-  <div class="trap"><b>AREA_APP_SQ_MTRS is null on some plots.</b> Malabar Hill 518 and Tardeo 264 have no approved area on MCGM record. <code>SHAPE.AREA</code> is populated and already in true ground square metres, so it is used as a fallback &mdash; but it is the <em>digitised</em> area, not the approved one, and the two differ by up to 7% where both exist. Always read <code>plot_identity.area_source</code> before quoting a figure.</div>
+  <div class="trap"><b>The recorded plot area is missing on some plots.</b> The tool keeps that value empty and separately calculates boundary area from the archived coordinates in UTM zone 43N. Raw Web Mercator <code>SHAPE.AREA</code> is not presented as ground area. Always review <code>plot_identity.area_assessment</code> before quoting a figure.</div>
 
   <div class="trap"><b>Clear the cache before any retest.</b> A stale entry silently replays old behaviour and will make a correct fix look like it failed.</div>
 
@@ -506,7 +506,7 @@
 
   <div class="issue sev-fixed"><span class="pill ok">Fixed</span><div class="issuebody">
     <p class="issuetitle">Blank plot areas now fall back to geometry</p>
-    <p class="issuedesc">Where MCGM has no approved area, the digitised <code>SHAPE.AREA</code> is used and clearly labelled &mdash; Malabar Hill 518 went from blank to 2,450.16&nbsp;m², Tardeo 264 to 2,539.25&nbsp;m². Plots that already had an approved area are byte-identical. The PDF states <em>&ldquo;DERIVED from plot boundary&rdquo;</em> so a derived figure is never mistaken for an official one.</p></div></div>
+    <p class="issuedesc">Where the MCGM cadastral parcel record has no recorded plot area, the tool uses the separately calculated boundary area for screening. Reports display Recorded plot area, Calculated boundary area, Area difference and reliability together, so a calculated value is never mistaken for a recorded one.</p></div></div>
 
   <div class="issue sev-fixed"><span class="pill ok">Fixed</span><div class="issuebody">
     <p class="issuetitle">Silent failures no longer become authoritative reports</p>

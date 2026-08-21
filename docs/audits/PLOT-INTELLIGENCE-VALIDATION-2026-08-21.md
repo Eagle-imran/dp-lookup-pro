@@ -1,5 +1,9 @@
 # Plot-intelligence validation — 2026-08-21
 
+> Historical validation note: this audit records the earlier `cos(latitude)^2`
+> implementation. The current shared area assessment transforms parcel
+> coordinates to UTM zone 43N and applies 2%, 5% and 10% discrepancy checks.
+
 ## Scope
 
 This audit validates the derived-data lifecycle and real workflow commands
@@ -27,11 +31,11 @@ Build 6 processed 25 contiguous identities beginning at deterministic offset
 - Verification errors: 0
 - Records with adjoining plots: 25/25
 - Records with a mapped nearby road: 23/25
-- Confidence: 15 verified, 10 qualified, 0 review-required
+- Confidence: 15 verified-source, 10 qualified-with-warnings, 0 review-required
 
-The ten qualified records retained unusually different approved and corrected
-digitized areas, mainly subdivision identities carrying a repeated parent-area
-value. They were not silently promoted to verified.
+The ten qualified records retained unusually different recorded plot and
+calculated boundary areas, mainly subdivision identities carrying a repeated
+parent-area value. They were not silently promoted to verified-source.
 
 The audit found and corrected an initial false quality signal: raw EPSG:3857
 area is inflated at Mumbai's latitude. Algorithm 1.1.0 applies the local
@@ -41,8 +45,8 @@ the official 1,256.59 m², a 0.48% difference, and correctly became verified.
 
 ## Workflow verification
 
-- `analyze GUNDAVALI 345` returned zone R, official area 1,256.59 m²,
-  corrected geometry area 1,262.66 m², five neighbours, an 18.3 m road and a
+- `analyze GUNDAVALI 345` returned zone R, recorded plot area 1,256.59 m²,
+  calculated boundary area 1,262.66 m², five neighbours, an 18.3 m road and a
   complete source lineage with facts hash.
 - Structured search returned only records matching zone, minimum area,
   reservation and encumbrance filters.

@@ -158,14 +158,17 @@ def main(argv=None):
     printed = None
     for e, _ in texts:
         t = entity_text(e)
-        if "GROSS PLOT AREA" in t:
+        if "RECORDED PLOT AREA" in t or "GROSS PLOT AREA" in t:
             for tok in t.replace(":", " ").split():
                 try:
                     printed = float(tok)
                     break
                 except ValueError:
                     continue
-    discloses = any("MEASURED (BDY)" in entity_text(e) for e, _ in texts)
+    discloses = any(
+        "CALCULATED (BDY)" in entity_text(e) or "MEASURED (BDY)" in entity_text(e)
+        for e, _ in texts
+    )
     if printed is not None:
         say(f"  printed on sheet  : {printed:10.2f} m2")
         if bdy_area:
@@ -180,7 +183,7 @@ def main(argv=None):
                     f"boundary measures {d:+.2f}% vs the printed area, and the sheet "
                     "does not disclose the measured value")
             elif abs(d) > 2.0:
-                say(f"  -> {d:+.2f}% gap, disclosed on the sheet via MEASURED (BDY)")
+                say(f"  -> {d:+.2f}% gap, disclosed on the sheet via CALCULATED (BDY)")
     else:
         faults.append("no plot area printed on the sheet")
 

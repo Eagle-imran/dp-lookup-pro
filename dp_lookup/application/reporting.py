@@ -191,9 +191,9 @@ async def render_report_artifacts(
         paths.satellite,
         context.neighbours.plots,
         (
-            "Approved cadastral area (MCGM record)"
-            if parcel.area_source.startswith("approved")
-            else "DERIVED from plot boundary - no approved area on MCGM record"
+            "MCGM cadastral parcel record"
+            if parcel.area_source == "Recorded plot area"
+            else "Calculated from the MCGM cadastral parcel boundary for screening"
         ),
         res_code=planning.reservation_code,
         res_type=planning.reservation_type,

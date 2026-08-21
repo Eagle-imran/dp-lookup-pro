@@ -193,6 +193,94 @@
       margin-top: 1px;
     }
 
+    /* Area source and reliability evidence */
+    .area-evidence {
+      background: #ffffff;
+      border: 1px solid #dbe4ef;
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+
+    .section-title {
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+
+    .area-evidence-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .area-evidence-item {
+      background: #f8fafc;
+      border-radius: 7px;
+      display: flex;
+      flex-direction: column;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      gap: 3px;
+      padding: 7px 8px;
+    }
+
+    .area-evidence-label {
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 9.5px;
+      font-weight: 700;
+      line-height: 1.25;
+    }
+
+    .area-evidence-row {
+      align-items: center;
+      border-top: 1px dashed #e2e8f0;
+      color: var(--text-secondary);
+      display: flex;
+      font-size: 10.5px;
+      justify-content: space-between;
+      padding-top: 6px;
+      margin-top: 6px;
+    }
+
+    .area-evidence-row strong {
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+    }
+
+    .reliability-pill {
+      border-radius: 999px;
+      font-family: var(--font-sans) !important;
+      font-weight: 800;
+      padding: 3px 7px;
+    }
+
+    .reliability-screening { background: #e0f2fe; color: #075985 !important; }
+    .reliability-verified { background: #dcfce7; color: #166534 !important; }
+    .reliability-qualified { background: #fef3c7; color: #92400e !important; }
+    .reliability-certified { background: #ede9fe; color: #5b21b6 !important; }
+
+    .area-source {
+      color: var(--text-muted);
+      font-size: 9px;
+      line-height: 1.35;
+      margin-top: 8px;
+    }
+
+    .authority-source {
+      border-top: 1px dashed #dbe4ef;
+      color: #334155;
+      font-weight: 700;
+      padding-top: 7px;
+    }
+
+    .is-hidden { display: none !important; }
+
     /* Encumbrance Progress Meter */
     .meter-section {
       background: #f8fafc;

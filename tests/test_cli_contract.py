@@ -6,24 +6,40 @@ from dp_lookup.planning_evidence import EvidenceMode
 
 def _result(*, cached=False, complete=True):
     return {
-        "plot_identity": {"village": "WORLI", "cts_no": "733", "ward": "G/S",
-                          "area_sqm": 1317.74, "area_source": "approved (MCGM)"},
-        "planning_remarks": {"status_badge": "CLEAR", "zone": "R",
-                             "reservation": {"code": "None", "type": "None"},
-                             "designation": {"description": "None"},
-                             "dp_modification": {"approval_no": "None"}},
+        "plot_identity": {
+            "village": "WORLI",
+            "cts_no": "733",
+            "ward": "G/S",
+            "area_sqm": 1317.74,
+            "area_source": "approved (MCGM)",
+        },
+        "planning_remarks": {
+            "status_badge": "CLEAR",
+            "zone": "R",
+            "reservation": {"code": "None", "type": "None"},
+            "designation": {"description": "None"},
+            "dp_modification": {"approval_no": "None"},
+        },
         "regulatory_and_infrastructure": {
-            "crz_status": "NO", "metro_buffer": "NO",
+            "crz_status": "NO",
+            "metro_buffer": "NO",
             "abutting_road": {"name": "None", "width": "None"},
         },
         "spatial_cluster": {"adjoining_plots_count": 0, "adjoining_cts_plots": []},
-        "export_files": {"bundle_folder": "./output/worli-733", "pdf_report": "./output/r.pdf",
-                         "master_excel_register": "./output/dp-lookups.xlsx"},
-        "metadata": {"execution_time_ms": 900, "cached_result": cached,
-                     "cached_at": "2026-08-18 12:00:00" if cached else None,
-                     "cache_age_days": 0.1 if cached else None,
-                     "complete": complete, "warnings": ["road probe failed"] if not complete else [],
-                     "notes": []},
+        "export_files": {
+            "bundle_folder": "./output/worli-733",
+            "pdf_report": "./output/r.pdf",
+            "master_excel_register": "./output/dp-lookups.xlsx",
+        },
+        "metadata": {
+            "execution_time_ms": 900,
+            "cached_result": cached,
+            "cached_at": "2026-08-18 12:00:00" if cached else None,
+            "cache_age_days": 0.1 if cached else None,
+            "complete": complete,
+            "warnings": ["road probe failed"] if not complete else [],
+            "notes": [],
+        },
     }
 
 
@@ -98,6 +114,26 @@ def test_incomplete_result_has_distinct_nonzero_exit(monkeypatch, capsys):
     monkeypatch.setattr(cli, "lookup_plot_pro", fake_lookup)
     assert cli.main(["WORLI", "733"]) == cli.EXIT_INCOMPLETE
     assert "INCOMPLETE" in capsys.readouterr().out
+
+
+def test_human_summary_shows_both_area_facts_and_reliability():
+    result = _result()
+    result["plot_identity"]["area_source"] = "Recorded plot area"
+    result["plot_identity"]["area_assessment"] = {
+        "recorded_plot_area_sqm": 1317.74,
+        "calculated_boundary_area_sqm": 1324.33,
+        "selected_area_basis": "recorded_plot_area",
+        "difference_percent": 0.5,
+        "reliability_label": "Verified source",
+        "quality_flags": [],
+    }
+
+    output = cli.format_result_human(result)
+
+    assert "Recorded area" in output and "1,317.74 m²" in output
+    assert "Boundary area" in output and "1,324.33 m²" in output
+    assert "Area difference" in output and "0.50%" in output
+    assert "Reliability" in output and "Verified source" in output
 
 
 def test_local_source_is_explicit_and_requires_database(monkeypatch, capsys, tmp_path):

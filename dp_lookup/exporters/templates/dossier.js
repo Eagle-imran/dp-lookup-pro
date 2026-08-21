@@ -80,11 +80,13 @@
       onEachFeature: (feature, layer) => {
         layer.bindPopup(`
           <div class="custom-popup">
-            <h4 style="color:#e11d48">🔴 Plot Boundary (Cadastral)</h4>
+            <h4 style="color:#e11d48">🔴 Plot Boundary</h4>
             <div><b>CTS / CS No:</b> ${DATA.plot_identity.cts_no}</div>
             <div><b>Village:</b> ${DATA.plot_identity.village}</div>
             <div><b>Ward:</b> ${DATA.plot_identity.ward}</div>
-            <div><b>Gross Area:</b> ${DATA.plot_identity.area_sqm.toLocaleString()} m² (${DATA.plot_identity.area_sqft.toLocaleString()} sq.ft)</div>
+            <div><b>Working plot area:</b> ${DATA.plot_identity.area_sqm.toLocaleString()} m² (${DATA.plot_identity.area_sqft.toLocaleString()} sq.ft)</div>
+            <div><b>Area reliability:</b> ${DATA.plot_identity.area_assessment.reliability_label}</div>
+            <div><b>Boundary source:</b> ${DATA.plot_identity.geometry_source}</div>
             <div><b>Zone:</b> Zone ${DATA.plot_identity.zone}</div>
           </div>
         `);
@@ -118,7 +120,7 @@
           <div class="custom-popup">
             <h4 style="color:#059669">🟢 Net Developable Envelope</h4>
             <div><b>Net Usable Area:</b> ${DATA.plot_identity.net_sqm.toLocaleString()} m²</div>
-            <div><b>Percentage:</b> ${DATA.plot_identity.net_percent}% of gross parcel</div>
+            <div><b>Percentage:</b> ${DATA.plot_identity.net_percent}% of working plot area</div>
             <div><b>Status:</b> Unencumbered Zone ${DATA.plot_identity.zone} land</div>
           </div>
         `);

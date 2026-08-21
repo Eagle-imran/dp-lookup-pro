@@ -5,6 +5,7 @@ This module re-exports all `dp_lookup` package components to maintain
 100% backward compatibility with existing test suites, CLI entry points,
 and standalone scripts.
 """
+
 import io
 import math
 import sys
@@ -13,6 +14,18 @@ from PIL import Image
 
 from dp_lookup.application.dependencies import LookupDependencies
 from dp_lookup.application.lookup_service import lookup_plot_pro
+from dp_lookup.authority import (
+    AUTHORITY_POLICY_VERSION,
+    AUTHORITY_SCHEMA_VERSION,
+    AuthorityManifest,
+    AuthorityRecord,
+    AuthorityResolution,
+    AuthorityStore,
+    SelectionPurpose,
+    SourceStatus,
+    SourceType,
+    recommend_authority,
+)
 from dp_lookup.cli import USAGE, format_result_human, main, suggest_villages
 
 # Clients & Cache
@@ -38,6 +51,11 @@ from dp_lookup.clients.cache import (
 )
 
 # Core Constants & Validation Regexes
+from dp_lookup.core.area_assessment import (
+    assess_plot_area,
+    calculated_boundary_area_sqm,
+    web_mercator_ground_area_scale,
+)
 from dp_lookup.core.constants import (
     _CTS_RE,
     _VILLAGE_RE,
@@ -78,12 +96,15 @@ from dp_lookup.core.geometry import (
     wgs84_to_utm43n,
 )
 from dp_lookup.core.models import (
+    AreaAssessment,
+    AreaQualityFlag,
     ArtifactManifest,
     EvidenceState,
     LookupResult,
     PlanningRemarks,
     PlotIdentity,
     RegulatoryInfrastructure,
+    ReliabilityStatus,
     RunMetadata,
     SourceEvidence,
     SpatialCluster,
@@ -139,6 +160,8 @@ from dp_lookup.renderers.satellite import stitch_satellite
 __version__ = APPLICATION_VERSION
 
 __all__ = [
+    "AUTHORITY_POLICY_VERSION",
+    "AUTHORITY_SCHEMA_VERSION",
     "CACHE_FILENAME",
     "CRZ_LAYER_IDS",
     "DEFAULT_CACHE_TTL_SECONDS",
@@ -169,7 +192,13 @@ __all__ = [
     "_STORES",
     "_TILE_CACHE",
     "_VILLAGE_RE",
+    "AreaAssessment",
+    "AreaQualityFlag",
     "ArtifactManifest",
+    "AuthorityManifest",
+    "AuthorityRecord",
+    "AuthorityResolution",
+    "AuthorityStore",
     "EvidenceState",
     "Image",
     "LookupDependencies",
@@ -177,16 +206,22 @@ __all__ = [
     "PlanningRemarks",
     "PlotIdentity",
     "RegulatoryInfrastructure",
+    "ReliabilityStatus",
     "RunMetadata",
+    "SelectionPurpose",
     "SourceEvidence",
+    "SourceStatus",
+    "SourceType",
     "SpatialCluster",
     "_esc",
     "arcgis_rings_to_geometry",
+    "assess_plot_area",
     "boxes_overlap",
     "build_pdf_doc",
     "bundle_folder_name",
     "bundle_is_intact",
     "cache_path_for",
+    "calculated_boundary_area_sqm",
     "clip_path_to_window",
     "clip_segment_to_box",
     "crz_flag_from",
@@ -226,6 +261,7 @@ __all__ = [
     "project_rings_to_local_metres",
     "query_spatial_planning_layers",
     "read_cache_entry",
+    "recommend_authority",
     "render_dp_map",
     "resolve_plot_area",
     "road_probe_points",
@@ -242,6 +278,7 @@ __all__ = [
     "to_local_metres",
     "update_excel_register",
     "usable_json",
+    "web_mercator_ground_area_scale",
     "wgs84_to_utm43n",
     "write_cache_entry",
 ]

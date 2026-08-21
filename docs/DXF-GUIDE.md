@@ -59,8 +59,8 @@ Three sources give three different answers, and they are **not** interchangeable
 
 | Source | Where it appears |
 | :--- | :--- |
-| **MCGM approved record** (`AREA_APP_SQ_MTRS`) | `GROSS PLOT AREA` in the PLOT DATA panel |
-| **The drawn boundary** — what AutoCAD's `AREA` command returns | `MEASURED (BDY)` in the same panel, with the percentage difference |
+| **Recorded plot area** — from the MCGM cadastral parcel record (`AREA_APP_SQ_MTRS`) | `RECORDED PLOT AREA` in the PLOT DATA panel |
+| **Calculated boundary area** — calculated from the supplied parcel polygon | `CALCULATED BOUNDARY AREA` in the same panel, with the area difference |
 | **The Property Card** (City Survey Office) | Not in this drawing. This tool cannot read it. |
 
 The gap between the first two is usually small but sometimes is not: on WORLI 733
@@ -121,10 +121,11 @@ abutting road is now drawn, named and dimensioned.
   They are simply "3 m in" and "6 m in". Your actual requirement depends on
   building height, plot size and road width — see **DCPR 2034 Table 18**. Treat
   them as a starting envelope, not an approval.
-- **⚠️ Gross plot area.** The PLOT DATA panel says whether the area is MCGM's
-  *approved* figure or one *derived from the drawn boundary*. Where both exist
-  they can differ by up to 7%. For anything contractual, use the approved area
-  from the Property Register Card.
+- **⚠️ Plot area.** The PLOT DATA panel shows the **recorded plot area**
+  from the MCGM cadastral parcel record and the **calculated boundary area**
+  from its supplied polygon. Where both exist they can differ materially. For
+  contractual or submission work, reconcile them against the current Property
+  Card, certified CTS/Final Plot plan and survey as applicable.
 - **⚠️ This is not an official DP Remark.** It's the public map data, formatted.
   Get the official remark from MCGM before committing to a scheme.
 - **⚠️ FSI is not calculated.** Nothing here tells you permissible built-up

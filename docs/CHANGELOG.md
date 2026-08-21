@@ -4,7 +4,40 @@ All notable changes to this project. Newest first.
 
 > **If something breaks after an update, see [ROLLBACK.md](ROLLBACK.md).**
 
-## [Unreleased] — 2026-08-21
+## [Unreleased] — 2026-08-22
+
+### Area accuracy and authority
+
+* Added the additive certified-source registry in the same SQLite database as
+  the MCGM snapshots. Original parcel and planning snapshots remain immutable;
+  supplied documents are registered, checked, recommended and explicitly
+  activated per `area`, `geometry`, or `planning` purpose.
+* Added versioned, checksummed and auditable source records with field-specific
+  precedence. Equal-rank sources remain a visible conflict until explicitly
+  resolved. Active-source changes invalidate affected report-cache and
+  plot-intelligence fingerprints.
+* Added the `sources add`, `list`, `show`, `verify`, `recommend`, `activate`,
+  `withdraw`, and `audit` command grammar. See [Certified sources](CERTIFIED_SOURCES.md).
+
+* Added one shared immutable area assessment across live lookup, local lookup,
+  plot intelligence, CLI, JSON, PDF, Excel, HTML, DXF, GeoJSON and KML.
+* Renamed the user-facing concepts to Recorded plot area, Calculated boundary
+  area and Area difference. Removed wording that implied the MCGM parcel
+  attribute was a legally approved or surveyed area.
+* Calculated boundary area is now derived from archived coordinates transformed
+  to UTM zone 43N. Raw Web Mercator `SHAPE.AREA` is no longer presented as
+  ground square metres by the normal parcel pipeline.
+* Added strict 2%, 5% and 10% discrepancy thresholds plus flags for missing or
+  conflicting recorded values, invalid/repaired or fragmented geometry,
+  duplicate geometry, stale snapshots and ambiguous identity matches.
+* Added Screening, Verified source, Qualified with warnings and Certified
+  states. Certified is assigned only when both area and geometry have clean,
+  explicitly activated certified evidence; an ArcGIS parcel alone cannot
+  receive it.
+* Preserved the ArcGIS query fields, output spatial reference, original
+  coordinates, legacy `area_sqm`/`area_source` keys and exporter call
+  signatures. Existing intelligence builds remain immutable; the new
+  authority-aware calculation uses `plot-intelligence/1.3.0`.
 
 ### Plot intelligence and local road analysis
 
@@ -21,8 +54,9 @@ All notable changes to this project. Newest first.
 * Moved road name/width/distance analysis to the archived road layers for local
   parcels. Existing live road probes remain the fallback when local evidence is
   unavailable.
-* Separated approved area from digitized boundary area. Area totals use the
-  approved record while overlaps use geometry; differences above 5% are flagged.
+* Separated recorded plot area from calculated boundary area. Area totals use
+  the recorded value while overlaps use geometry; the newer authority upgrade
+  above supersedes the original single 5% flag.
 
 ### Local planning snapshot and local-first planning
 
@@ -49,7 +83,8 @@ All notable changes to this project. Newest first.
   comparisons.
 * Activation gates passed 15/15 live/local core comparisons, 5/5 full-evidence
   comparisons and three fresh end-to-end runs with all seven artifacts. The
-  full suite passes 399 tests at 84.48% coverage; Ruff and strict mypy are clean.
+  full suite now passes 441 tests at 84.71% branch-aware coverage; Ruff and
+  strict mypy are clean.
 * Removed the non-active failed first attempt after validation and compacted the
   combined active parcel/planning database from 1.6 GiB to 1.0 GiB.
 
@@ -176,7 +211,7 @@ Refactored the monolithic 3,180-line `cts_dp_lookup_pro.py` into a domain-driven
   - Registered grid label bounding boxes into `placed_boxes` collision detector, dropping mega-plot text collisions to zero.
   - Made `C-RESERVATIONS` layer declaration conditional, eliminating empty-layer CAD faults on 0% encumbrance plots.
 * **🔬 Cadastral Area Scaling & Distortion Fix**:
-  - Eliminated Web Mercator latitude area distortion ($\sim 12.3\%$ at $19^\circ\text{ N}$) on net developable square meters. Encumbered and net developable metrics are now strictly scaled against the approved cadastral area from MCGM Layer 13.
+  - Eliminated Web Mercator latitude area distortion ($\sim 12.3\%$ at $19^\circ\text{ N}$) on net developable square meters. Encumbered and net developable metrics are now strictly scaled against the recorded plot area from the MCGM cadastral parcel record.
 * **Backward-Compatible Facade (`cts_dp_lookup_pro.py`)**: Re-exports all core public symbols, guaranteeing zero breaking changes for existing CLI commands, scripts, and tests.
 * **Quality & Validation**:
   - Full offline unit and contract suite passing.
@@ -308,16 +343,17 @@ front setback, and an architect had no way to tell which edge faced the road.
 
 ### 🟠 Two areas are now printed, and the gap is named
 
-MCGM's approved record, MCGM's **own** digitised polygon, and the Property Card
-are three independent sources that do not agree:
+The recorded plot area, the calculated boundary area from MCGM's supplied
+polygon, and the Property Card are three separate area facts that can disagree:
 
 | Plot | MCGM record | Drawn boundary | Gap |
 | :--- | ---: | ---: | ---: |
 | WORLI 733 | 1317.74 m² | 1321.74 m² | +0.30% |
 | AMBIVALI 807 | 2019.00 m² | **2142.25 m²** | **+6.10%** (123 m²) |
 
-The sheet printed one figure and labelled it `MCGM approved record`, so an
-architect measuring the polyline got a number that appeared nowhere on the
+The sheet printed one figure with an approval-sounding label that overstated
+what the source establishes, so an architect measuring the polyline got a
+number that appeared nowhere on the
 drawing. PLOT DATA now carries `MEASURED (BDY)` with the percentage delta, and the
 title block states that the Property Card may differ and must be reconciled
 before any FSI calculation. The owner measured 5–7% against the Property Card on
@@ -629,8 +665,8 @@ each swatch shows that layer's real colour and linetype:
 | `0_GRID_AXIS` | Metric grid, 0,0 at plot centroid |
 | `C-TITLE-BLOCK` | Sheet border, legend, title block |
 
-Alongside it, a **PLOT DATA** panel: gross plot area and whether it is the
-MCGM-approved figure or derived from the boundary, CTS/village, ward/zone,
+Alongside it, a **PLOT DATA** panel: recorded plot area and calculated boundary
+area, CTS/village, ward/zone,
 abutting road and width, CRZ status, metro buffer, and whether each setback was
 drawn or omitted.
 
@@ -692,8 +728,9 @@ now also sample along the plot's boundary edges, where roads actually run.
 | BYCULLA 1605 | DR ANANDRAO L NAIR RD 45.72 M | unchanged ✓ |
 
 **Blank plot areas are now filled in.**
-MCGM has no approved area on record for some parcels. The digitised boundary's
-own area is used instead and clearly labelled — never presented as official.
+The MCGM cadastral parcel record has no recorded plot area for some parcels.
+The calculated boundary area is used instead and clearly labelled — never
+presented as certified or legally surveyed.
 
 | Plot | Before | After |
 | :--- | :--- | :--- |
@@ -701,7 +738,8 @@ own area is used instead and clearly labelled — never presented as official.
 | TARDEO 264 | *(blank)* | **2,539.25 m²** *(derived)* |
 
 New field `plot_identity.area_source` says which you got. The PDF prints
-*"DERIVED from plot boundary — no approved area on MCGM record"*.
+*"CALCULATED from supplied boundary — no recorded plot area in MCGM cadastral
+parcel record"*.
 
 ### 🛡️ Failures are no longer silent
 

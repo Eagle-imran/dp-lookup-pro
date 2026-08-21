@@ -4,7 +4,7 @@ import asyncio
 
 import httpx
 
-from dp_lookup.clients.planning_queries import query_spatial_planning_layers
+from dp_lookup.clients.planning_queries import build_spatial_planning_result, query_spatial_planning_layers
 from dp_lookup.core.constants import (
     CRZ_LAYER_IDS,
     LAYER_DESIGNATION,
@@ -13,6 +13,7 @@ from dp_lookup.core.constants import (
     LAYER_RESERVATION,
     LAYER_ZONE,
 )
+from dp_lookup.core.topology import arcgis_rings_to_geometry
 
 
 class Response:
@@ -154,3 +155,23 @@ def test_final_codes_real_field_names_and_largest_crz_overlap_take_precedence():
     assert result["modifications"][0]["document_link"].endswith("correction.pdf")
     assert result["crz_status"] == "YES (CRZ II)"
     assert len(result["crz_categories"]) == 2
+
+
+def test_planning_square_metres_use_the_supplied_ground_area_scale():
+    parcel_ring = _ring(0, 0, 10, 10)
+    parcel = arcgis_rings_to_geometry([parcel_ring])
+    layers = {
+        LAYER_ZONE: [_feature(parcel_ring, ZONE_CODE2="R")],
+        LAYER_RESERVATION: [_feature(_ring(0, 0, 5, 10), FINAL_RES_CODE="R1")],
+        LAYER_MODIFICATION: [_feature(_ring(0, 0, 2, 10), APPROVAL_NO="M1")],
+        CRZ_LAYER_IDS[0]: [_feature(_ring(0, 0, 1, 10), CATEGORY="II")],
+    }
+
+    result = build_spatial_planning_result(parcel, layers, [], area_scale=0.9)
+
+    assert result["zones"][0]["overlap_sqm"] == 90.0
+    assert result["reservations"][0]["overlap_sqm"] == 45.0
+    assert result["modifications"][0]["overlap_sqm"] == 18.0
+    assert result["crz_categories"][0]["overlap_sqm"] == 9.0
+    assert result["encumbered_area_sqm"] == 45.0
+    assert result["net_unencumbered_sqm"] == 45.0

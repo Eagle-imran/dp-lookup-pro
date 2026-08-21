@@ -254,7 +254,7 @@ the manifest:
 Activation required 15/15 live/local core-planning matches and 5/5 full
 optional-evidence matches. Three fresh CLI runs then produced all seven
 artifacts with complete local planning evidence and no result warning. Current
-offline gates are 399 passing tests, 84.48% branch-aware coverage, Ruff clean
+offline gates are 441 passing tests, 84.71% branch-aware coverage, Ruff clean
 and strict mypy clean. The detailed record is
 [`audits/PLANNING-SNAPSHOT-VALIDATION-2026-08-21.md`](audits/PLANNING-SNAPSHOT-VALIDATION-2026-08-21.md).
 

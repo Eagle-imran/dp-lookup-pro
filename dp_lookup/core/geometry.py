@@ -1,8 +1,9 @@
 """
 Core Coordinate, Projection, and Spatial Geometry Mathematics.
 """
+
 import math
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from dp_lookup.core.constants import (
     ROAD_EDGE_NUDGES,
@@ -12,7 +13,7 @@ from dp_lookup.core.constants import (
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
 
-def wgs84_to_utm43n(lon: float, lat: float) -> Tuple[float, float]:
+def wgs84_to_utm43n(lon: float, lat: float, precision: Optional[int] = 2) -> Tuple[float, float]:
     """
     Direct ellipsoidal projection from WGS84 (degrees) to UTM Zone 43N (metres),
     EPSG:32643, using standard Karney/Krüger transverse-Mercator formulas on the
@@ -37,7 +38,10 @@ def wgs84_to_utm43n(lon: float, lat: float) -> Tuple[float, float]:
         61.0 / 240.0 * n3,
     )
 
-    t = math.sinh(math.atanh(math.sin(phi)) - 2.0 * math.sqrt(n) / (1.0 + n) * math.atanh(2.0 * math.sqrt(n) / (1.0 + n) * math.sin(phi)))
+    t = math.sinh(
+        math.atanh(math.sin(phi))
+        - 2.0 * math.sqrt(n) / (1.0 + n) * math.atanh(2.0 * math.sqrt(n) / (1.0 + n) * math.sin(phi))
+    )
     xi_prime = math.atan2(t, math.cos(lam))
     eta_prime = math.atanh(math.sin(lam) / math.sqrt(1.0 + t * t))
 
@@ -46,7 +50,9 @@ def wgs84_to_utm43n(lon: float, lat: float) -> Tuple[float, float]:
 
     easting = 500000.0 + k0 * A * eta
     northing = k0 * A * xi
-    return round(easting, 2), round(northing, 2)
+    if precision is None:
+        return easting, northing
+    return round(easting, precision), round(northing, precision)
 
 
 def mercator_to_wgs84(x: float, y: float, precision: int = 7) -> List[float]:
@@ -62,7 +68,7 @@ def mercator_to_wgs84(x: float, y: float, precision: int = 7) -> List[float]:
 def latlon_to_tile(lat: float, lon: float, zoom: int) -> Tuple[int, int]:
     """Standard Slippy Map tile numbering for Web Mercator XYZ tiles."""
     lat_rad = math.radians(lat)
-    n = 2.0 ** zoom
+    n = 2.0**zoom
     xtile = int((lon + 180.0) / 360.0 * n)
     ytile = int((1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n)
     return xtile, ytile
@@ -70,7 +76,7 @@ def latlon_to_tile(lat: float, lon: float, zoom: int) -> Tuple[int, int]:
 
 def tile_to_latlon(xtile: int, ytile: int, zoom: int) -> Tuple[float, float]:
     """Top-left corner coordinates of a Slippy Map tile."""
-    n = 2.0 ** zoom
+    n = 2.0**zoom
     lon_deg = xtile / n * 360.0 - 180.0
     lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * ytile / n)))
     lat_deg = math.degrees(lat_rad)
@@ -131,10 +137,15 @@ def prepare_geometry(rings: list) -> Dict[str, Any]:
 
     lon, lat = mercator_to_wgs84(cx, cy, precision=6)
     return {
-        "cx": cx, "cy": cy, "mcx": mcx, "mcy": mcy,
-        "xs": xs, "ys": ys,
+        "cx": cx,
+        "cy": cy,
+        "mcx": mcx,
+        "mcy": mcy,
+        "xs": xs,
+        "ys": ys,
         "d": max(50, span / 2),
-        "lat": lat, "lon": lon,
+        "lat": lat,
+        "lon": lon,
         "wgs_rings": [[mercator_to_wgs84(p[0], p[1]) for p in r] for r in rings],
     }
 
@@ -205,16 +216,23 @@ def nearest_road_geoms(
 
 
 def resolve_plot_area(attrs: Dict[str, Any]) -> Dict[str, Any]:
-    """Resolve approved vs derived area from attributes."""
+    """Resolve the recorded value or a legacy boundary-derived fallback.
+
+    New code should use :func:`dp_lookup.core.area_assessment.assess_plot_area`
+    when parcel rings are available. This compatibility helper cannot correct
+    Web Mercator area distortion because it only receives attributes.
+    """
     for key in ("AREA_APP_SQ_MTRS", "Area_App_Sq_Mtrs", "area_app_sq_mtrs"):
         val = attrs.get(key)
         if val is not None and str(val).strip() not in ("", "0", "0.0", "null", "None"):
             try:
                 area_num = float(val)
                 if area_num > 0:
-                    return {"area_sqm": area_num,
-                            "area_source": "approved record (AREA_APP_SQ_MTRS)",
-                            "note": None}
+                    return {
+                        "area_sqm": area_num,
+                        "area_source": "Recorded plot area",
+                        "note": None,
+                    }
             except (TypeError, ValueError):
                 pass
 
@@ -224,10 +242,14 @@ def resolve_plot_area(attrs: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 area_num = float(val)
                 if area_num > 0:
-                    return {"area_sqm": round(area_num, 2),
-                            "area_source": "derived from boundary (AREA_CAL_SQ_MTRS)",
-                            "note": ("Area was not on record; derived from "
-                                     "digitised boundary and is indicative only")}
+                    return {
+                        "area_sqm": round(area_num, 2),
+                        "area_source": "Calculated boundary area",
+                        "note": (
+                            "Recorded plot area is unavailable; the calculated boundary area "
+                            "is being used for screening."
+                        ),
+                    }
             except (TypeError, ValueError):
                 pass
 

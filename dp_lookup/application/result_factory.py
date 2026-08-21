@@ -38,11 +38,14 @@ def build_lookup_result(
     parcel_warning_items: list[str] = []
     if parcel.attrs.get("_DP_SNAPSHOT_STALE"):
         parcel_warning_items.append(
-            f"Local parcel snapshot is {parcel.attrs.get('_DP_SNAPSHOT_AGE_DAYS')} days old; verify against live Layer 13."
+            f"Local parcel snapshot is {parcel.attrs.get('_DP_SNAPSHOT_AGE_DAYS')} days old; "
+            "verify against the live MCGM cadastral parcel service."
         )
     fallback_reason = parcel.attrs.get("_DP_LOCAL_FALLBACK_REASON")
     if fallback_reason:
         parcel_warning_items.append(f"Local database was not used: {fallback_reason}")
+    if parcel.area_assessment is not None:
+        parcel_warning_items.extend(flag.message for flag in parcel.area_assessment.flags)
     parcel_warnings = tuple(parcel_warning_items)
     if planning_due_diligence is not None:
         evidence["planning_due_diligence"] = dict(planning_due_diligence)
@@ -52,6 +55,16 @@ def build_lookup_result(
                 value={
                     "village": parcel.village.upper(),
                     "cts_no": parcel.cts_no,
+                    **(
+                        {"area_assessment": parcel.area_assessment.to_dict()}
+                        if parcel.area_assessment is not None
+                        else {}
+                    ),
+                    **(
+                        {"authority_resolution": dict(parcel.authority_resolution)}
+                        if parcel.authority_resolution is not None
+                        else {}
+                    ),
                     **(
                         {"snapshot_id": parcel.attrs.get("_DP_SNAPSHOT_ID")}
                         if parcel.attrs.get("_DP_SNAPSHOT_ID") is not None
@@ -115,6 +128,8 @@ def build_lookup_result(
             area_source=parcel.area_source,
             latitude=parcel.latitude,
             longitude=parcel.longitude,
+            area_assessment=parcel.area_assessment,
+            authority_resolution=parcel.authority_resolution,
         ),
         planning_remarks=PlanningRemarks(
             status_badge=planning.status_badge,

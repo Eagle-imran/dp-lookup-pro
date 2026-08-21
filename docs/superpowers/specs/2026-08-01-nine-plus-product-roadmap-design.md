@@ -127,9 +127,9 @@ through costly iteration and should become named regression contracts.
 9. **Road geometry needs segment-aware clipping and proximity ranking.** Sparse paths
    can cross the sheet without placing a vertex in it; response order is not
    relevance order.
-10. **MCGM area and drawn area are different facts.** Both must remain visible, with
-    source labels and discrepancy disclosure. Property Card/site-survey area remains
-    a required external input for serious feasibility.
+10. **Recorded plot area and calculated boundary area are different facts.** Both
+    must remain visible, with source labels and discrepancy disclosure. Property
+    Card/site-survey area remains a required external input for serious feasibility.
 11. **Cache hits must not promise missing artifacts.** Bundle integrity verification
     and incomplete-result non-caching remain mandatory.
 12. **Exact cadastral identity matters.** `16/738` and `16-738` are different plots;
@@ -221,8 +221,8 @@ At minimum it should hold:
 
 - exact parcel identity and a collision-free canonical ID;
 - polygon/multipolygon topology, explicit CRS, and local metric transform;
-- official area, measured boundary area, supplied survey/Property Card area, and the
-  selected governing area—each as a separate sourced value;
+- recorded plot area, calculated boundary area, supplied survey/Property Card
+  area, and the selected governing area—each as a separate sourced value;
 - zone, reservations, designations, modifications, CRZ/metro intersections, roads,
   neighbours, and other constraints;
 - source endpoint, layer ID, retrieval time, source feature/object ID, and raw evidence
@@ -425,7 +425,7 @@ should include at least:
 - coastal and inland controls;
 - clear, modified, designated, and reserved statuses;
 - tiny, large, narrow, concave, multipart, and hole-bearing parcels;
-- null approved area and large approved/measured discrepancy;
+- missing recorded plot area and a large recorded/calculated area difference;
 - long road labels, sparse road geometry, and no-road cases;
 - slash/hyphen identities and suffix CTS numbers;
 - partial CRZ/metro intersection;

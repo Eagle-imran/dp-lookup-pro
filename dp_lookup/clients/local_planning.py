@@ -19,6 +19,7 @@ from dp_lookup.clients.planning_queries import (
     build_spatial_planning_result,
     query_spatial_planning_layers,
 )
+from dp_lookup.core.area_assessment import web_mercator_ground_area_scale
 from dp_lookup.core.constants import (
     CRZ_LAYER_IDS,
     LAYER_DESIGNATION,
@@ -182,6 +183,7 @@ class LocalFirstPlanningQuery:
         parcel = arcgis_rings_to_geometry(rings)
         if parcel.is_empty or parcel.area <= 0:
             raise ValueError("Parcel geometry has no valid polygon rings")
+        area_scale = web_mercator_ground_area_scale(rings, float(parcel.area)) or 1.0
         by_layer: Dict[int, List[Dict[str, Any]]] = {}
         try:
             for layer_id in PLANNING_LAYER_IDS:
@@ -225,6 +227,7 @@ class LocalFirstPlanningQuery:
                 by_layer,
                 [warning] if warning else [],
                 provenance=provenance,
+                area_scale=area_scale,
             ),
         )
 

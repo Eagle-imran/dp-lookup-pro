@@ -7,10 +7,11 @@ source.
 ## Purpose and authority boundary
 
 Plot intelligence turns the immutable parcel and planning archives into one
-query-ready record per unique `VILLAGE + CTS_CS_NO` identity. The active source
-archive currently contains 135,342 Layer 13 features representing 119,519
-queryable village/CTS identities. Multipart source features are combined; they
-are not counted as separate plots.
+query-ready record per unique `VILLAGE + CTS_CS_NO` identity. The active MCGM
+cadastral parcel archive currently contains 135,342 source features representing
+119,519 queryable village/CTS identities. Multipart source features are
+combined; they are not counted as separate plots. The technical ArcGIS
+provenance is retained as Development Plan Layer 13.
 
 The database can be the project's **internal operational system of record**.
 It is not a statutory declaration and cannot replace MCGM, the sanctioned DP,
@@ -24,7 +25,8 @@ snapshot, algorithm version, source layer and ObjectID that produced it.
 official ArcGIS service
         ↓ inventory + complete raw payload
 parcel snapshot + planning snapshot
-        ↓ deterministic spatial analysis
+        + versioned authority registry
+        ↓ deterministic spatial analysis + explicit active selections
 plot-intelligence build
         ↓ explicit verification + activation
 analyze / search / compare / normal lookup
@@ -32,7 +34,8 @@ analyze / search / compare / normal lookup
 
 Source snapshots are never changed by intelligence generation. An intelligence
 build is tied to exactly one finalized parcel snapshot, one finalized planning
-snapshot, a source fingerprint and `plot-intelligence/1.1.0`. Re-running a
+snapshot, the authority-registry revision, a source fingerprint and
+`plot-intelligence/1.3.0`. Re-running a
 matching interrupted build resumes completed identities. Publishing switches an
 active pointer; it never edits an earlier build.
 
@@ -40,8 +43,8 @@ active pointer; it never edits an earlier build.
 
 Each plot record contains:
 
-- identity, ward, all Layer 13 source ObjectIDs and multipart count;
-- approved area, digitized geometry area and the basis used for each total;
+- identity, ward, all source ObjectIDs and multipart count;
+- recorded plot area, calculated boundary area and the basis used for each;
 - zoning overlaps, reservations, designations and DP modifications;
 - CRZ and Metro screening, encumbered percentage and net area;
 - nearest mapped road, width, distance, source layers and ObjectIDs;
@@ -53,11 +56,26 @@ Each plot record contains:
 Raw geometry and complete ArcGIS payloads remain only in the canonical snapshot
 tables. Intelligence records reference them rather than duplicating the archive.
 
-Approved and digitized areas are both retained because they can disagree. Area
-totals use the approved value when published; spatial overlap percentages use
-the digitized geometry. EPSG:3857 planar areas are corrected by the local
-`cos(latitude)^2` scale before they are labelled square metres. A remaining
-difference above 5% is visibly qualified.
+The recorded plot area and calculated boundary area are both retained because
+they can disagree even though ArcGIS delivers both. The recorded value is an
+attribute in the MCGM cadastral parcel record; the calculated value comes from
+the supplied polygon coordinates. Area totals use the recorded value when it is
+available, while spatial overlap percentages use the boundary geometry.
+Boundary coordinates are transformed from Web Mercator to WGS 84 and then UTM
+zone 43N before area is calculated in square metres. Differences above 2%, 5%
+and 10% receive progressively stronger deterministic quality flags.
+
+## Reliability labels
+
+Reliability labels describe the evidence available to the tool; they are not
+legal conclusions:
+
+| Label | Meaning |
+| :--- | :--- |
+| **Screening** | Suitable for early feasibility and site review, subject to the displayed source limits. |
+| **Verified source** | The source record, identity and archived payload passed the tool's deterministic completeness and provenance checks. This does not mean the boundary was legally surveyed. |
+| **Qualified with warnings** | The result is usable for review, but an area difference, geometry issue, duplicate record or identity ambiguity needs attention. |
+| **Certified** | Reserved for a future versioned source backed by supplied certified records or professional survey evidence. An ArcGIS parcel alone never receives this label. |
 
 ## Commands
 

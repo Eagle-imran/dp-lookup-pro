@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import math
+import sqlite3
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -11,10 +11,12 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from dp_lookup.application.authority_resolver import AuthorityResolver
 from dp_lookup.application.ingestion import build_parcel_context
 from dp_lookup.application.local_roads import LocalRoadProvider
 from dp_lookup.application.local_spatial import LocalNeighbourProvider
 from dp_lookup.application.planning_snapshot import canonical_planning_specs
+from dp_lookup.authority import AuthorityStore, AuthorityStoreError
 from dp_lookup.clients.local_parcels import merge_local_features
 from dp_lookup.clients.parcel_snapshot import sha256_json
 from dp_lookup.clients.planning_evidence_queries import LocalFirstPlanningEvidenceAnalyzer
@@ -27,7 +29,6 @@ from dp_lookup.core.constants import (
     LAYER_RESERVATION,
     LAYER_ZONE,
 )
-from dp_lookup.core.geometry import mercator_to_wgs84
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.intelligence.models import ALGORITHM_VERSION, PlotIntelligence
 from dp_lookup.intelligence.store import IntelligenceStore
@@ -53,6 +54,7 @@ def _source_fingerprint(
     parcel_metadata: Mapping[str, Any],
     planning_snapshot_id: int,
     planning_hash: str,
+    authority_revision: Optional[int],
 ) -> str:
     manifest = parcel_metadata.get("manifest_summary")
     parcel_hash = manifest.get("content_hash") if isinstance(manifest, Mapping) else None
@@ -62,9 +64,19 @@ def _source_fingerprint(
             "parcel_content_hash": parcel_hash,
             "planning_snapshot_id": planning_snapshot_id,
             "planning_content_hash": planning_hash,
+            "authority_registry_revision": authority_revision,
             "algorithm_version": ALGORITHM_VERSION,
         }
     )
+
+
+def _authority_registry_revision(database: Path) -> Optional[int]:
+    """Return the additive registry revision, or None when no registry exists."""
+    try:
+        with AuthorityStore.open(database, create=False) as store:
+            return store.revision()
+    except (OSError, sqlite3.DatabaseError, AuthorityStoreError):
+        return None
 
 
 def _identity_rows(
@@ -165,23 +177,6 @@ def _compact(items: Sequence[Mapping[str, Any]]) -> Tuple[Mapping[str, Any], ...
     )
 
 
-def _scaled_items(items: Sequence[Mapping[str, Any]], area_scale: float) -> Tuple[Mapping[str, Any], ...]:
-    result = []
-    for item in _compact(items):
-        scaled = dict(item)
-        for key in ("overlap_sqm", "total_res_sqm", "total_des_sqm"):
-            if isinstance(scaled.get(key), (int, float)):
-                scaled[key] = round(float(scaled[key]) * area_scale, 2)
-        result.append(scaled)
-    return tuple(result)
-
-
-def _ground_area_scale(geometry: Any) -> float:
-    """Approximate local ground area from EPSG:3857 area at the plot latitude."""
-    latitude = mercator_to_wgs84(float(geometry.centroid.x), float(geometry.centroid.y))[1]
-    return math.cos(math.radians(latitude)) ** 2
-
-
 class PlotIntelligenceBuilder:
     """Resumably derive one intelligence record per village/CTS identity."""
 
@@ -240,11 +235,18 @@ class PlotIntelligenceBuilder:
             if not identities:
                 raise RuntimeError("selected parcel range contains no identities")
             scope = "full" if limit is None and offset == 0 else "sample"
+            authority_revision = _authority_registry_revision(self.database)
             fingerprint = _source_fingerprint(
                 parcel_snapshot_id,
                 parcels.snapshot_metadata(parcel_snapshot_id),
                 planning_snapshot_id,
                 planning_snapshot.content_hash,
+                authority_revision,
+            )
+            parcel_snapshot_date = (
+                datetime.fromtimestamp(float(parcel_snapshot.finalized_at), timezone.utc).isoformat()
+                if parcel_snapshot.finalized_at is not None
+                else None
             )
             build_id = intelligence.begin_build(
                 parcel_snapshot_id=parcel_snapshot_id,
@@ -263,41 +265,51 @@ class PlotIntelligenceBuilder:
 
             def derive(shard: Sequence[Tuple[str, str]]) -> int:
                 shard_failures = 0
-                with (
-                    SnapshotStore.open(self.database) as worker_parcels,
-                    PlanningSnapshotStore.open(self.database) as worker_planning,
-                    IntelligenceStore.open(self.database) as worker_intelligence,
-                ):
-                    road_provider = LocalRoadProvider(worker_planning, snapshot_id=planning_snapshot_id)
-                    neighbour_provider = LocalNeighbourProvider(self.database, store=worker_parcels)
-                    evidence_analyzer = LocalFirstPlanningEvidenceAnalyzer(
-                        worker_planning,
-                        mode="local",
-                        max_snapshot_age_days=None,
-                        snapshot_id=planning_snapshot_id,
-                    )
-                    for village, cts_no in shard:
-                        try:
-                            plot = self._analyze(
-                                worker_parcels,
-                                worker_planning,
-                                parcel_snapshot_id,
-                                planning_snapshot_id,
-                                village,
-                                cts_no,
-                                road_provider,
-                                neighbour_provider if include_neighbours else None,
-                                evidence_analyzer,
-                                selected_mode,
-                            )
-                            worker_intelligence.upsert(build_id, plot)
-                        except Exception as exc:
-                            shard_failures += 1
-                            worker_intelligence.record_issue(build_id, village, cts_no, str(exc))
-                        if progress:
-                            with progress_lock:
-                                progress_count[0] += 1
-                                progress(progress_count[0], len(identities), village, cts_no)
+                worker_authority = (
+                    AuthorityStore.open(self.database, create=False) if authority_revision is not None else None
+                )
+                try:
+                    with (
+                        SnapshotStore.open(self.database) as worker_parcels,
+                        PlanningSnapshotStore.open(self.database) as worker_planning,
+                        IntelligenceStore.open(self.database) as worker_intelligence,
+                    ):
+                        road_provider = LocalRoadProvider(worker_planning, snapshot_id=planning_snapshot_id)
+                        neighbour_provider = LocalNeighbourProvider(self.database, store=worker_parcels)
+                        evidence_analyzer = LocalFirstPlanningEvidenceAnalyzer(
+                            worker_planning,
+                            mode="local",
+                            max_snapshot_age_days=None,
+                            snapshot_id=planning_snapshot_id,
+                        )
+                        authority_resolver = AuthorityResolver(worker_authority) if worker_authority else None
+                        for village, cts_no in shard:
+                            try:
+                                plot = self._analyze(
+                                    worker_parcels,
+                                    worker_planning,
+                                    parcel_snapshot_id,
+                                    parcel_snapshot_date,
+                                    planning_snapshot_id,
+                                    village,
+                                    cts_no,
+                                    road_provider,
+                                    neighbour_provider if include_neighbours else None,
+                                    evidence_analyzer,
+                                    selected_mode,
+                                    authority_resolver,
+                                )
+                                worker_intelligence.upsert(build_id, plot)
+                            except Exception as exc:
+                                shard_failures += 1
+                                worker_intelligence.record_issue(build_id, village, cts_no, str(exc))
+                            if progress:
+                                with progress_lock:
+                                    progress_count[0] += 1
+                                    progress(progress_count[0], len(identities), village, cts_no)
+                finally:
+                    if worker_authority is not None:
+                        worker_authority.close()
                 return shard_failures
 
             with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="plot-intelligence") as pool:
@@ -319,6 +331,7 @@ class PlotIntelligenceBuilder:
                 "resumed_records": len(completed),
                 "workers": worker_count,
                 "source_fingerprint": fingerprint,
+                "authority_registry_revision": authority_revision,
                 "validation": report,
                 "note": (
                     "Verify and activate this full build before using it as the default intelligence source."
@@ -332,6 +345,7 @@ class PlotIntelligenceBuilder:
         parcels: SnapshotStore,
         planning: PlanningSnapshotStore,
         parcel_snapshot_id: int,
+        parcel_snapshot_date: Optional[str],
         planning_snapshot_id: int,
         village: str,
         cts_no: str,
@@ -339,19 +353,27 @@ class PlotIntelligenceBuilder:
         neighbour_provider: Optional[LocalNeighbourProvider],
         evidence_analyzer: LocalFirstPlanningEvidenceAnalyzer,
         evidence_mode: EvidenceMode,
+        authority_resolver: Optional[AuthorityResolver] = None,
     ) -> PlotIntelligence:
         rows = parcels.lookup(village, cts_no, snapshot_id=parcel_snapshot_id)
         feature = merge_local_features(rows)
         if feature is None:
             raise RuntimeError("parcel identity disappeared from the pinned snapshot")
         feature["attributes"]["_DP_SNAPSHOT_ID"] = parcel_snapshot_id
+        if parcel_snapshot_date is not None:
+            feature["attributes"]["_DP_SNAPSHOT_FINALIZED_AT_ISO"] = parcel_snapshot_date
         parcel, area_note = build_parcel_context(feature, village, cts_no)
+        if authority_resolver is not None:
+            parcel = authority_resolver.resolve(parcel)
         geometry = arcgis_rings_to_geometry(parcel.rings)
-        area_scale = _ground_area_scale(geometry)
+        assessment = parcel.area_assessment
+        if assessment is None or assessment.calculated_boundary_area_sqm is None:
+            raise RuntimeError("parcel boundary area assessment is unavailable")
+        area_scale = assessment.calculated_boundary_area_sqm / float(geometry.area)
         by_layer = {
             layer_id: planning.query_layer(planning_snapshot_id, layer_id, geometry) for layer_id in CORE_LAYER_IDS
         }
-        planning_result = build_spatial_planning_result(geometry, by_layer, [])
+        planning_result = build_spatial_planning_result(geometry, by_layer, [], area_scale=area_scale)
         road = road_provider(parcel)
         if road is None:
             raise RuntimeError("local road provider did not accept a locally sourced parcel")
@@ -383,13 +405,8 @@ class PlotIntelligenceBuilder:
         warnings.extend(report.warnings)
         if area_note:
             warnings.append(str(area_note))
-        geometry_area = float(geometry.area) * area_scale
-        area_difference_percent = abs(geometry_area - parcel.area_sqm) / parcel.area_sqm * 100.0
-        if area_difference_percent > 5.0:
-            warnings.append(
-                "Approved plot area and digitized boundary area differ by "
-                f"{area_difference_percent:.2f}%; approved area is retained for area totals."
-            )
+        warnings.extend(flag.message for flag in assessment.flags)
+        geometry_area = assessment.calculated_boundary_area_sqm
         if planning_result["primary_zone"] == "Unknown" or not report.complete:
             confidence = "review_required"
         elif warnings:
@@ -416,8 +433,14 @@ class PlotIntelligenceBuilder:
             "queried_layer_count": len(report.outcomes),
             "outcome_counts": dict(sorted(outcome_counts.items())),
             "overlap_area_basis": "digitized parcel geometry",
-            "geometry_area_method": "EPSG:3857 area corrected by cos(latitude)^2",
+            "geometry_area_method": assessment.calculation_method,
             "area_totals_basis": parcel.area_source,
+            "area_assessment": assessment.to_dict(),
+            **(
+                {"authority_resolution": dict(parcel.authority_resolution)}
+                if parcel.authority_resolution is not None
+                else {}
+            ),
         }
         source_objectids = tuple(sorted(int(row["objectid"]) for row in rows))
         calculated_at = datetime.now(timezone.utc).isoformat()
@@ -433,10 +456,10 @@ class PlotIntelligenceBuilder:
             centroid_x=round(float(geometry.centroid.x), 3),
             centroid_y=round(float(geometry.centroid.y), 3),
             primary_zone=str(planning_result["primary_zone"]),
-            zones=_scaled_items(planning_result["zones"], area_scale),
-            reservations=_scaled_items(planning_result["reservations"], area_scale),
-            designations=_scaled_items(planning_result["designations"], area_scale),
-            modifications=_scaled_items(planning_result["modifications"], area_scale),
+            zones=_compact(planning_result["zones"]),
+            reservations=_compact(planning_result["reservations"]),
+            designations=_compact(planning_result["designations"]),
+            modifications=_compact(planning_result["modifications"]),
             metro_buffer=str(planning_result["metro_buffer"]),
             crz_status=str(planning_result["crz_status"]),
             encumbered_area_sqm=round(parcel.area_sqm * float(planning_result["encumbered_percent"]) / 100.0, 2),

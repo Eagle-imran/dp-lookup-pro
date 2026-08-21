@@ -153,7 +153,43 @@ def update_excel_register(
             "geojson_file",
             "kml_file",
             "map_link",
+            "recorded_plot_area_sqm",
+            "calculated_boundary_area_sqm",
+            "area_difference_sqm",
+            "area_difference_percent",
+            "area_reliability",
+            "area_quality_flags",
+            "area_geometry_source",
+            "area_source_snapshot_id",
+            "area_source_snapshot_date",
+            "authority_status",
+            "authority_policy_version",
+            "authority_area_record_id",
+            "authority_geometry_record_id",
+            "authority_planning_record_ids",
+            "authority_active_record_ids",
         ]
+
+        assessment = attrs.get("_DP_AREA_ASSESSMENT")
+        if not isinstance(assessment, dict):
+            assessment = {}
+        selected_area = assessment.get("selected_area_sqm", attrs.get("AREA_APP_SQ_MTRS"))
+        quality_flags = assessment.get("quality_flags") or []
+        quality_flag_codes = "; ".join(
+            str(flag.get("code")) for flag in quality_flags if isinstance(flag, dict) and flag.get("code")
+        )
+        authority = attrs.get("_DP_AUTHORITY_RESOLUTION")
+        if not isinstance(authority, dict):
+            authority = {}
+        area_authority = authority.get("area") if isinstance(authority.get("area"), dict) else {}
+        geometry_authority = authority.get("geometry") if isinstance(authority.get("geometry"), dict) else {}
+        planning_authority = authority.get("planning") if isinstance(authority.get("planning"), list) else []
+        planning_record_ids = "; ".join(
+            str(item.get("record_id"))
+            for item in planning_authority
+            if isinstance(item, dict) and item.get("record_id") is not None
+        )
+        active_record_ids = "; ".join(str(value) for value in authority.get("active_record_ids", []))
 
         excel_res_code = "; ".join(r["code"] for r in reservations) if reservations else res_code
         excel_res_type = (
@@ -169,7 +205,7 @@ def update_excel_register(
             village,
             cts_number,
             attrs.get("TYPE"),
-            attrs.get("AREA_APP_SQ_MTRS"),
+            selected_area,
             zone,
             status_badge,
             excel_res_code,
@@ -191,6 +227,21 @@ def update_excel_register(
             geojson_fname,
             kml_fname,
             map_link,
+            assessment.get("recorded_plot_area_sqm", attrs.get("AREA_APP_SQ_MTRS")),
+            assessment.get("calculated_boundary_area_sqm"),
+            assessment.get("difference_sqm"),
+            assessment.get("difference_percent"),
+            assessment.get("reliability_label", "Screening"),
+            quality_flag_codes,
+            assessment.get("geometry_source", "MCGM cadastral parcel boundary"),
+            assessment.get("source_snapshot_id"),
+            assessment.get("source_snapshot_date"),
+            authority.get("status"),
+            authority.get("policy_version"),
+            area_authority.get("record_id"),
+            geometry_authority.get("record_id"),
+            planning_record_ids,
+            active_record_ids,
         ]
 
         register_path = os.path.realpath(os.path.abspath(os.path.expanduser(os.fspath(register_path))))
@@ -202,6 +253,15 @@ def update_excel_register(
                 if ws.max_row == 1 and ws["A1"].value is None:
                     for column, header in enumerate(headers, start=1):
                         ws.cell(row=1, column=column, value=header)
+                else:
+                    existing_headers = {
+                        str(ws.cell(row=1, column=column).value): column
+                        for column in range(1, ws.max_column + 1)
+                        if ws.cell(row=1, column=column).value is not None
+                    }
+                    for column, header in enumerate(headers, start=1):
+                        if header not in existing_headers:
+                            ws.cell(row=1, column=column, value=header)
                 ws.append(row)
                 _save_workbook_atomic(wb, register_path)
             finally:

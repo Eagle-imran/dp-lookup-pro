@@ -1,5 +1,6 @@
 """Contracts for the typed internal result model and legacy serialization."""
 
+from dp_lookup.core.area_assessment import assess_plot_area
 from dp_lookup.core.models import (
     ArtifactManifest,
     ExportData,
@@ -116,3 +117,34 @@ def test_typed_result_preserves_legacy_singular_planning_fields():
     assert remarks["reservation"]["code"] == "ROS1.5"
     assert remarks["designation"]["code"] == "EOS"
     assert remarks["dp_modification"]["approval_no"] == "MO-1"
+
+
+def test_area_assessment_is_additive_to_legacy_result_and_export_shapes():
+    rings = [
+        [
+            [8_106_500.0, 2_151_700.0],
+            [8_106_510.0, 2_151_700.0],
+            [8_106_510.0, 2_151_710.0],
+            [8_106_500.0, 2_151_710.0],
+            [8_106_500.0, 2_151_700.0],
+        ]
+    ]
+    assessment = assess_plot_area(
+        {"OBJECTID": 1, "VILLAGE": "WORLI", "CTS_CS_NO": "733", "AREA_APP_SQ_MTRS": 100.0},
+        rings,
+    )
+    identity = PlotIdentity(
+        "WORLI",
+        "733",
+        "G/S",
+        "CTS",
+        100.0,
+        "Recorded plot area",
+        19.0,
+        72.8,
+        assessment,
+    ).to_dict()
+
+    assert identity["area_sqm"] == 100.0
+    assert identity["area_source"] == "Recorded plot area"
+    assert identity["area_assessment"]["recorded_plot_area_sqm"] == 100.0

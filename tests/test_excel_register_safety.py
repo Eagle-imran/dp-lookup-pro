@@ -53,7 +53,9 @@ def test_register_preserves_existing_xlsx_shape(tmp_path):
     workbook = openpyxl.load_workbook(path, read_only=True, data_only=False)
     sheet = workbook.active
     assert sheet.max_row == 2
-    assert sheet.max_column == 28
+    assert sheet.max_column == 43
+    assert sheet.cell(row=1, column=29).value == "recorded_plot_area_sqm"
+    assert sheet.cell(row=1, column=30).value == "calculated_boundary_area_sqm"
     assert sheet.cell(1, 5).value == "cts_no"
     assert sheet.cell(2, 5).value == "700"
     workbook.close()
@@ -73,6 +75,36 @@ def test_failed_atomic_save_preserves_previous_register(tmp_path, monkeypatch):
 
     assert path.read_bytes() == before
     assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_register_appends_structured_area_authority_columns(tmp_path):
+    path = tmp_path / "dp-lookups.xlsx"
+    args = _register_args(path, 0)
+    args["attrs"]["_DP_AREA_ASSESSMENT"] = {
+        "recorded_plot_area_sqm": 100.0,
+        "calculated_boundary_area_sqm": 106.0,
+        "selected_area_sqm": 100.0,
+        "difference_sqm": 6.0,
+        "difference_percent": 6.0,
+        "reliability_label": "Qualified with warnings",
+        "geometry_source": "MCGM cadastral parcel boundary",
+        "quality_flags": [{"code": "area_difference_over_5_percent"}],
+        "source_snapshot_id": 7,
+        "source_snapshot_date": "2026-08-22T00:00:00+00:00",
+    }
+
+    excel.update_excel_register(**args)
+
+    workbook = openpyxl.load_workbook(path, read_only=True, data_only=False)
+    sheet = workbook.active
+    values = {sheet.cell(1, column).value: sheet.cell(2, column).value for column in range(1, 44)}
+    workbook.close()
+    assert values["recorded_plot_area_sqm"] == 100.0
+    assert values["calculated_boundary_area_sqm"] == 106.0
+    assert values["area_difference_percent"] == 6.0
+    assert values["area_reliability"] == "Qualified with warnings"
+    assert values["area_quality_flags"] == "area_difference_over_5_percent"
+    assert values["area_source_snapshot_id"] == 7
 
 
 def test_multiprocess_register_appends_do_not_lose_rows(tmp_path):

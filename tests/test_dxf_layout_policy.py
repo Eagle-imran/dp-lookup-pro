@@ -12,6 +12,7 @@ from dp_lookup.exporters.dxf import (
     DxfLayoutPolicy,
     boxes_overlap,
     export_dxf,
+    legend_data_rows,
     text_extents,
 )
 
@@ -63,6 +64,33 @@ def test_default_layout_policy_is_frozen_and_has_stable_grid_breaks():
     assert DEFAULT_DXF_LAYOUT_POLICY.grid_step_for(1001.0) == 500.0
     with pytest.raises(FrozenInstanceError):
         DEFAULT_DXF_LAYOUT_POLICY.min_scale = 10.0  # type: ignore[misc]
+
+
+def test_structured_area_assessment_drives_dxf_legend_and_keeps_legacy_signature():
+    properties = {
+        **_properties(),
+        "area_source": "approved (legacy input)",
+        "area_assessment": {
+            "recorded_plot_area_sqm": 1000.0,
+            "calculated_boundary_area_sqm": 1061.0,
+            "selected_area_basis": "recorded_plot_area",
+            "difference_sqm": 61.0,
+            "difference_percent": 6.1,
+            "recorded_area_source": "MCGM cadastral parcel record",
+            "geometry_source": "MCGM cadastral parcel boundary",
+            "reliability_label": "Qualified with warnings",
+        },
+    }
+
+    rows = legend_data_rows(properties, {3.0: True, 6.0: True}, measured_area_sqm=9999.0)
+    text = " ".join(rows)
+
+    assert "RECORDED PLOT AREA" in text
+    assert "CALCULATED (BDY)" in text
+    assert "1061.00 sq m  (+6.10% vs record)" in text
+    assert "Qualified with warnings" in text
+    assert "9999.00" not in text
+    assert "approved" not in text.casefold()
 
 
 @pytest.mark.parametrize(

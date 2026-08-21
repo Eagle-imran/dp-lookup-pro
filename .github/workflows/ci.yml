@@ -30,8 +30,11 @@ jobs:
       - run: uv run ruff check .
       - run: >-
           uv run ruff format --check
+          dp_lookup/authority
+          dp_lookup/authority_cli.py
           dp_lookup/application
           dp_lookup/clients
+          dp_lookup/core/area_assessment.py
           dp_lookup/core/models.py
           dp_lookup/core/topology.py
           dp_lookup/core/villages.py
@@ -40,6 +43,10 @@ jobs:
           dp_lookup/exporters/excel.py
           dp_lookup/exporters/html_map.py
           tests/test_application_stages.py
+          tests/test_area_assessment.py
+          tests/test_authority_cli.py
+          tests/test_authority_selection.py
+          tests/test_authority_store.py
           tests/test_architecture_contract.py
           tests/test_artifact_isolation.py
           tests/test_cache_hardening.py
@@ -106,7 +113,7 @@ jobs:
           python -c "import glob,zipfile;
           p=glob.glob('dist/*.whl')[0];
           n=set(zipfile.ZipFile(p).namelist());
-          required={'dp_lookup/application/lookup_service.py','dp_lookup/application/dependencies.py','dp_lookup/application/exporting.py','dp_lookup/clients/transport.py','dp_lookup/clients/planning_queries.py','dp_lookup/core/models.py','dp_lookup/core/topology.py','dp_lookup/exporters/contracts.py','dp_lookup/exporters/templates/html_map.html','dp_lookup/exporters/templates/dossier.css','dp_lookup/exporters/templates/dossier.js','dp_lookup/py.typed'};
+          required={'dp_lookup/application/lookup_service.py','dp_lookup/application/dependencies.py','dp_lookup/application/exporting.py','dp_lookup/application/authority_resolver.py','dp_lookup/authority/models.py','dp_lookup/authority/store.py','dp_lookup/authority/selection.py','dp_lookup/authority_cli.py','dp_lookup/clients/transport.py','dp_lookup/clients/planning_queries.py','dp_lookup/core/area_assessment.py','dp_lookup/core/models.py','dp_lookup/core/topology.py','dp_lookup/exporters/contracts.py','dp_lookup/exporters/templates/html_map.html','dp_lookup/exporters/templates/dossier.css','dp_lookup/exporters/templates/dossier.js','dp_lookup/py.typed'};
           assert required <= n, required-n"
       - name: Install the wheel into a clean environment
         run: |

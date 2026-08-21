@@ -8,10 +8,11 @@ Net Developable buildable envelope, and measure tool.
 """
 
 import json
+import math
 import re
 from html import escape as _escape_html
 from importlib import resources
-from typing import List, Optional, Sequence
+from typing import Any, List, Mapping, Optional, Sequence
 
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.ops import unary_union
@@ -46,6 +47,126 @@ def _render_html_template(values: Sequence[str]) -> str:
 def _render_asset_template(name: str, values: Sequence[str]) -> str:
     """Render a packaged first-party CSS or JavaScript asset strictly."""
     return _render_resource_template(name, _ASSET_TOKEN_RE, values)
+
+
+def _finite_number(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _area_presentation(properties: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize the typed area assessment and retain legacy direct-call support."""
+    legacy_area = _finite_number(properties.get("area_sqm"))
+    raw_assessment = properties.get("area_assessment")
+    if not isinstance(raw_assessment, Mapping):
+        legacy_source = str(properties.get("area_source") or "").casefold()
+        boundary_only = any(token in legacy_source for token in ("boundary", "derived", "shape.area"))
+        recorded = None if boundary_only else legacy_area
+        calculated = legacy_area if boundary_only else None
+        return {
+            "recorded": recorded,
+            "calculated": calculated,
+            "selected": legacy_area,
+            "difference_sqm": None,
+            "difference_percent": None,
+            "reliability_status": "screening",
+            "reliability_label": "Screening",
+            "recorded_source": "MCGM cadastral parcel record",
+            "geometry_source": "MCGM cadastral parcel boundary",
+        }
+
+    recorded = _finite_number(raw_assessment.get("recorded_plot_area_sqm"))
+    calculated = _finite_number(raw_assessment.get("calculated_boundary_area_sqm"))
+    selected = _finite_number(raw_assessment.get("selected_area_sqm"))
+    if selected is None:
+        selected = legacy_area if legacy_area is not None else (recorded if recorded is not None else calculated)
+    difference_sqm = _finite_number(raw_assessment.get("difference_sqm"))
+    difference_percent = _finite_number(raw_assessment.get("difference_percent"))
+    if difference_sqm is None and recorded is not None and calculated is not None:
+        difference_sqm = calculated - recorded
+    if difference_percent is None and recorded is not None and recorded != 0.0 and difference_sqm is not None:
+        difference_percent = abs(difference_sqm) / recorded * 100.0
+    raw_reliability_status = str(raw_assessment.get("reliability_status") or "screening")
+    reliability_status = (
+        raw_reliability_status
+        if raw_reliability_status in {"screening", "verified_source", "qualified_with_warnings", "certified"}
+        else "screening"
+    )
+    reliability_label = {
+        "screening": "Screening",
+        "verified_source": "Verified source",
+        "qualified_with_warnings": "Qualified with warnings",
+        "certified": "Certified",
+    }[reliability_status]
+    return {
+        "recorded": recorded,
+        "calculated": calculated,
+        "selected": selected,
+        "difference_sqm": difference_sqm,
+        "difference_percent": difference_percent,
+        "reliability_status": reliability_status,
+        "reliability_label": reliability_label,
+        "recorded_source": str(raw_assessment.get("recorded_area_source") or "MCGM cadastral parcel record"),
+        "geometry_source": str(raw_assessment.get("geometry_source") or "MCGM cadastral parcel boundary"),
+    }
+
+
+def _area_value_text(value: Optional[float]) -> str:
+    return f"{value:,.2f} m²" if value is not None else "Not available"
+
+
+def _area_difference_text(area: Mapping[str, Any]) -> str:
+    difference_sqm = _finite_number(area.get("difference_sqm"))
+    difference_percent = _finite_number(area.get("difference_percent"))
+    if difference_sqm is None or difference_percent is None:
+        return "Not comparable"
+    return f"{difference_percent:.2f}% ({difference_sqm:+,.2f} m²)"
+
+
+def _area_sources_text(area: Mapping[str, Any]) -> str:
+    sources = []
+    if _finite_number(area.get("recorded")) is not None:
+        sources.append(f"Recorded: {area['recorded_source']}")
+    if _finite_number(area.get("calculated")) is not None:
+        sources.append(f"Boundary: {area['geometry_source']}")
+    return " · ".join(sources) if sources else "Area source unavailable"
+
+
+def _authority_text(properties: Mapping[str, Any]) -> tuple[str, str]:
+    raw = properties.get("authority_resolution")
+    if not isinstance(raw, Mapping):
+        return "", "is-hidden"
+    active_ids = raw.get("active_record_ids")
+    if not isinstance(active_ids, (list, tuple)) or not active_ids:
+        return "", "is-hidden"
+    selected = []
+    for purpose in ("area", "geometry"):
+        item = raw.get(purpose)
+        if isinstance(item, Mapping) and item.get("source_label"):
+            selected.append(f"{purpose}: {item['source_label']}")
+    planning = raw.get("planning")
+    if isinstance(planning, list):
+        selected.extend(
+            f"planning: {item['source_label']}"
+            for item in planning
+            if isinstance(item, Mapping) and item.get("source_label")
+        )
+    detail = "; ".join(selected) if selected else "explicitly activated source evidence"
+    ids = ", ".join(str(value) for value in active_ids)
+    return f"Authority selection - {detail} (record IDs: {ids}). MCGM baseline retained.", ""
+
+
+def _reliability_css_class(status: str) -> str:
+    return {
+        "verified_source": "reliability-verified",
+        "qualified_with_warnings": "reliability-qualified",
+        "certified": "reliability-certified",
+    }.get(status, "reliability-screening")
 
 
 def _compute_net_developable_wgs(wgs_rings: list, encumbered_items: list) -> List[List[List[float]]]:
@@ -110,7 +231,9 @@ def export_html_map(
     center_lat = sum(all_lats) / len(all_lats)
     center_lon = sum(all_lons) / len(all_lons)
 
-    area_sqm = float(properties.get("area_sqm") or 0.0)
+    area_presentation = _area_presentation(properties)
+    authority_text, authority_css_class = _authority_text(properties)
+    area_sqm = float(area_presentation["selected"] or 0.0)
     area_sqft = area_sqm * 10.7639
     enc_pct = float(properties.get("encumbered_percent") or 0.0)
     if enc_pct <= 0.0:
@@ -222,6 +345,18 @@ def export_html_map(
             "status_badge": properties.get("status_badge", "🟢 CLEAR"),
             "area_sqm": round(area_sqm, 2),
             "area_sqft": round(area_sqft, 2),
+            "area_assessment": {
+                "recorded_plot_area_sqm": area_presentation["recorded"],
+                "calculated_boundary_area_sqm": area_presentation["calculated"],
+                "difference_sqm": area_presentation["difference_sqm"],
+                "difference_percent": area_presentation["difference_percent"],
+                "reliability_status": area_presentation["reliability_status"],
+                "reliability_label": area_presentation["reliability_label"],
+                "recorded_area_source": area_presentation["recorded_source"],
+                "geometry_source": area_presentation["geometry_source"],
+            },
+            "authority_resolution": properties.get("authority_resolution"),
+            "geometry_source": area_presentation["geometry_source"],
             "encumbered_sqm": round(enc_sqm, 2),
             "encumbered_percent": round(enc_pct, 1),
             "net_sqm": round(net_sqm, 2),
@@ -286,6 +421,14 @@ def export_html_map(
         str(len(neighbors or [])),
         dossier_css,
         dossier_js,
+        _escape_html(_area_value_text(area_presentation["recorded"])),
+        _escape_html(_area_value_text(area_presentation["calculated"])),
+        _escape_html(_area_difference_text(area_presentation)),
+        _reliability_css_class(str(area_presentation["reliability_status"])),
+        _escape_html(str(area_presentation["reliability_label"])),
+        _escape_html(_area_sources_text(area_presentation)),
+        _escape_html(authority_text),
+        authority_css_class,
     ]
     html_content = _render_html_template(html_values)
     with open(output_path, "w", encoding="utf-8") as f:

@@ -2,11 +2,15 @@
 
 ## Executive summary
 
-The planning-evidence capability extends the existing DP lookup with a source-backed due-diligence register. It does not replace Layer 13 parcel ingestion, the established planning result, a sanctioned plan, an official DP Remark, title review, or professional legal advice.
+The planning-evidence capability extends the existing DP lookup with a
+source-backed due-diligence register. It does not replace ingestion of the MCGM
+cadastral parcel record (technical ArcGIS provenance: Development Plan Layer
+13), the established planning result, a sanctioned plan, an official DP Remark,
+title review, or professional legal advice.
 
 The main workflow remains unchanged in `basic` mode. Expanded modes evaluate
-curated additional layers only after Layer 13 has returned and validated the
-parcel geometry. CLI `auto` reads the active planning snapshot first and falls
+curated additional layers only after the cadastral parcel source has returned
+and validated the parcel geometry. CLI `auto` reads the active planning snapshot first and falls
 back visibly to live ArcGIS when it is unavailable, invalid or stale. Results
 are added under:
 
@@ -41,7 +45,7 @@ stored normally, while incomplete core or optional evidence is not cached.
 ## Architecture and understanding
 
 ```text
-Validated Layer 13 parcel (local-first CLI, required)
+Validated Layer 13 parcel (local-first CLI, required) — MCGM cadastral parcel record
         │
         ├── existing zoning/planning/road/report pipeline
         │

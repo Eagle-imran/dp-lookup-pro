@@ -8,6 +8,7 @@ three vector exporters.
 
 Run:  uv run pytest -q
 """
+
 import json
 import math
 import os
@@ -23,6 +24,7 @@ import cts_dp_lookup_pro as dp
 # --------------------------------------------------------------------------
 # Projection and tile maths
 # --------------------------------------------------------------------------
+
 
 def test_utm43n_matches_known_mumbai_point():
     """Mumbai sits in UTM zone 43N; easting must land west of the 500 km meridian."""
@@ -63,23 +65,36 @@ def test_tile_to_latlon_is_tile_top_left():
 # Input validation  (regression: sql-injection-where-clause)
 # --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("value", [
-    "BANDRA-A", "MALABAR HILL", "KURLA - 1", "BHANDUP-E",
-    "WORLI", "16/738", "748A", "1605",
-])
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "BANDRA-A",
+        "MALABAR HILL",
+        "KURLA - 1",
+        "BHANDUP-E",
+        "WORLI",
+        "16/738",
+        "748A",
+        "1605",
+    ],
+)
 def test_real_mcgm_values_are_accepted(value):
     assert dp.sanitize_query_value(value, dp._VILLAGE_RE, "village", 64) == value
 
 
-@pytest.mark.parametrize("value", [
-    "1' OR '1'='1",
-    "WORLI'--",
-    "'; DROP TABLE x; --",
-    "A" * 100,
-    "",
-    "   ",
-    "bad\nvalue",
-])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "1' OR '1'='1",
+        "WORLI'--",
+        "'; DROP TABLE x; --",
+        "A" * 100,
+        "",
+        "   ",
+        "bad\nvalue",
+    ],
+)
 def test_injection_and_junk_are_rejected(value):
     with pytest.raises(ValueError):
         dp.sanitize_query_value(value, dp._VILLAGE_RE, "village", 64)
@@ -98,6 +113,7 @@ def test_whitespace_is_trimmed_not_rejected():
 # --------------------------------------------------------------------------
 # ArcGIS error-body detection  (regression: http-200-with-error-body-swallowed)
 # --------------------------------------------------------------------------
+
 
 class FakeResp:
     def __init__(self, status=200, payload=None, boom=False):
@@ -137,6 +153,7 @@ def test_empty_results_is_distinguishable_from_failure():
 # Escaping  (regression: kml-no-xml-escaping, reportlab markup injection)
 # --------------------------------------------------------------------------
 
+
 def test_esc_handles_xml_metacharacters():
     assert dp._esc("A & B") == "A &amp; B"
     assert dp._esc("<tag>") == "&lt;tag&gt;"
@@ -146,12 +163,22 @@ def test_esc_handles_xml_metacharacters():
 
 def test_kml_with_ampersand_village_is_well_formed(tmp_path):
     import xml.etree.ElementTree as ET
+
     out = tmp_path / "x.kml"
     dp.export_kml(
         [[[72.8, 19.0], [72.81, 19.0], [72.81, 19.01], [72.8, 19.0]]],
-        {"cts_no": "7 & 8", "village": "A<B>", "ward": "G/S", "zone": "R",
-         "area_sqm": 100, "status_badge": "CLEAR", "crz_buffer_flag": "NO",
-         "metro_buffer_flag": "NO", "abutting_road": "R & R", "road_width": "9 M"},
+        {
+            "cts_no": "7 & 8",
+            "village": "A<B>",
+            "ward": "G/S",
+            "zone": "R",
+            "area_sqm": 100,
+            "status_badge": "CLEAR",
+            "crz_buffer_flag": "NO",
+            "metro_buffer_flag": "NO",
+            "abutting_road": "R & R",
+            "road_width": "9 M",
+        },
         str(out),
     )
     ET.parse(str(out))  # raises if the escaping is wrong
@@ -160,6 +187,7 @@ def test_kml_with_ampersand_village_is_well_formed(tmp_path):
 # --------------------------------------------------------------------------
 # Cache behaviour  (regression: cache-no-expiry, cache-path-cwd-relative)
 # --------------------------------------------------------------------------
+
 
 def test_cache_path_follows_output_dir(tmp_path):
     assert dp.cache_path_for(str(tmp_path)) == os.path.join(str(tmp_path), dp.CACHE_FILENAME)
@@ -269,9 +297,16 @@ def test_cache_survives_corrupt_store(tmp_path):
 
 RING = [[[72.8200, 18.9700], [72.8210, 18.9700], [72.8210, 18.9710], [72.8200, 18.9710], [72.8200, 18.9700]]]
 PROPS = {
-    "cts_no": "947", "village": "WORLI", "ward": "G/S", "zone": "R",
-    "area_sqm": 462.28, "status_badge": "CLEAR", "crz_buffer_flag": "YES (CRZ II)",
-    "metro_buffer_flag": "NO", "abutting_road": "B G KHER", "road_width": "18.30 M",
+    "cts_no": "947",
+    "village": "WORLI",
+    "ward": "G/S",
+    "zone": "R",
+    "area_sqm": 462.28,
+    "status_badge": "CLEAR",
+    "crz_buffer_flag": "YES (CRZ II)",
+    "metro_buffer_flag": "NO",
+    "abutting_road": "B G KHER",
+    "road_width": "18.30 M",
 }
 
 
@@ -356,8 +391,7 @@ def test_setback_is_a_true_parallel_offset(poly, distance):
             a, b = ring[i], ring[(i + 1) % len(ring)]
             for step in range(21):  # sample along each edge, not just the ends
                 t = step / 20.0
-                sampled.append(_dist_to_boundary(
-                    (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t), poly))
+                sampled.append(_dist_to_boundary((a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t), poly))
 
     assert min(sampled) >= distance - 0.02, "setback encroaches inside the required distance"
     assert min(sampled) <= distance + 0.02, "setback is further in than required"
@@ -384,28 +418,42 @@ def test_dxf_has_no_empty_layers_and_carries_a_legend(tmp_path):
     """A declared-but-empty layer misleads whoever opens the drawing."""
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    ring = [[[72.8200, 18.9700], [72.8215, 18.9700], [72.8215, 18.9715],
-             [72.8200, 18.9715], [72.8200, 18.9700]]]
-    props = dict(PROPS, crz_buffer_flag="YES (CRZ II)", metro_buffer_flag="YES",
-                 area_source="approved (MCGM AREA_APP_SQ_MTRS)")
+    ring = [[[72.8200, 18.9700], [72.8215, 18.9700], [72.8215, 18.9715], [72.8200, 18.9715], [72.8200, 18.9700]]]
+    props = dict(
+        PROPS, crz_buffer_flag="YES (CRZ II)", metro_buffer_flag="YES", area_source="approved (MCGM AREA_APP_SQ_MTRS)"
+    )
     roads = [[[72.8195, 18.9698], [72.8220, 18.9698]]]
-    neighbours = [{"cts_no": "948", "rings": [[[72.8216, 18.9700], [72.8225, 18.9700],
-                                               [72.8225, 18.9712], [72.8216, 18.9700]]]}]
+    neighbours = [
+        {"cts_no": "948", "rings": [[[72.8216, 18.9700], [72.8225, 18.9700], [72.8225, 18.9712], [72.8216, 18.9700]]]}
+    ]
     dp.export_dxf(ring, props, str(out), neighbors=neighbours, roads=roads)
 
     doc = ezdxf.readfile(str(out))
     msp = doc.modelspace()
     used = {e.dxf.layer for e in msp}
-    for layer in ("C-PLOT-BDY", "C-ROAD-ALIGN", "C-ADJN-PLOTS", "C-SETBACK-3M",
-                  "C-RESTRICT-ZONE", "C-NORTH-ARROW", "C-TITLE-BLOCK", "C-ANNO-DIMS"):
+    for layer in (
+        "C-PLOT-BDY",
+        "C-ROAD-ALIGN",
+        "C-ADJN-PLOTS",
+        "C-SETBACK-3M",
+        "C-RESTRICT-ZONE",
+        "C-NORTH-ARROW",
+        "C-TITLE-BLOCK",
+        "C-ANNO-DIMS",
+    ):
         assert layer in used, f"{layer} is declared but empty"
 
     text = " ".join(
-        (e.plain_text() if hasattr(e, "plain_text") else e.dxf.text)
-        for e in msp if e.dxftype() in ("TEXT", "MTEXT")
+        (e.plain_text() if hasattr(e, "plain_text") else e.dxf.text) for e in msp if e.dxftype() in ("TEXT", "MTEXT")
     )
-    for token in ("LAYER LEGEND", "PLOT DATA", "GROSS PLOT AREA", "ABUTTING ROAD",
-                  "CRZ STATUS", "1 CAD unit = 1 metre"):
+    for token in (
+        "LAYER LEGEND",
+        "PLOT DATA",
+        "GROSS PLOT AREA",
+        "ABUTTING ROAD",
+        "CRZ STATUS",
+        "1 CAD unit = 1 metre",
+    ):
         assert token in text, f"legend is missing {token!r}"
 
 
@@ -413,12 +461,14 @@ def test_dxf_geometry_stays_within_sane_extents(tmp_path):
     """Regression: neighbour rings arrived in Web Mercator and drew at ~8e11."""
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    neighbours = [{"cts_no": "1", "rings": [[[72.8216, 18.9700], [72.8225, 18.9700],
-                                             [72.8225, 18.9712], [72.8216, 18.9700]]]}]
+    neighbours = [
+        {"cts_no": "1", "rings": [[[72.8216, 18.9700], [72.8225, 18.9700], [72.8225, 18.9712], [72.8216, 18.9700]]]}
+    ]
     dp.export_dxf(RING, PROPS, str(out), neighbors=neighbours)
     doc = ezdxf.readfile(str(out))
-    coords = [c for e in doc.modelspace() if e.dxftype() == "LWPOLYLINE"
-              for p in e.get_points("xy") for c in (p[0], p[1])]
+    coords = [
+        c for e in doc.modelspace() if e.dxftype() == "LWPOLYLINE" for p in e.get_points("xy") for c in (p[0], p[1])
+    ]
     assert coords and max(abs(c) for c in coords) < 5000
 
 
@@ -434,8 +484,10 @@ def test_exports_do_not_crash_on_none_area(tmp_path):
 # CLI argument handling
 # --------------------------------------------------------------------------
 
+
 def test_lookup_accepts_an_on_data_callback():
     import inspect
+
     sig = inspect.signature(dp.lookup_plot_pro)
     assert "on_data" in sig.parameters
     assert sig.parameters["on_data"].default is None
@@ -444,19 +496,35 @@ def test_lookup_accepts_an_on_data_callback():
 def test_summary_marks_a_pending_snapshot_as_still_building():
     """The early snapshot must not read as a finished report."""
     snap = {
-        "plot_identity": {"village": "WORLI", "cts_no": "733", "ward": "G/S",
-                          "area_sqm": 1317.74, "area_source": "approved (MCGM)"},
-        "planning_remarks": {"status_badge": "CLEAR", "zone": "R",
-                             "reservation": {"code": "None", "type": "None"},
-                             "designation": {"description": "None"},
-                             "dp_modification": {"approval_no": "None"}},
-        "regulatory_and_infrastructure": {"crz_status": "YES (CRZ II)", "metro_buffer": "NO",
-                                          "abutting_road": {"name": "B G KHER", "width": "18.30 M"}},
+        "plot_identity": {
+            "village": "WORLI",
+            "cts_no": "733",
+            "ward": "G/S",
+            "area_sqm": 1317.74,
+            "area_source": "approved (MCGM)",
+        },
+        "planning_remarks": {
+            "status_badge": "CLEAR",
+            "zone": "R",
+            "reservation": {"code": "None", "type": "None"},
+            "designation": {"description": "None"},
+            "dp_modification": {"approval_no": "None"},
+        },
+        "regulatory_and_infrastructure": {
+            "crz_status": "YES (CRZ II)",
+            "metro_buffer": "NO",
+            "abutting_road": {"name": "B G KHER", "width": "18.30 M"},
+        },
         "spatial_cluster": {"adjoining_plots_count": 3, "adjoining_cts_plots": []},
-        "export_files": {"bundle_folder": "./o", "pdf_report": "./o/r.pdf",
-                         "master_excel_register": "./o/x.xlsx"},
-        "metadata": {"execution_time_ms": 650, "cached_result": False, "complete": True,
-                     "documents_pending": True, "warnings": [], "notes": []},
+        "export_files": {"bundle_folder": "./o", "pdf_report": "./o/r.pdf", "master_excel_register": "./o/x.xlsx"},
+        "metadata": {
+            "execution_time_ms": 650,
+            "cached_result": False,
+            "complete": True,
+            "documents_pending": True,
+            "warnings": [],
+            "notes": [],
+        },
     }
     text = dp.format_result_human(snap)
     # the planning answer is fully present in the early snapshot
@@ -471,13 +539,16 @@ def test_village_list_is_complete_and_sorted():
         assert known in dp.MCGM_VILLAGES
 
 
-@pytest.mark.parametrize("typo,expected", [
-    ("BANDRA", "BANDRA-A"),      # the commonest mistake of all
-    ("KURLA", "KURLA - 1"),
-    ("BHANDUP", "BHANDUP-E"),
-    ("MALABAR", "MALABAR HILL"),
-    ("worli", "WORLI"),
-])
+@pytest.mark.parametrize(
+    "typo,expected",
+    [
+        ("BANDRA", "BANDRA-A"),  # the commonest mistake of all
+        ("KURLA", "KURLA - 1"),
+        ("BHANDUP", "BHANDUP-E"),
+        ("MALABAR", "MALABAR HILL"),
+        ("worli", "WORLI"),
+    ],
+)
 def test_suggestions_catch_the_common_locality_mistakes(typo, expected):
     assert expected in dp.suggest_villages(typo)
 
@@ -497,19 +568,32 @@ def test_list_villages_flag(capsys):
 
 def test_human_summary_reads_cleanly():
     result = {
-        "plot_identity": {"village": "WORLI", "cts_no": "733", "ward": "G/S",
-                          "area_sqm": 1317.74, "area_source": "approved (MCGM AREA_APP_SQ_MTRS)"},
-        "planning_remarks": {"status_badge": "CLEAR", "zone": "R",
-                             "reservation": {"code": "None", "type": "None"},
-                             "designation": {"description": "None"},
-                             "dp_modification": {"approval_no": "None"}},
-        "regulatory_and_infrastructure": {"crz_status": "YES (CRZ II)", "metro_buffer": "NO",
-                                          "abutting_road": {"name": "B G KHER", "width": "18.30 M"}},
+        "plot_identity": {
+            "village": "WORLI",
+            "cts_no": "733",
+            "ward": "G/S",
+            "area_sqm": 1317.74,
+            "area_source": "approved (MCGM AREA_APP_SQ_MTRS)",
+        },
+        "planning_remarks": {
+            "status_badge": "CLEAR",
+            "zone": "R",
+            "reservation": {"code": "None", "type": "None"},
+            "designation": {"description": "None"},
+            "dp_modification": {"approval_no": "None"},
+        },
+        "regulatory_and_infrastructure": {
+            "crz_status": "YES (CRZ II)",
+            "metro_buffer": "NO",
+            "abutting_road": {"name": "B G KHER", "width": "18.30 M"},
+        },
         "spatial_cluster": {"adjoining_plots_count": 3, "adjoining_cts_plots": [{"cts_no": "734"}]},
-        "export_files": {"bundle_folder": "./output/x", "pdf_report": "./output/x/r.pdf",
-                         "master_excel_register": "./output/dp-lookups.xlsx"},
-        "metadata": {"execution_time_ms": 7100, "cached_result": False, "complete": True,
-                     "warnings": [], "notes": []},
+        "export_files": {
+            "bundle_folder": "./output/x",
+            "pdf_report": "./output/x/r.pdf",
+            "master_excel_register": "./output/dp-lookups.xlsx",
+        },
+        "metadata": {"execution_time_ms": 7100, "cached_result": False, "complete": True, "warnings": [], "notes": []},
     }
     text = dp.format_result_human(result)
     for token in ("WORLI", "CTS 733", "1,317.74", "YES (CRZ II)", "B G KHER", "7.1s"):
@@ -519,19 +603,34 @@ def test_human_summary_reads_cleanly():
 
 def test_human_summary_flags_a_derived_area_and_incompleteness():
     result = {
-        "plot_identity": {"village": "TARDEO", "cts_no": "264", "ward": "D",
-                          "area_sqm": 2539.25, "area_source": "derived from plot geometry"},
-        "planning_remarks": {"status_badge": "CLEAR", "zone": "R",
-                             "reservation": {"code": "None", "type": "None"},
-                             "designation": {"description": "None"},
-                             "dp_modification": {"approval_no": "None"}},
-        "regulatory_and_infrastructure": {"crz_status": "NO", "metro_buffer": "NO",
-                                          "abutting_road": {"name": "None", "width": "None"}},
+        "plot_identity": {
+            "village": "TARDEO",
+            "cts_no": "264",
+            "ward": "D",
+            "area_sqm": 2539.25,
+            "area_source": "derived from plot geometry",
+        },
+        "planning_remarks": {
+            "status_badge": "CLEAR",
+            "zone": "R",
+            "reservation": {"code": "None", "type": "None"},
+            "designation": {"description": "None"},
+            "dp_modification": {"approval_no": "None"},
+        },
+        "regulatory_and_infrastructure": {
+            "crz_status": "NO",
+            "metro_buffer": "NO",
+            "abutting_road": {"name": "None", "width": "None"},
+        },
         "spatial_cluster": {"adjoining_plots_count": 0, "adjoining_cts_plots": []},
-        "export_files": {"bundle_folder": "./o", "pdf_report": "./o/r.pdf",
-                         "master_excel_register": "./o/x.xlsx"},
-        "metadata": {"execution_time_ms": 900, "cached_result": False, "complete": False,
-                     "warnings": ["3 of 9 road probes failed"], "notes": ["area derived"]},
+        "export_files": {"bundle_folder": "./o", "pdf_report": "./o/r.pdf", "master_excel_register": "./o/x.xlsx"},
+        "metadata": {
+            "execution_time_ms": 900,
+            "cached_result": False,
+            "complete": False,
+            "warnings": ["3 of 9 road probes failed"],
+            "notes": ["area derived"],
+        },
     }
     text = dp.format_result_human(result)
     assert "derived from boundary" in text
@@ -560,6 +659,7 @@ def test_cli_rejects_bad_village_without_network(capsys):
 # therefore only reachable through a live network call.
 # --------------------------------------------------------------------------
 
+
 def test_mercator_roundtrips_against_the_known_plot_centroid():
     """WORLI 733's centroid, verified live: 19.011989 N, 72.817102 E."""
     lon, lat = dp.mercator_to_wgs84(8106574.0, 2151800.0, precision=4)
@@ -574,26 +674,30 @@ def test_mercator_is_monotonic():
 
 # ---- area resolution ----
 
-def test_area_prefers_the_mcgm_approved_figure():
+
+def test_area_prefers_the_mcgm_recorded_figure():
     got = dp.resolve_plot_area({"AREA_APP_SQ_MTRS": 1317.74, "SHAPE.AREA": 1321.74})
     assert got["area_sqm"] == 1317.74
-    assert "approved" in got["area_source"]
+    assert got["area_source"] == "Recorded plot area"
     assert got["note"] is None
 
 
 def test_area_falls_back_to_geometry_and_says_so():
-    """MALABAR HILL 518 and TARDEO 264 really do have no approved area."""
+    """MALABAR HILL 518 and TARDEO 264 have no recorded plot area."""
     got = dp.resolve_plot_area({"AREA_APP_SQ_MTRS": None, "SHAPE.AREA": 2450.15659})
     assert got["area_sqm"] == 2450.16
-    assert "derived" in got["area_source"]
-    assert "indicative only" in got["note"]
+    assert got["area_source"] == "Calculated boundary area"
+    assert "used for screening" in got["note"]
 
 
-@pytest.mark.parametrize("attrs", [
-    {"AREA_APP_SQ_MTRS": None, "SHAPE.AREA": None},
-    {"AREA_APP_SQ_MTRS": 0, "SHAPE.AREA": 0},
-    {},
-])
+@pytest.mark.parametrize(
+    "attrs",
+    [
+        {"AREA_APP_SQ_MTRS": None, "SHAPE.AREA": None},
+        {"AREA_APP_SQ_MTRS": 0, "SHAPE.AREA": 0},
+        {},
+    ],
+)
 def test_area_reports_unavailable_rather_than_guessing(attrs):
     got = dp.resolve_plot_area(attrs)
     assert got["area_sqm"] is None
@@ -602,33 +706,35 @@ def test_area_reports_unavailable_rather_than_guessing(attrs):
 
 # ---- geometry ----
 
-MERC_RING = [[[8106500.0, 2151700.0], [8106600.0, 2151700.0],
-              [8106600.0, 2151800.0], [8106500.0, 2151800.0]]]
+MERC_RING = [[[8106500.0, 2151700.0], [8106600.0, 2151700.0], [8106600.0, 2151800.0], [8106500.0, 2151800.0]]]
 
 
 def test_prepare_geometry_returns_a_usable_window():
     g = dp.prepare_geometry(MERC_RING)
     assert g["mcx"] == pytest.approx(8106550.0)
     assert g["mcy"] == pytest.approx(2151750.0)
-    assert g["d"] >= 50                      # floor, so tiny plots still get a map window
+    assert g["d"] >= 50  # floor, so tiny plots still get a map window
     assert 72 < g["lon"] < 73 and 18 < g["lat"] < 20
     assert len(g["wgs_rings"][0]) == 4
 
 
 def test_prepare_geometry_floors_the_window_for_a_tiny_plot():
-    tiny = [[[8106500.0, 2151700.0], [8106504.0, 2151700.0],
-             [8106504.0, 2151704.0], [8106500.0, 2151704.0]]]
+    tiny = [[[8106500.0, 2151700.0], [8106504.0, 2151700.0], [8106504.0, 2151704.0], [8106500.0, 2151704.0]]]
     assert dp.prepare_geometry(tiny)["d"] == 50
 
 
 # ---- bundle folder ----
 
-@pytest.mark.parametrize("village,cts,expected", [
-    ("WORLI", "733", "worli_cts_733"),
-    ("MALABAR HILL", "16/738", "malabar_hill_cts_16~2f738"),
-    ("BANDRA-A", "409", "bandra-a_cts_409"),
-    ("  TARDEO  ", "264", "tardeo_cts_264"),
-])
+
+@pytest.mark.parametrize(
+    "village,cts,expected",
+    [
+        ("WORLI", "733", "worli_cts_733"),
+        ("MALABAR HILL", "16/738", "malabar_hill_cts_16~2f738"),
+        ("BANDRA-A", "409", "bandra-a_cts_409"),
+        ("  TARDEO  ", "264", "tardeo_cts_264"),
+    ],
+)
 def test_bundle_folder_is_filesystem_safe(village, cts, expected):
     name = dp.bundle_folder_name(village, cts)
     assert name == expected
@@ -636,18 +742,19 @@ def test_bundle_folder_is_filesystem_safe(village, cts, expected):
 
 
 def test_bundle_folder_preserves_exact_slash_vs_hyphen_identity():
-    assert dp.bundle_folder_name("MALABAR HILL", "16/738") != dp.bundle_folder_name(
-        "MALABAR HILL", "16-738"
-    )
+    assert dp.bundle_folder_name("MALABAR HILL", "16/738") != dp.bundle_folder_name("MALABAR HILL", "16-738")
 
 
 # ---- road selection ----
 
+
 def test_road_prefers_a_named_road_with_a_width():
-    chosen = dp.select_road({
-        "a": {"name": "Exisiting Road", "width": "N/A"},
-        "b": {"name": "B G KHER", "width": "18.30 M"},
-    })
+    chosen = dp.select_road(
+        {
+            "a": {"name": "Exisiting Road", "width": "N/A"},
+            "b": {"name": "B G KHER", "width": "18.30 M"},
+        }
+    )
     assert chosen == {"name": "B G KHER", "width": "18.30 M"}
 
 
@@ -669,13 +776,17 @@ def test_road_reports_none_when_nothing_was_found():
 
 # ---- CRZ tier ----
 
-@pytest.mark.parametrize("item,expected", [
-    (None, "NO (Outside CRZ Buffer)"),
-    ({"attributes": {"category": "II"}}, "YES (CRZ II)"),          # layer 14
-    ({"attributes": {"Category": "II"}}, "YES (CRZ II)"),          # layer 1548
-    ({"attributes": {"CLASS": "CRZ II"}}, "YES (CRZ II)"),         # layer 1264, pre-prefixed
-    ({"attributes": {"category": "III"}}, "YES (CRZ III)"),
-])
+
+@pytest.mark.parametrize(
+    "item,expected",
+    [
+        (None, "NO (Outside CRZ Buffer)"),
+        ({"attributes": {"category": "II"}}, "YES (CRZ II)"),  # layer 14
+        ({"attributes": {"Category": "II"}}, "YES (CRZ II)"),  # layer 1548
+        ({"attributes": {"CLASS": "CRZ II"}}, "YES (CRZ II)"),  # layer 1264, pre-prefixed
+        ({"attributes": {"category": "III"}}, "YES (CRZ III)"),
+    ],
+)
 def test_crz_tier_is_read_from_whichever_attribute_the_layer_uses(item, expected):
     assert dp.crz_flag_from(item) == expected
 
@@ -687,16 +798,15 @@ def test_crz_falls_back_to_the_layer_name_when_no_tier_is_present():
 
 # ---- status precedence ----
 
+
 def test_a_dp_modification_outranks_everything():
-    got = dp.derive_status({"x": 1}, {"y": 1}, {"z": 1}, "Hospital", "EH1.2",
-                           "RC1", "Garden", "MCP/7526")
+    got = dp.derive_status({"x": 1}, {"y": 1}, {"z": 1}, "Hospital", "EH1.2", "RC1", "Garden", "MCP/7526")
     assert "MODIFIED" in got["badge"]
     assert "MCP/7526" in got["summary"]
 
 
 def test_a_designation_outranks_a_reservation():
-    got = dp.derive_status(None, {"y": 1}, {"z": 1}, "Fire Station", "EPU1.1",
-                           "RC1", "Garden", "None")
+    got = dp.derive_status(None, {"y": 1}, {"z": 1}, "Fire Station", "EPU1.1", "RC1", "Garden", "None")
     assert "RESERVED / DESIGNATED" in got["badge"]
     assert "Fire Station" in got["summary"]
 
@@ -717,6 +827,7 @@ def test_a_plot_with_nothing_against_it_is_clear():
 # server; the tests exist so a future tidy-up cannot silently change them.
 # --------------------------------------------------------------------------
 
+
 def test_planning_layer_string_is_exact():
     assert dp.planning_layers([14, 1264, 1548]) == "visible:0,46,47,192,1550,14,1264,1548"
 
@@ -728,8 +839,7 @@ def test_road_layers_include_the_polygon_road_layers():
 
 
 def test_identify_payload_shape():
-    got = dp.identify_payload(100.0, 200.0, "visible:13", 10.0, 20.0, 50.0,
-                              tolerance=30, return_geometry=True)
+    got = dp.identify_payload(100.0, 200.0, "visible:13", 10.0, 20.0, 50.0, tolerance=30, return_geometry=True)
     assert got["geometry"] == "100.0,200.0"
     assert got["geometryType"] == "esriGeometryPoint"
     assert got["sr"] == "102100"
@@ -796,8 +906,7 @@ def test_neighbour_probes_are_four_cardinal_offsets():
 
 def test_neighbour_probe_offset_has_a_floor():
     """A tiny plot still needs to reach far enough to find a neighbour."""
-    assert dp.neighbour_probe_points(0.0, 0.0, 1.0) == [
-        (15.0, 0.0), (-15.0, 0.0), (0.0, 15.0), (0.0, -15.0)]
+    assert dp.neighbour_probe_points(0.0, 0.0, 1.0) == [(15.0, 0.0), (-15.0, 0.0), (0.0, 15.0), (0.0, -15.0)]
 
 
 # --------------------------------------------------------------------------
@@ -805,68 +914,88 @@ def test_neighbour_probe_offset_has_a_floor():
 # through a live fetch of the MCGM map and nine Esri tiles.
 # --------------------------------------------------------------------------
 
+
 def _png_bytes(size=(256, 256), colour=(10, 120, 30)):
     import io as _io
 
     from PIL import Image
+
     buf = _io.BytesIO()
     Image.new("RGB", size, colour).save(buf, format="PNG")
     return buf.getvalue()
 
 
-DP_LABELS = {"cts": "733", "village": "WORLI", "ward": "G/S", "zone": "R",
-             "area": 1317.74, "status": "CLEAR (No Reservation)"}
-SAT_LABELS = {"cts": "733", "village": "WORLI", "ward": "G/S",
-              "lat": 19.011989, "lon": 72.817102, "neighbours": 3}
+DP_LABELS = {
+    "cts": "733",
+    "village": "WORLI",
+    "ward": "G/S",
+    "zone": "R",
+    "area": 1317.74,
+    "status": "CLEAR (No Reservation)",
+}
+SAT_LABELS = {"cts": "733", "village": "WORLI", "ward": "G/S", "lat": 19.011989, "lon": 72.817102, "neighbours": 3}
 MERC_SQUARE = [[[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]]]
 
 
 def test_dp_map_renders_over_the_server_image():
-    img = dp.render_dp_map(_png_bytes((1000, 1000)), MERC_SQUARE,
-                           bbox=(0, 0, 100, 100), size=(1000, 1000), labels=DP_LABELS)
+    img = dp.render_dp_map(
+        _png_bytes((1000, 1000)), MERC_SQUARE, bbox=(0, 0, 100, 100), size=(1000, 1000), labels=DP_LABELS
+    )
     assert img.size == (1000, 1000)
     assert img.mode == "RGBA"
 
 
 def test_dp_map_still_renders_when_the_server_image_is_missing():
     """A failed /export must not abort the report."""
-    img = dp.render_dp_map(None, MERC_SQUARE, bbox=(0, 0, 100, 100),
-                           size=(400, 400), labels=DP_LABELS)
+    img = dp.render_dp_map(None, MERC_SQUARE, bbox=(0, 0, 100, 100), size=(400, 400), labels=DP_LABELS)
     assert img.size == (400, 400)
 
 
 def test_dp_map_draws_the_plot_boundary_in_red():
-    img = dp.render_dp_map(None, MERC_SQUARE, bbox=(0, 0, 100, 100),
-                           size=(600, 600), labels=DP_LABELS).convert("RGB")
+    img = dp.render_dp_map(None, MERC_SQUARE, bbox=(0, 0, 100, 100), size=(600, 600), labels=DP_LABELS).convert("RGB")
     px = img.load()
-    reds = sum(1 for x in range(0, 600, 3) for y in range(0, 600, 3)
-               if px[x, y][0] > 180 and px[x, y][1] < 110 and px[x, y][2] < 130)
+    reds = sum(
+        1
+        for x in range(0, 600, 3)
+        for y in range(0, 600, 3)
+        if px[x, y][0] > 180 and px[x, y][1] < 110 and px[x, y][2] < 130
+    )
     assert reds > 50, "no red boundary drawn"
 
 
 def test_satellite_stitches_a_grid():
     tiles = [_png_bytes() for _ in range(9)]
     coords = [(x, y) for y in range(3) for x in range(3)]
-    img = dp.stitch_satellite(tiles, coords, 3, [[[72.8, 19.0], [72.81, 19.0], [72.81, 19.01]]],
-                              bounds=(19.02, 72.79, 18.99, 72.82), labels=SAT_LABELS)
+    img = dp.stitch_satellite(
+        tiles,
+        coords,
+        3,
+        [[[72.8, 19.0], [72.81, 19.0], [72.81, 19.01]]],
+        bounds=(19.02, 72.79, 18.99, 72.82),
+        labels=SAT_LABELS,
+    )
     assert img.size == (768, 768)
 
 
 def test_satellite_survives_missing_and_failed_tiles():
     """Tiles arrive as bytes, None, or exceptions when a fetch failed."""
-    tiles = [_png_bytes(), None, RuntimeError("timeout"), b"", _png_bytes(),
-             None, None, _png_bytes(), None]
+    tiles = [_png_bytes(), None, RuntimeError("timeout"), b"", _png_bytes(), None, None, _png_bytes(), None]
     coords = [(x, y) for y in range(3) for x in range(3)]
-    img = dp.stitch_satellite(tiles, coords, 3, [[[72.8, 19.0], [72.81, 19.0], [72.81, 19.01]]],
-                              bounds=(19.02, 72.79, 18.99, 72.82), labels=SAT_LABELS)
+    img = dp.stitch_satellite(
+        tiles,
+        coords,
+        3,
+        [[[72.8, 19.0], [72.81, 19.0], [72.81, 19.01]]],
+        bounds=(19.02, 72.79, 18.99, 72.82),
+        labels=SAT_LABELS,
+    )
     assert img.size == (768, 768)
 
 
 def test_satellite_survives_corrupt_tile_bytes():
     tiles = [b"not a png"] * 9
     coords = [(x, y) for y in range(3) for x in range(3)]
-    img = dp.stitch_satellite(tiles, coords, 3, [], bounds=(19.02, 72.79, 18.99, 72.82),
-                              labels=SAT_LABELS)
+    img = dp.stitch_satellite(tiles, coords, 3, [], bounds=(19.02, 72.79, 18.99, 72.82), labels=SAT_LABELS)
     assert img.size == (768, 768)
 
 
@@ -885,10 +1014,10 @@ def test_renderers_accept_a_multi_ring_plot():
 # measuring the text.
 # --------------------------------------------------------------------------
 
+
 def _dxf_texts(msp):
     """(entity, measured box) for every TEXT that can be measured."""
-    return [(e, dp.text_extents(e)) for e in msp.query("TEXT")
-            if dp.text_extents(e) is not None]
+    return [(e, dp.text_extents(e)) for e in msp.query("TEXT") if dp.text_extents(e) is not None]
 
 
 def _title_block_rects(msp):
@@ -964,9 +1093,7 @@ def test_legend_height_accounts_for_the_plot_data_rows():
 
 def test_long_road_name_wraps_instead_of_escaping_the_panel():
     """AMBIVALI 807's frontage overran the panel by 19.8 m as a single row."""
-    rows = dp.legend_data_row(
-        "ABUTTING ROAD",
-        "Jay Prakash Road Part II Dadabhai Road to Versova Metro. (27.4 M.)")
+    rows = dp.legend_data_row("ABUTTING ROAD", "Jay Prakash Road Part II Dadabhai Road to Versova Metro. (27.4 M.)")
     assert len(rows) > 1, "a 65-character value has to wrap"
     assert all(len(r) <= 16 + 2 + dp.LEGEND_VALUE_MAX_CHARS for r in rows)
     assert rows[0].startswith("ABUTTING ROAD   : ")
@@ -997,12 +1124,17 @@ def test_plot_data_omits_the_delta_when_the_area_is_derived():
 def test_dxf_keeps_every_label_inside_the_sheet_border(tmp_path):
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    props = dict(PROPS, crz_buffer_flag="YES (CRZ II)", metro_buffer_flag="YES",
-                 abutting_road="Jay Prakash Road Part II Dadabhai Road to Versova Metro.",
-                 road_width="27.4 M.")
+    props = dict(
+        PROPS,
+        crz_buffer_flag="YES (CRZ II)",
+        metro_buffer_flag="YES",
+        abutting_road="Jay Prakash Road Part II Dadabhai Road to Versova Metro.",
+        road_width="27.4 M.",
+    )
     roads = [[[72.8195, 18.9698], [72.8220, 18.9698]]]
-    neighbours = [{"cts_no": "948", "rings": [[[72.8210, 18.9700], [72.8219, 18.9700],
-                                               [72.8219, 18.9709], [72.8210, 18.9700]]]}]
+    neighbours = [
+        {"cts_no": "948", "rings": [[[72.8210, 18.9700], [72.8219, 18.9700], [72.8219, 18.9709], [72.8210, 18.9700]]]}
+    ]
     dp.export_dxf(RING, props, str(out), neighbors=neighbours, roads=roads)
 
     msp = ezdxf.readfile(str(out)).modelspace()
@@ -1010,10 +1142,12 @@ def test_dxf_keeps_every_label_inside_the_sheet_border(tmp_path):
     assert rects, "the sheet border is missing"
     sheet = rects[0]
     for entity, box in _dxf_texts(msp):
-        assert box[0] >= sheet[0] - 0.01 and box[2] <= sheet[2] + 0.01, \
+        assert box[0] >= sheet[0] - 0.01 and box[2] <= sheet[2] + 0.01, (
             f"{entity.dxf.text!r} escapes the border horizontally"
-        assert box[1] >= sheet[1] - 0.01 and box[3] <= sheet[3] + 0.01, \
+        )
+        assert box[1] >= sheet[1] - 0.01 and box[3] <= sheet[3] + 0.01, (
             f"{entity.dxf.text!r} escapes the border vertically"
+        )
 
 
 def test_dxf_legend_rows_stay_inside_their_panel(tmp_path):
@@ -1030,10 +1164,8 @@ def test_dxf_legend_rows_stay_inside_their_panel(tmp_path):
     for entity, box in _dxf_texts(msp):
         for panel in panels:
             if panel[0] - 0.01 <= box[0] <= panel[2] + 0.01 and box[1] <= panel[3]:
-                assert box[2] <= panel[2] + 0.01, \
-                    f"{entity.dxf.text!r} overruns the panel by {box[2] - panel[2]:.2f}"
-                assert box[1] >= panel[1] - 0.01, \
-                    f"{entity.dxf.text!r} falls {panel[1] - box[1]:.2f} below the panel"
+                assert box[2] <= panel[2] + 0.01, f"{entity.dxf.text!r} overruns the panel by {box[2] - panel[2]:.2f}"
+                assert box[1] >= panel[1] - 0.01, f"{entity.dxf.text!r} falls {panel[1] - box[1]:.2f} below the panel"
                 break
 
 
@@ -1045,12 +1177,21 @@ def test_dxf_drawing_labels_do_not_collide(tmp_path):
     out = tmp_path / "x.dxf"
     # A ring with two deliberately short adjacent edges, which is what put
     # AMBIVALI 807's '6.20m' and '3.47m' on top of one another.
-    ring = [[[72.8200, 18.9700], [72.8210, 18.9700], [72.8210, 18.9706],
-             [72.82093, 18.97064], [72.82086, 18.97067], [72.8200, 18.9710],
-             [72.8200, 18.9700]]]
+    ring = [
+        [
+            [72.8200, 18.9700],
+            [72.8210, 18.9700],
+            [72.8210, 18.9706],
+            [72.82093, 18.97064],
+            [72.82086, 18.97067],
+            [72.8200, 18.9710],
+            [72.8200, 18.9700],
+        ]
+    ]
     props = dict(PROPS, crz_buffer_flag="YES (CRZ II)", metro_buffer_flag="YES")
-    neighbours = [{"cts_no": "733A", "rings": [[[72.8210, 18.9701], [72.8214, 18.9701],
-                                                [72.8214, 18.9705], [72.8210, 18.9701]]]}]
+    neighbours = [
+        {"cts_no": "733A", "rings": [[[72.8210, 18.9701], [72.8214, 18.9701], [72.8214, 18.9705], [72.8210, 18.9701]]]}
+    ]
     dp.export_dxf(ring, props, str(out), neighbors=neighbours)
 
     msp = ezdxf.readfile(str(out)).modelspace()
@@ -1061,9 +1202,10 @@ def test_dxf_drawing_labels_do_not_collide(tmp_path):
 
     drawing = [(e, b) for e, b in _dxf_texts(msp) if not in_panel(b)]
     for i, (e1, b1) in enumerate(drawing):
-        for e2, b2 in drawing[i + 1:]:
-            assert not dp.boxes_overlap(b1, b2), \
+        for e2, b2 in drawing[i + 1 :]:
+            assert not dp.boxes_overlap(b1, b2), (
                 f"{e1.dxf.text!r} [{e1.dxf.layer}] overlaps {e2.dxf.text!r} [{e2.dxf.layer}]"
+            )
 
 
 def test_dxf_grid_does_not_label_the_corner_twice(tmp_path):
@@ -1073,8 +1215,7 @@ def test_dxf_grid_does_not_label_the_corner_twice(tmp_path):
     out = tmp_path / "x.dxf"
     dp.export_dxf(RING, PROPS, str(out), neighbors=[])
     msp = ezdxf.readfile(str(out)).modelspace()
-    points = [(round(e.dxf.insert[0], 4), round(e.dxf.insert[1], 4))
-              for e in msp.query("TEXT[layer=='0_GRID_AXIS']")]
+    points = [(round(e.dxf.insert[0], 4), round(e.dxf.insert[1], 4)) for e in msp.query("TEXT[layer=='0_GRID_AXIS']")]
     assert len(points) == len(set(points)), "two grid labels share an insertion point"
 
 
@@ -1085,12 +1226,11 @@ def test_dxf_layers_carry_lineweights_so_the_sheet_plots_with_hierarchy(tmp_path
     out = tmp_path / "x.dxf"
     dp.export_dxf(RING, PROPS, str(out), neighbors=[])
     doc = ezdxf.readfile(str(out))
-    weights = {lay.dxf.name: lay.dxf.lineweight for lay in doc.layers
-               if lay.dxf.name not in ("0", "Defpoints")}
-    assert weights and all(w > 0 for w in weights.values()), \
+    weights = {lay.dxf.name: lay.dxf.lineweight for lay in doc.layers if lay.dxf.name not in ("0", "Defpoints")}
+    assert weights and all(w > 0 for w in weights.values()), (
         f"layers still on the default weight: {[k for k, v in weights.items() if v <= 0]}"
-    assert weights["C-PLOT-BDY"] > weights["0_GRID_AXIS"], \
-        "the plot boundary must plot heavier than the reference grid"
+    )
+    assert weights["C-PLOT-BDY"] > weights["0_GRID_AXIS"], "the plot boundary must plot heavier than the reference grid"
 
 
 def test_dxf_plot_fill_is_transparent_so_an_underlay_shows_through(tmp_path):
@@ -1111,8 +1251,9 @@ def test_dxf_annotation_is_readable_on_a_very_small_plot(tmp_path):
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
     # ~8 x 16 m
-    ring = [[[72.8200, 18.9700], [72.820076, 18.9700],
-             [72.820076, 18.970144], [72.8200, 18.970144], [72.8200, 18.9700]]]
+    ring = [
+        [[72.8200, 18.9700], [72.820076, 18.9700], [72.820076, 18.970144], [72.8200, 18.970144], [72.8200, 18.9700]]
+    ]
     dp.export_dxf(ring, dict(PROPS, area_sqm=125.0), str(out), neighbors=[])
 
     msp = ezdxf.readfile(str(out)).modelspace()
@@ -1125,7 +1266,8 @@ def test_dxf_annotation_is_readable_on_a_very_small_plot(tmp_path):
         if any(p[0] - 0.01 <= box[0] <= p[2] + 0.01 for p in panels):
             continue
         assert (box[2] - box[0]) < plot_w * 2.5, (
-            f"{entity.dxf.text!r} is {(box[2] - box[0]) / plot_w:.1f}x the plot width")
+            f"{entity.dxf.text!r} is {(box[2] - box[0]) / plot_w:.1f}x the plot width"
+        )
 
 
 def test_metro_buffer_restriction_is_actually_drawn(tmp_path):
@@ -1134,8 +1276,7 @@ def test_metro_buffer_restriction_is_actually_drawn(tmp_path):
     drawing. AMBIVALI 807 is in a metro buffer and its DXF said nothing."""
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    props = dict(PROPS, crz_buffer_flag="NO (Outside CRZ Buffer)",
-                 metro_buffer_flag="YES (Metro Buffer Zone)")
+    props = dict(PROPS, crz_buffer_flag="NO (Outside CRZ Buffer)", metro_buffer_flag="YES (Metro Buffer Zone)")
     dp.export_dxf(RING, props, str(out), neighbors=[])
 
     msp = ezdxf.readfile(str(out)).modelspace()
@@ -1150,21 +1291,20 @@ def test_restriction_layer_carries_geometry_not_just_a_legend_swatch(tmp_path):
     sample line on it, which hid the metro bug from the empty-layer test."""
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    props = dict(PROPS, crz_buffer_flag="YES (CRZ II)",
-                 metro_buffer_flag="YES (Metro Buffer Zone)")
+    props = dict(PROPS, crz_buffer_flag="YES (CRZ II)", metro_buffer_flag="YES (Metro Buffer Zone)")
     dp.export_dxf(RING, props, str(out), neighbors=[])
 
     msp = ezdxf.readfile(str(out)).modelspace()
     # The legend swatch is a single short LINE inside the panel. Real content is
     # the notes and the influence circle.
-    real = [e for e in msp if e.dxf.layer == "C-RESTRICT-ZONE"
-            and e.dxftype() in ("TEXT", "CIRCLE")]
+    real = [e for e in msp if e.dxf.layer == "C-RESTRICT-ZONE" and e.dxftype() in ("TEXT", "CIRCLE")]
     assert len(real) >= 2, "restriction layer carries only its legend swatch"
 
 
 # --------------------------------------------------------------------------
 # Road clipping
 # --------------------------------------------------------------------------
+
 
 def test_clip_keeps_a_segment_that_crosses_with_no_vertex_inside():
     """MCGM road centrelines can have vertices a kilometre apart. Testing
@@ -1206,10 +1346,10 @@ def test_sparse_road_is_drawn_on_the_dxf(tmp_path):
     dp.export_dxf(RING, props, str(out), neighbors=[], roads=sparse)
 
     msp = ezdxf.readfile(str(out)).modelspace()
-    assert list(msp.query("LWPOLYLINE[layer=='C-ROAD-ALIGN']")), \
-        "road passes the plot but was not drawn"
-    assert [e for e in msp.query("TEXT[layer=='C-ROAD-ALIGN']")], \
+    assert list(msp.query("LWPOLYLINE[layer=='C-ROAD-ALIGN']")), "road passes the plot but was not drawn"
+    assert [e for e in msp.query("TEXT[layer=='C-ROAD-ALIGN']")], (
         "frontage label missing, so the architect cannot tell which edge fronts the road"
+    )
 
 
 def test_a_long_road_does_not_drag_the_sheet_border_out(tmp_path):
@@ -1218,8 +1358,12 @@ def test_a_long_road_does_not_drag_the_sheet_border_out(tmp_path):
     out = tmp_path / "x.dxf"
     huge = [[[72.0, 18.96995], [73.5, 18.96995]]]
     dp.export_dxf(RING, PROPS, str(out), neighbors=[], roads=huge)
-    coords = [c for e in ezdxf.readfile(str(out)).modelspace().query("LWPOLYLINE")
-              for p in e.get_points("xy") for c in (p[0], p[1])]
+    coords = [
+        c
+        for e in ezdxf.readfile(str(out)).modelspace().query("LWPOLYLINE")
+        for p in e.get_points("xy")
+        for c in (p[0], p[1])
+    ]
     assert max(abs(c) for c in coords) < 1000
 
 
@@ -1229,6 +1373,7 @@ def test_text_extents_honours_alignment():
     half a height high. Every collision verdict involving it was suspect."""
     ezdxf = pytest.importorskip("ezdxf")
     from ezdxf.enums import TextEntityAlignment
+
     msp = ezdxf.new("R2010").modelspace()
 
     centred = msp.add_text("CTS 1862", dxfattribs={"height": 2.0})
@@ -1248,6 +1393,7 @@ def test_text_extents_honours_alignment():
 def test_text_extents_composes_alignment_with_rotation():
     ezdxf = pytest.importorskip("ezdxf")
     from ezdxf.enums import TextEntityAlignment
+
     msp = ezdxf.new("R2010").modelspace()
     e = msp.add_text("CTS 1862", dxfattribs={"height": 2.0, "rotation": 90.0})
     e.set_placement((0.0, 0.0), align=TextEntityAlignment.MIDDLE_CENTER)
@@ -1258,17 +1404,14 @@ def test_text_extents_composes_alignment_with_rotation():
 
 
 def test_fit_label_to_width_budgets_against_the_plot():
-    wide = dp.fit_label_to_width("ABUTTING ROAD: {}", "Bazar Road (9.15 M.)",
-                                 max_width=200.0, char_h=1.0)
+    wide = dp.fit_label_to_width("ABUTTING ROAD: {}", "Bazar Road (9.15 M.)", max_width=200.0, char_h=1.0)
     assert wide == "ABUTTING ROAD: Bazar Road (9.15 M.)", "no truncation when it fits"
 
-    tight = dp.fit_label_to_width("ABUTTING ROAD: {}", "Bazar Road (9.15 M.)",
-                                  max_width=20.0, char_h=1.0)
+    tight = dp.fit_label_to_width("ABUTTING ROAD: {}", "Bazar Road (9.15 M.)", max_width=20.0, char_h=1.0)
     assert tight.endswith("...") and len(tight) < len(wide)
 
     # Never truncated to nothing: a label identifying nothing is worse than a long one.
-    squeezed = dp.fit_label_to_width("ABUTTING ROAD: {}", "Jay Prakash Road Part II",
-                                     max_width=0.5, char_h=1.0)
+    squeezed = dp.fit_label_to_width("ABUTTING ROAD: {}", "Jay Prakash Road Part II", max_width=0.5, char_h=1.0)
     assert "Jay Pras"[:4] in squeezed or len(squeezed) > len("ABUTTING ROAD: ")
 
 
@@ -1279,9 +1422,17 @@ def test_dimension_labels_prefer_the_longest_edges(tmp_path):
     out = tmp_path / "x.dxf"
     # A long edge plus a run of near-collinear slivers, which is the DADAR-NAIGAON
     # 98 shape: its normals are nearly parallel, so nudging cannot separate them.
-    ring = [[[72.8200, 18.9700], [72.8212, 18.9700],
-             [72.82118, 18.970012], [72.82116, 18.970025], [72.82114, 18.970037],
-             [72.8200, 18.9701], [72.8200, 18.9700]]]
+    ring = [
+        [
+            [72.8200, 18.9700],
+            [72.8212, 18.9700],
+            [72.82118, 18.970012],
+            [72.82116, 18.970025],
+            [72.82114, 18.970037],
+            [72.8200, 18.9701],
+            [72.8200, 18.9700],
+        ]
+    ]
     dp.export_dxf(ring, PROPS, str(out), neighbors=[])
     msp = ezdxf.readfile(str(out)).modelspace()
     labels = [e.dxf.text for e in msp.query("TEXT[layer=='C-ANNO-DIMS']")]
@@ -1296,15 +1447,24 @@ def test_slivers_never_leave_overlapping_dimensions(tmp_path):
     label that cannot be placed clear is dropped, not left unreadable."""
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    ring = [[[72.8200, 18.9700], [72.8212, 18.9700],
-             [72.82118, 18.970012], [72.82116, 18.970025], [72.82114, 18.970037],
-             [72.82112, 18.970049], [72.8200, 18.9701], [72.8200, 18.9700]]]
+    ring = [
+        [
+            [72.8200, 18.9700],
+            [72.8212, 18.9700],
+            [72.82118, 18.970012],
+            [72.82116, 18.970025],
+            [72.82114, 18.970037],
+            [72.82112, 18.970049],
+            [72.8200, 18.9701],
+            [72.8200, 18.9700],
+        ]
+    ]
     dp.export_dxf(ring, PROPS, str(out), neighbors=[])
     msp = ezdxf.readfile(str(out)).modelspace()
     boxes = [dp.text_extents(e) for e in msp.query("TEXT[layer=='C-ANNO-DIMS']")]
     boxes = [b for b in boxes if b]
     for i, a in enumerate(boxes):
-        for b in boxes[i + 1:]:
+        for b in boxes[i + 1 :]:
             assert not dp.boxes_overlap(a, b), "two dimension labels still overlap"
 
 
@@ -1314,8 +1474,7 @@ def test_centre_label_is_clear_of_boundary_dimensions(tmp_path):
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
     # Long and thin, so the edge dimensions reach in toward the centroid.
-    ring = [[[72.8200, 18.9700], [72.8215, 18.9700],
-             [72.8215, 18.970055], [72.8200, 18.970055], [72.8200, 18.9700]]]
+    ring = [[[72.8200, 18.9700], [72.8215, 18.9700], [72.8215, 18.970055], [72.8200, 18.970055], [72.8200, 18.9700]]]
     dp.export_dxf(ring, dict(PROPS, cts_no="1862"), str(out), neighbors=[])
     msp = ezdxf.readfile(str(out)).modelspace()
     centre = [dp.text_extents(e) for e in msp.query("TEXT[layer=='C-ANNO-TEXT']")]
@@ -1330,8 +1489,9 @@ def test_setback_marker_and_road_label_do_not_collide(tmp_path):
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
     # 8 x 16 m: too narrow for either setback, so both markers are emitted.
-    ring = [[[72.8200, 18.9700], [72.820076, 18.9700],
-             [72.820076, 18.970144], [72.8200, 18.970144], [72.8200, 18.9700]]]
+    ring = [
+        [[72.8200, 18.9700], [72.820076, 18.9700], [72.820076, 18.970144], [72.8200, 18.970144], [72.8200, 18.9700]]
+    ]
     props = dict(PROPS, abutting_road="Bazar Road", road_width="9.15 M.")
     roads = [[[72.8195, 18.96995], [72.8206, 18.96995]]]
     dp.export_dxf(ring, props, str(out), neighbors=[], roads=roads)
@@ -1341,10 +1501,10 @@ def test_setback_marker_and_road_label_do_not_collide(tmp_path):
     for layer in ("C-SETBACK-3M", "C-SETBACK-6M", "C-ROAD-ALIGN"):
         for e in msp.query(f"TEXT[layer=='{layer}']"):
             b = dp.text_extents(e)
-            if b and b[1] < 0:          # below the plot, not a legend swatch label
+            if b and b[1] < 0:  # below the plot, not a legend swatch label
                 below.append((e.dxf.text, b))
     for i, (t1, b1) in enumerate(below):
-        for t2, b2 in below[i + 1:]:
+        for t2, b2 in below[i + 1 :]:
             assert not dp.boxes_overlap(b1, b2), f"{t1!r} overlaps {t2!r}"
 
 
@@ -1353,10 +1513,9 @@ def test_nearest_road_geoms_ranks_by_proximity_not_arrival_order():
     polygon layers return hundreds of rings per probe (552 for layer 44 at AMBIVALI
     807), so the frontage was pushed out of the slice -- the six that survived were
     910-2082 m away while the real frontage sat 8.7 m from the boundary."""
-    ring = [[[72.8200, 18.9700], [72.8210, 18.9700],
-             [72.8210, 18.9710], [72.8200, 18.9710], [72.8200, 18.9700]]]
-    far = [[72.90, 19.05], [72.91, 19.06]]          # ~10 km away
-    frontage = [[72.8205, 18.96999], [72.8206, 18.96999]]   # metres from the edge
+    ring = [[[72.8200, 18.9700], [72.8210, 18.9700], [72.8210, 18.9710], [72.8200, 18.9710], [72.8200, 18.9700]]]
+    far = [[72.90, 19.05], [72.91, 19.06]]  # ~10 km away
+    frontage = [[72.8205, 18.96999], [72.8206, 18.96999]]  # metres from the edge
     # Frontage arrives last, behind a wall of distant rings.
     geoms = [far] * 20 + [frontage]
 
@@ -1375,6 +1534,7 @@ def test_nearest_road_geoms_survives_missing_geometry():
 # --------------------------------------------------------------------------
 # Spatial Polygon Engine & Multi-Reservation / Partial Encumbrance Tests
 # --------------------------------------------------------------------------
+
 
 def test_derive_status_partial_encumbrance():
     reservations = [
@@ -1426,13 +1586,15 @@ def test_dxf_exports_reservations_layer(tmp_path):
         encumbered_area_sqm=1200.0,
         net_unencumbered_sqm=3600.0,
     )
-    reservations = [{
-        "code": "ROS1.5",
-        "type": "ROS",
-        "description": "Garden/ Park",
-        "overlap_sqm": 1200.0,
-        "wgs_rings": res_rings,
-    }]
+    reservations = [
+        {
+            "code": "ROS1.5",
+            "type": "ROS",
+            "description": "Garden/ Park",
+            "overlap_sqm": 1200.0,
+            "wgs_rings": res_rings,
+        }
+    ]
     dp.export_dxf(ring, props, str(out), reservations=reservations)
 
     doc = ezdxf.readfile(str(out))
@@ -1441,8 +1603,7 @@ def test_dxf_exports_reservations_layer(tmp_path):
     assert "C-RESERVATIONS" in layers
 
     text = " ".join(
-        (e.plain_text() if hasattr(e, "plain_text") else e.dxf.text)
-        for e in msp if e.dxftype() in ("TEXT", "MTEXT")
+        (e.plain_text() if hasattr(e, "plain_text") else e.dxf.text) for e in msp if e.dxftype() in ("TEXT", "MTEXT")
     )
     assert "RES: ROS1.5" in text
     assert "ENCUMBERED" in text
@@ -1453,15 +1614,17 @@ def test_geojson_contains_reservation_subfeatures(tmp_path):
     out = tmp_path / "res_test.geojson"
     ring = [[[72.8200, 18.9700], [72.8220, 18.9700], [72.8220, 18.9720], [72.8200, 18.9720], [72.8200, 18.9700]]]
     res_rings = [[[72.8205, 18.9705], [72.8215, 18.9705], [72.8215, 18.9715], [72.8205, 18.9715], [72.8205, 18.9705]]]
-    reservations = [{
-        "code": "ROS1.5",
-        "type": "ROS",
-        "description": "Garden/ Park",
-        "overlap_sqm": 1200.0,
-        "overlap_percent": 25.0,
-        "u_r_id": "TR0126",
-        "wgs_rings": res_rings,
-    }]
+    reservations = [
+        {
+            "code": "ROS1.5",
+            "type": "ROS",
+            "description": "Garden/ Park",
+            "overlap_sqm": 1200.0,
+            "overlap_percent": 25.0,
+            "u_r_id": "TR0126",
+            "wgs_rings": res_rings,
+        }
+    ]
     props = dict(PROPS, reservations=reservations, encumbered_percent=25.0)
     dp.export_geojson(ring, props, str(out))
 
@@ -1486,12 +1649,36 @@ def test_pdf_build_with_multi_reservations(tmp_path):
     qr_bytes.seek(0)
 
     reservations = [
-        {"code": "ROS1.5", "type": "ROS", "description": "Garden/ Park", "overlap_sqm": 1934.96, "overlap_percent": 4.81},
-        {"code": "RSA2.9", "type": "RSA", "description": "Homeless Shelter", "overlap_sqm": 2581.12, "overlap_percent": 6.41},
+        {
+            "code": "ROS1.5",
+            "type": "ROS",
+            "description": "Garden/ Park",
+            "overlap_sqm": 1934.96,
+            "overlap_percent": 4.81,
+        },
+        {
+            "code": "RSA2.9",
+            "type": "RSA",
+            "description": "Homeless Shelter",
+            "overlap_sqm": 2581.12,
+            "overlap_percent": 6.41,
+        },
     ]
     designations = [
-        {"code": "EOS1.4", "type": "EOS", "description": "Play Ground", "overlap_sqm": 2825.32, "overlap_percent": 7.02},
-        {"code": "EE1.1", "type": "EE", "description": "Municipal School", "overlap_sqm": 1845.78, "overlap_percent": 4.58},
+        {
+            "code": "EOS1.4",
+            "type": "EOS",
+            "description": "Play Ground",
+            "overlap_sqm": 2825.32,
+            "overlap_percent": 7.02,
+        },
+        {
+            "code": "EE1.1",
+            "type": "EE",
+            "description": "Municipal School",
+            "overlap_sqm": 1845.78,
+            "overlap_percent": 4.58,
+        },
     ]
 
     dp.build_pdf_doc(
@@ -1578,8 +1765,22 @@ def test_export_html_map_with_reservations_and_neighbors(tmp_path):
         "net_unencumbered_sqm": 31070.79,
         "net_unencumbered_percent": 77.18,
     }
-    reservations = [{"code": "RSA2.9", "type": "Homeless Shelter", "overlap_sqm": 2581.0, "overlap_percent": 7.2, "wgs_rings": res_rings}]
-    neighbors = [{"cts_no": "23", "ward": "T", "rings": [[[72.961, 19.17], [72.965, 19.17], [72.965, 19.18], [72.961, 19.18], [72.961, 19.17]]]}]
+    reservations = [
+        {
+            "code": "RSA2.9",
+            "type": "Homeless Shelter",
+            "overlap_sqm": 2581.0,
+            "overlap_percent": 7.2,
+            "wgs_rings": res_rings,
+        }
+    ]
+    neighbors = [
+        {
+            "cts_no": "23",
+            "ward": "T",
+            "rings": [[[72.961, 19.17], [72.965, 19.17], [72.965, 19.18], [72.961, 19.18], [72.961, 19.17]]],
+        }
+    ]
     roads = [[[72.95, 19.169], [72.96, 19.169]]]
 
     out = tmp_path / "mulund_map.html"

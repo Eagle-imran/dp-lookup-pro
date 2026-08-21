@@ -2,7 +2,7 @@
 Google Earth KML 3D Exporter.
 """
 
-from typing import Any, List
+from typing import Any, List, Mapping
 from xml.sax.saxutils import escape as xml_escape
 
 from shapely.geometry import MultiPolygon, Polygon
@@ -20,6 +20,30 @@ def _esc(val: Any) -> str:
 
 def _coordinates(coords) -> str:
     return " ".join(f"{x},{y},0" for x, y in coords)
+
+
+def _assessment_value(assessment: Mapping[str, Any], key: str) -> Any:
+    value = assessment.get(key)
+    return "" if value is None else value
+
+
+def _public_area_source(properties: Mapping[str, Any], assessment: Mapping[str, Any]) -> Any:
+    basis = assessment.get("selected_area_basis")
+    if basis == "recorded_plot_area":
+        return "Recorded plot area"
+    if basis == "calculated_boundary_area":
+        return "Calculated boundary area"
+    source = properties.get("area_source")
+    if "approved" in str(source or "").casefold():
+        return "Recorded plot area"
+    return source
+
+
+def _quality_flag_codes(assessment: Mapping[str, Any]) -> str:
+    flags = assessment.get("quality_flags")
+    if not isinstance(flags, list):
+        return ""
+    return "; ".join(str(flag.get("code")) for flag in flags if isinstance(flag, Mapping) and flag.get("code"))
 
 
 def _polygon_xml(polygon: Polygon) -> str:
@@ -57,6 +81,11 @@ def export_kml(
     Every interpolated value is XML-escaped to prevent malformed KML.
     """
     properties = legacy_export_properties(properties)
+    raw_assessment = properties.get("area_assessment")
+    area_assessment = dict(raw_assessment) if isinstance(raw_assessment, Mapping) else {}
+    raw_authority = properties.get("authority_resolution")
+    authority = dict(raw_authority) if isinstance(raw_authority, Mapping) else {}
+    authority_record_ids = ",".join(str(value) for value in authority.get("active_record_ids", []))
     geometry_xml = _geometry_xml(wgs_rings)
 
     kml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -80,6 +109,18 @@ def export_kml(
         <Data name="Ward"><value>{_esc(properties.get("ward"))}</value></Data>
         <Data name="Zone"><value>{_esc(properties.get("zone"))}</value></Data>
         <Data name="Area_sqm"><value>{_esc(properties.get("area_sqm"))}</value></Data>
+        <Data name="Area_Source"><value>{_esc(_public_area_source(properties, area_assessment))}</value></Data>
+        <Data name="Recorded_Plot_Area_sqm"><value>{_esc(_assessment_value(area_assessment, "recorded_plot_area_sqm"))}</value></Data>
+        <Data name="Calculated_Boundary_Area_sqm"><value>{_esc(_assessment_value(area_assessment, "calculated_boundary_area_sqm"))}</value></Data>
+        <Data name="Area_Difference_sqm"><value>{_esc(_assessment_value(area_assessment, "difference_sqm"))}</value></Data>
+        <Data name="Area_Difference_Percent"><value>{_esc(_assessment_value(area_assessment, "difference_percent"))}</value></Data>
+        <Data name="Area_Reliability"><value>{_esc(_assessment_value(area_assessment, "reliability_label"))}</value></Data>
+        <Data name="Geometry_Source"><value>{_esc(_assessment_value(area_assessment, "geometry_source"))}</value></Data>
+        <Data name="Area_Quality_Flags"><value>{_esc(_quality_flag_codes(area_assessment))}</value></Data>
+        <Data name="Source_Snapshot_Date"><value>{_esc(_assessment_value(area_assessment, "source_snapshot_date"))}</value></Data>
+        <Data name="Authority_Status"><value>{_esc(authority.get("status"))}</value></Data>
+        <Data name="Authority_Policy"><value>{_esc(authority.get("policy_version"))}</value></Data>
+        <Data name="Authority_Record_IDs"><value>{_esc(authority_record_ids)}</value></Data>
         <Data name="Status"><value>{_esc(properties.get("status_badge"))}</value></Data>
         <Data name="CRZ_Status"><value>{_esc(properties.get("crz_buffer_flag"))}</value></Data>
         <Data name="Metro_Buffer"><value>{_esc(properties.get("metro_buffer_flag"))}</value></Data>

@@ -86,6 +86,8 @@ strict = true
 # package's legacy facade and third-party rendering stack into this boundary.
 follow_imports = "skip"
 files = [
+    "dp_lookup/authority",
+    "dp_lookup/authority_cli.py",
     "dp_lookup/application/artifacts.py",
     "dp_lookup/application/contracts.py",
     "dp_lookup/application/database_services.py",
@@ -113,6 +115,7 @@ files = [
     "dp_lookup/clients/transport.py",
     "dp_lookup/clients/validation.py",
     "dp_lookup/core/constants.py",
+    "dp_lookup/core/area_assessment.py",
     "dp_lookup/core/models.py",
     "dp_lookup/core/parcel_analysis.py",
     "dp_lookup/core/villages.py",

@@ -30,6 +30,16 @@ class ParcelFetcher(Protocol):
     def __call__(self, client: Any, village: str, cts_no: str) -> Awaitable[Optional[Dict[str, Any]]]: ...
 
 
+class ParcelAuthorityResolver(Protocol):
+    """Optionally apply explicitly activated authority evidence to a parcel."""
+
+    def __call__(self, parcel: ParcelContext) -> ParcelContext: ...
+
+
+def no_authority_resolution(parcel: ParcelContext) -> ParcelContext:
+    return parcel
+
+
 class NeighbourProvider(Protocol):
     def __call__(self, parcel: ParcelContext) -> Optional[NeighbourContext]: ...
 
@@ -113,6 +123,7 @@ class LookupDependencies:
     client_factory: ClientFactory = create_arcgis_client
     parcel_fetcher: ParcelFetcher = fetch_parcel_feature
     parcel_cache_namespace: str = "live"
+    authority_resolver: ParcelAuthorityResolver = no_authority_resolution
     neighbour_provider: NeighbourProvider = no_local_neighbours
     road_provider: RoadProvider = no_local_roads
     spatial_planning_query: SpatialPlanningQuery = query_spatial_planning_layers

@@ -109,7 +109,7 @@ see this:
   🟢 CLEAR (No Reservation)
   BANDRA-A  ·  CTS 409  ·  Ward H/W
 
-    Plot area         115.58 m²   (MCGM approved)
+    Plot area         115.58 m²   (MCGM recorded)
     Zone              R
     CRZ               YES (CRZ II)
     Abutting road     Bazar Road
@@ -312,6 +312,28 @@ To switch snapshots safely, use `database diff`, `database activate`, and
 `database rollback` with the same `--database` path. See the [local snapshot
 specification](docs/SPEC-LOCAL-SPATIAL-CACHE.md) for the reliability checks and
 the verified source counts.
+
+### Add better documents later
+
+If you receive a Property Card, certified CTS/Final Plot plan, measurement
+record, licensed survey, or official DP Remarks plan, add it to the separate
+source registry. It lives in the same SQLite file, but never overwrites the
+original MCGM snapshots.
+
+```bash
+uv run dp-lookup-pro sources add evidence/worli-733.json --database data/mcgm-layer13.sqlite --actor imran
+uv run dp-lookup-pro sources verify 12 --database data/mcgm-layer13.sqlite --reviewed-by imran
+uv run dp-lookup-pro sources recommend WORLI 733 --database data/mcgm-layer13.sqlite
+uv run dp-lookup-pro sources activate 12 --purpose geometry --database data/mcgm-layer13.sqlite --activated-by imran --reason "accepted boundary evidence"
+```
+
+The order is register, verify, recommend, then explicitly activate for `area`,
+`geometry`, or `planning`. This lets the tool use the best evidence for each
+field while keeping disagreements visible. Every document is versioned,
+checksummed and audited. Normal lookup uses only active selections, and a
+source change makes the affected cached report or intelligence record stale.
+See [Certified sources](docs/CERTIFIED_SOURCES.md) for the simple manifest
+format and all commands.
 
 ## 🔎 Optional deeper planning evidence
 

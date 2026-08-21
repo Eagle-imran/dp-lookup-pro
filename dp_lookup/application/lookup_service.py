@@ -125,6 +125,18 @@ async def lookup_plot_pro(
             diagnostics.mark("parcel_ingestion", outcome="failed")
             return {"error": str(exc), "diagnostics": diagnostics.snapshot()}
         diagnostics.mark("parcel_ingestion", outcome="confirmed")
+        try:
+            parcel = deps.authority_resolver(parcel)
+            diagnostics.mark(
+                "authority_resolution",
+                outcome="applied" if parcel.authority_resolution is not None else "not_configured",
+            )
+        except Exception as exc:
+            warnings.append(
+                "An explicitly activated certified source could not be applied; "
+                f"the original parcel source was retained ({exc})."
+            )
+            diagnostics.mark("authority_resolution", outcome="failed", detail=str(exc))
         if area_note:
             notes.append(area_note)
         notes.extend(parcel_source_notes(parcel))

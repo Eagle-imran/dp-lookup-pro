@@ -214,8 +214,8 @@ The PDF has **no test coverage today**. Add, using pymupdf text extraction
 
 Rendered visually with pymupdf before and after, on at least:
 
-- **WORLI 733** — CLEAR, CRZ II, long road name, approved area
+- **WORLI 733** — CLEAR, CRZ II, long road name, recorded plot area
 - **BYCULLA 1605** — MODIFIED status, named road, DP modification present
-- **MALABAR HILL 518** — RESERVED/designated, derived area, null approved area
+- **MALABAR HILL 518** — RESERVED/designated, calculated boundary area, no recorded plot area
 
 All three status colours and both area sources are exercised.

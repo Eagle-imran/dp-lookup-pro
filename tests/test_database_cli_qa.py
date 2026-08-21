@@ -6,6 +6,7 @@ behavior, and the distinction between source features and CTS identities.
 """
 
 import asyncio
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -15,6 +16,7 @@ import pytest
 import dp_lookup.cli as cli
 from dp_lookup.application.contracts import ParcelContext
 from dp_lookup.application.local_spatial import LocalNeighbourProvider
+from dp_lookup.authority import AuthorityManifest, AuthorityStore, SelectionPurpose, SourceType
 from dp_lookup.clients.local_parcels import LocalParcelError, LocalParcelFetcher, merge_local_features
 from dp_lookup.database_cli import EXIT_SUCCESS
 from dp_lookup.database_cli import main as database_main
@@ -63,14 +65,43 @@ def test_lookup_source_modes_are_explicit_and_round_trip_paths(tmp_path):
         cli._parse_cli_args(["WORLI", "733", "--source", "local"])
 
 
+def test_report_cache_namespace_changes_when_authority_registry_changes(tmp_path):
+    database = tmp_path / "snapshot.sqlite"
+    _ready_database(database, [_parcel(1, "733", 0)])
+    before = cli._local_cache_namespace("local", str(database))
+    document = tmp_path / "property-card.pdf"
+    document.write_bytes(b"property card")
+    with AuthorityStore.open(database) as store:
+        record = store.register(
+            AuthorityManifest(
+                village="WORLI",
+                cts_no="733",
+                source_type=SourceType.PROPERTY_CARD,
+                source_uri=str(document),
+                source_sha256=hashlib.sha256(document.read_bytes()).hexdigest(),
+                issuer="City Survey Office",
+                recorded_area_sqm=1400.0,
+            )
+        )
+        store.verify(record.record_id, actor="reviewer")
+        store.activate(record.record_id, SelectionPurpose.AREA, actor="reviewer", reason="accepted area")
+    after = cli._local_cache_namespace("local", str(database))
+
+    assert before != after
+    assert "authority_revision=" in after
+
+
 def test_database_status_json_is_stable_for_missing_store(tmp_path):
     output = io.StringIO()
     database = tmp_path / "missing.sqlite"
-    assert database_main(
-        ["database", "status", "--database", str(database), "--json"],
-        services=_StatusServices(),
-        out=output,
-    ) == EXIT_SUCCESS
+    assert (
+        database_main(
+            ["database", "status", "--database", str(database), "--json"],
+            services=_StatusServices(),
+            out=output,
+        )
+        == EXIT_SUCCESS
+    )
     payload = json.loads(output.getvalue())
     assert payload["command"] == "status"
     assert payload["database"] == str(database)
@@ -163,10 +194,22 @@ def test_local_neighbours_group_duplicate_source_parts_and_report_ids(tmp_path):
     _ready_database(path, records)
     fetched = asyncio.run(LocalParcelFetcher(path)(object(), "WORLI", "733"))
     parcel = ParcelContext(
-        village="WORLI", cts_no="733", attrs=fetched["attributes"],
-        rings=fetched["geometry"]["rings"], wgs_rings=[], area_sqm=100,
-        area_source="approved", latitude=0, longitude=0, cx=5, cy=5,
-        mcx=5, mcy=5, xs=[0, 10], ys=[0, 10], window_radius=100,
+        village="WORLI",
+        cts_no="733",
+        attrs=fetched["attributes"],
+        rings=fetched["geometry"]["rings"],
+        wgs_rings=[],
+        area_sqm=100,
+        area_source="approved",
+        latitude=0,
+        longitude=0,
+        cx=5,
+        cy=5,
+        mcx=5,
+        mcy=5,
+        xs=[0, 10],
+        ys=[0, 10],
+        window_radius=100,
     )
     neighbours = LocalNeighbourProvider(path)(parcel)
     assert [item["cts_no"] for item in neighbours.plots] == ["734"]
@@ -181,10 +224,21 @@ def test_auto_mode_does_not_replace_live_neighbour_evidence(tmp_path):
     ``None`` is the dependency signal for the normal live neighbour stage.
     """
     parcel = ParcelContext(
-        village="WORLI", cts_no="733", attrs={"OBJECTID": 99},
+        village="WORLI",
+        cts_no="733",
+        attrs={"OBJECTID": 99},
         rings=[[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]],
-        wgs_rings=[], area_sqm=100, area_source="approved", latitude=0,
-        longitude=0, cx=5, cy=5, mcx=5, mcy=5, xs=[0, 10], ys=[0, 10],
+        wgs_rings=[],
+        area_sqm=100,
+        area_source="approved",
+        latitude=0,
+        longitude=0,
+        cx=5,
+        cy=5,
+        mcx=5,
+        mcy=5,
+        xs=[0, 10],
+        ys=[0, 10],
         window_radius=100,
     )
     assert LocalNeighbourProvider(tmp_path / "not-used.sqlite")(parcel) is None
@@ -192,12 +246,46 @@ def test_auto_mode_does_not_replace_live_neighbour_evidence(tmp_path):
 
 def test_duplicate_cts_merge_keeps_conflicting_area_explicit():
     rows = [
-        {"objectid": 2, "area_app_sqm": 200, "raw_attrs": {"VILLAGE": "WORLI", "CTS_CS_NO": "733"},
-         "geometry": _parcel(2, "733", 10)["geometry"]},
-        {"objectid": 1, "area_app_sqm": 100, "raw_attrs": {"VILLAGE": "WORLI", "CTS_CS_NO": "733"},
-         "geometry": _parcel(1, "733", 0)["geometry"]},
+        {
+            "objectid": 2,
+            "area_app_sqm": 200,
+            "raw_attrs": {"VILLAGE": "WORLI", "CTS_CS_NO": "733"},
+            "geometry": _parcel(2, "733", 10)["geometry"],
+        },
+        {
+            "objectid": 1,
+            "area_app_sqm": 100,
+            "raw_attrs": {"VILLAGE": "WORLI", "CTS_CS_NO": "733"},
+            "geometry": _parcel(1, "733", 0)["geometry"],
+        },
     ]
     merged = merge_local_features(rows)
     assert merged is not None
     assert merged["attributes"]["AREA_APP_SQ_MTRS"] is None
     assert merged["attributes"]["_DP_AREA_CONFLICT_VALUES"] == [100.0, 200.0]
+
+
+def test_duplicate_geometry_is_deduplicated_and_flagged_without_changing_source_ids():
+    geometry = _parcel(1, "733", 0)["geometry"]
+    rows = [
+        {
+            "objectid": 1,
+            "area_app_sqm": 100,
+            "raw_attrs": {"VILLAGE": "WORLI", "CTS_CS_NO": "733"},
+            "geometry": geometry,
+        },
+        {
+            "objectid": 2,
+            "area_app_sqm": None,
+            "raw_attrs": {"VILLAGE": "WORLI", "CTS_CS_NO": "733"},
+            "geometry": geometry,
+        },
+    ]
+
+    merged = merge_local_features(rows)
+
+    assert merged is not None
+    assert merged["attributes"]["SOURCE_OBJECTIDS"] == [1, 2]
+    assert merged["attributes"]["_DP_DUPLICATE_GEOMETRY_COUNT"] == 1
+    assert merged["attributes"]["_DP_RECORDED_AREA_MISSING_PARTS"] is True
+    assert merged["geometry"]["rings"] == geometry["rings"]

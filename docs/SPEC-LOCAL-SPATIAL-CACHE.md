@@ -74,7 +74,7 @@ suitable for a periodic internal update, not an unbounded scraping job.
 - immutable lifecycle states: `building`, `ready`, `active`, `retired`, `failed`;
 - source URL, expected/received counts, timestamps, manifest and validation JSON;
 - canonical raw feature JSON, raw attributes, ObjectID, normalized lookup keys,
-  village, CTS, ward, type, approved area and exact source rings (no
+  village, CTS, ward, type, recorded plot area and exact source rings (no
   simplification or reprojection in the store);
 - the exact source ObjectID inventory used to prove set equality, rather than
   relying only on a matching record count;
@@ -204,7 +204,7 @@ The completed checks were:
   cases and full optional evidence on 5/5 cases;
 - three fresh CLI cases used local core and optional planning evidence, returned
   no warning and generated all seven artifacts; and
-- the full project suite passes 399 tests at 84.48% branch-aware coverage, with
+- the full project suite passes 441 tests at 84.71% branch-aware coverage, with
   strict mypy and Ruff clean.
 
 The CLI now defaults to `auto` after expanded parity and stress testing. Keep
