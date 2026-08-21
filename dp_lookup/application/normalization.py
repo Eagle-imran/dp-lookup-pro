@@ -226,9 +226,7 @@ def _fallback_item(
     return {
         "approval_no": str(attributes.get("APPROVAL_NO") or "DP Mod"),
         "details": str(attributes.get("LABEL") or attributes.get("LABEL to Display") or "Modified"),
-        "document_link": str(
-            attributes.get("APPROVAL_DOCUMENTS") or attributes.get("Approval Documents") or "None"
-        ),
+        "document_link": str(attributes.get("APPROVAL_DOCUMENTS") or attributes.get("Approval Documents") or "None"),
         "overlap_sqm": area_sqm,
         "overlap_percent": 100.0,
         "raw_attributes": attributes,

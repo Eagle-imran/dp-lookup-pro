@@ -57,8 +57,7 @@ def arcgis_rings_to_geometry(rings: Sequence[Sequence[Sequence[float]]]) -> Base
         containers = [
             int(candidate_index)
             for candidate_index in tree.query(marker, predicate="within")
-            if int(candidate_index) != index
-            and polygons[int(candidate_index)].area > polygon.area
+            if int(candidate_index) != index and polygons[int(candidate_index)].area > polygon.area
         ]
         containers_by_ring.append(containers)
         depths.append(len(containers))

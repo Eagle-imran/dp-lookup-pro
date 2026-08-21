@@ -118,11 +118,7 @@ class PlanningSnapshotCheckpoint:
         if not isinstance(raw_layers, (list, tuple)):
             raise ValueError("checkpoint layers must be a list")
         return cls(
-            layers=tuple(
-                PlanningLayerCheckpoint.from_dict(item)
-                for item in raw_layers
-                if isinstance(item, Mapping)
-            ),
+            layers=tuple(PlanningLayerCheckpoint.from_dict(item) for item in raw_layers if isinstance(item, Mapping)),
             registry_layer_ids=tuple(payload.get("registry_layer_ids", ())),
             updated_at=str(payload.get("updated_at") or utc_now()),
         )
@@ -191,11 +187,7 @@ class PlanningLayerManifest:
     @property
     def complete(self) -> bool:
         return not (
-            self.inventory_error
-            or self.missing_ids
-            or self.rejected_ids
-            or self.extra_ids
-            or self.batch_errors
+            self.inventory_error or self.missing_ids or self.rejected_ids or self.extra_ids or self.batch_errors
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -383,10 +375,7 @@ async def _get_json(
             if attempt == config.max_attempts:
                 raise PlanningSnapshotError(f"planning-layer request failed after {attempt} attempts: {exc}") from exc
         except PlanningSnapshotError:
-            if (
-                status not in (0, 200)
-                and status not in RETRYABLE_STATUS_CODES
-            ) or attempt == config.max_attempts:
+            if (status not in (0, 200) and status not in RETRYABLE_STATUS_CODES) or attempt == config.max_attempts:
                 raise
         except Exception as exc:
             last_error = exc
@@ -536,11 +525,7 @@ async def ingest_planning_snapshot(
                 raise PlanningSnapshotError("inventory did not contain an objectIds list")
             expected_ids = _sorted_ids(raw_ids)
             parsed_ids = [_int_id(item) for item in raw_ids]
-            duplicates.update(
-                item
-                for item in set(parsed_ids)
-                if item is not None and parsed_ids.count(item) > 1
-            )
+            duplicates.update(item for item in set(parsed_ids) if item is not None and parsed_ids.count(item) > 1)
             source_metadata["inventory_spatial_reference"] = inventory.get("spatialReference")
             if cfg.fetch_layer_metadata:
                 metadata = await _get_json(client, layer_url, {"f": "json"}, cfg, sleep)
@@ -549,13 +534,15 @@ async def ingest_planning_snapshot(
                 source_metadata["source_spatial_reference"] = metadata.get("spatialReference")
                 advertised_object_id = metadata.get("objectIdField")
                 metadata_fields = metadata.get("fields")
-                oid_fields = [
-                    str(field.get("name"))
-                    for field in metadata_fields
-                    if isinstance(field, Mapping)
-                    and field.get("type") == "esriFieldTypeOID"
-                    and field.get("name")
-                ] if isinstance(metadata_fields, list) else []
+                oid_fields = (
+                    [
+                        str(field.get("name"))
+                        for field in metadata_fields
+                        if isinstance(field, Mapping) and field.get("type") == "esriFieldTypeOID" and field.get("name")
+                    ]
+                    if isinstance(metadata_fields, list)
+                    else []
+                )
                 if oid_fields:
                     resolved_object_id_field = oid_fields[0]
                 elif isinstance(advertised_object_id, str) and advertised_object_id.strip():
@@ -642,7 +629,9 @@ async def ingest_planning_snapshot(
                     try:
                         await _maybe_await(on_batch(spec, tuple(accepted)))
                     except Exception as exc:
-                        raise PlanningSnapshotError(f"durable planning sink rejected layer {spec.layer_id} batch: {exc}") from exc
+                        raise PlanningSnapshotError(
+                            f"durable planning sink rejected layer {spec.layer_id} batch: {exc}"
+                        ) from exc
                 if cfg.request_delay_seconds:
                     await sleep(cfg.request_delay_seconds)
 
@@ -675,7 +664,14 @@ async def ingest_planning_snapshot(
                 "layer_metadata": dict(metadata),
             },
             source_metadata=source_metadata,
-            content_hash=_sha256_json(sorted(raw_for_hash, key=lambda item: _int_id((item.get("attributes") or {}).get(resolved_object_id_field)) or 0)) if raw_for_hash else "",
+            content_hash=_sha256_json(
+                sorted(
+                    raw_for_hash,
+                    key=lambda item: _int_id((item.get("attributes") or {}).get(resolved_object_id_field)) or 0,
+                )
+            )
+            if raw_for_hash
+            else "",
         )
         layer_manifests.append(layer_manifest)
         layer_checkpoints.append(

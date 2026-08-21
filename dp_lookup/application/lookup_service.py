@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Optional
 from dp_lookup.application.contracts import ArtifactContext, MapFetchContext
 from dp_lookup.application.dependencies import DEFAULT_DEPENDENCIES, LookupDependencies
 from dp_lookup.application.ingestion import ParcelIngestionError, build_parcel_context, not_found_result
+from dp_lookup.application.live_queries import build_live_probe_queries
 from dp_lookup.application.local_spatial import parcel_source_notes
 from dp_lookup.application.normalization import (
     PlanningEvidenceError,
@@ -42,16 +43,9 @@ from dp_lookup.core.constants import (
     _VILLAGE_RE,
     CRZ_LAYER_IDS,
     DEFAULT_CACHE_TTL_SECONDS,
-    NEIGHBOUR_LAYERS,
-    ROAD_LAYERS,
     SERVER_URL,
 )
-from dp_lookup.core.geometry import (
-    latlon_to_tile,
-    nearest_road_geoms,
-    neighbour_probe_points,
-    road_probe_points,
-)
+from dp_lookup.core.geometry import latlon_to_tile, nearest_road_geoms
 from dp_lookup.core.villages import suggest_villages
 from dp_lookup.planning_evidence.models import EvidenceMode
 
@@ -183,44 +177,12 @@ async def lookup_plot_pro(
             params=map_export_params(*bbox, width, height),
         )
 
-        semaphore = asyncio.Semaphore(6)
-
-        async def post_limited(data: dict):
-            async with semaphore:
-                return await client.post(f"{SERVER_URL}/identify", data=data)
-
-        road_points = [] if local_road else road_probe_points(
-            parcel.rings[0],
-            parcel.mcx,
-            parcel.mcy,
-            parcel.xs,
-            parcel.ys,
+        road_points, road_tasks, neighbour_points, neighbour_tasks = build_live_probe_queries(
+            client,
+            parcel,
+            has_local_road=local_road is not None,
+            has_local_neighbours=local_neighbours is not None,
         )
-        road_tasks = [
-            post_limited(
-                identify_payload(
-                    x,
-                    y,
-                    ROAD_LAYERS,
-                    parcel.mcx,
-                    parcel.mcy,
-                    parcel.window_radius,
-                    tolerance=50,
-                    return_geometry=True,
-                )
-            )
-            for x, y in road_points
-        ]
-        neighbour_points = [] if local_neighbours else neighbour_probe_points(
-            parcel.mcx, parcel.mcy, parcel.window_radius
-        )
-        neighbour_tasks = [
-            post_limited(identify_payload(
-                x, y, NEIGHBOUR_LAYERS, parcel.mcx, parcel.mcy,
-                parcel.window_radius, tolerance=30, return_geometry=True,
-            ))
-            for x, y in neighbour_points
-        ]
 
         zoom, grid_dimension = 18, 3
         tile_x, tile_y = latlon_to_tile(parcel.latitude, parcel.longitude, zoom)
@@ -289,7 +251,9 @@ async def lookup_plot_pro(
         warnings.extend(planning.warnings)
         diagnostics.mark("normalization", outcome="complete" if not planning.warnings else "partial")
 
-        planning_due_diligence, evidence_outcome, evidence_detail, evidence_note = normalize_evidence_stage(fast_results[4], evidence_mode)
+        planning_due_diligence, evidence_outcome, evidence_detail, evidence_note = normalize_evidence_stage(
+            fast_results[4], evidence_mode
+        )
         if evidence_mode is not EvidenceMode.BASIC:
             diagnostics.mark("planning_evidence", outcome=evidence_outcome, detail=evidence_detail)
         if evidence_note:

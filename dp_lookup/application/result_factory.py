@@ -87,11 +87,7 @@ def build_lookup_result(
                     "width": road.width,
                     **({"distance_m": road.distance_m} if road.distance_m is not None else {}),
                     **({"snapshot_id": road.snapshot_id} if road.snapshot_id is not None else {}),
-                    **(
-                        {"source_object_ids": list(road.source_object_ids)}
-                        if road.source_object_ids
-                        else {}
-                    ),
+                    **({"source_object_ids": list(road.source_object_ids)} if road.source_object_ids else {}),
                 },
                 state=EvidenceState(road.evidence_state),
                 source="MCGM Development Plan 2034",

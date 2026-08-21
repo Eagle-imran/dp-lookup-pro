@@ -256,7 +256,12 @@ class LocalPlanningDatabaseServices:
                     return {"snapshot_id": active, "state": "active", "changed": False}
                 raise RuntimeError("database has no ready planning snapshot")
             snapshot = store.activate(int(ready[-1]["snapshot_id"]))
-            return {"snapshot_id": snapshot.snapshot_id, "version": snapshot.version, "state": snapshot.state, "changed": True}
+            return {
+                "snapshot_id": snapshot.snapshot_id,
+                "version": snapshot.version,
+                "state": snapshot.state,
+                "changed": True,
+            }
 
     def rollback_planning(self, database: Path, options: Mapping[str, Any]) -> Mapping[str, Any]:
         del options

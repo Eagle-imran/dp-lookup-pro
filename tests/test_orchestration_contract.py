@@ -331,9 +331,7 @@ def test_renderer_failure_is_isolated_and_suppresses_cache(tmp_path):
         _stub_dependencies(lambda timeout_seconds, verify_tls=True: FakeArcGISClient()),
         dp_map_renderer=fail_renderer,
     )
-    result = asyncio.run(
-        orchestrator.lookup_plot_pro("WORLI", "733", str(tmp_path), dependencies=dependencies)
-    )
+    result = asyncio.run(orchestrator.lookup_plot_pro("WORLI", "733", str(tmp_path), dependencies=dependencies))
     assert "error" not in result
     assert result["metadata"]["complete"] is False
     assert any("DP map rendering" in warning for warning in result["metadata"]["warnings"])

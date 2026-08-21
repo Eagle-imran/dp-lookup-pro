@@ -104,9 +104,7 @@ class LocalDatabaseServices:
         resumed_records = 0
         streamed = False
 
-        async def accept_inventory(
-            expected_ids: Tuple[int, ...], source_context: Mapping[str, Any]
-        ) -> Iterable[int]:
+        async def accept_inventory(expected_ids: Tuple[int, ...], source_context: Mapping[str, Any]) -> Iterable[int]:
             nonlocal store, snapshot_id, resumed_records, streamed
             streamed = True
             if store is None:

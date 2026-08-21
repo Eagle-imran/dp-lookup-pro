@@ -126,9 +126,7 @@ class LocalRoadProvider:
         if self.store is None:
             raise RuntimeError("no local planning snapshot store is configured")
         snapshot = (
-            self.store.snapshot(self.snapshot_id)
-            if self.snapshot_id is not None
-            else self.store.pin_active_snapshot()
+            self.store.snapshot(self.snapshot_id) if self.snapshot_id is not None else self.store.pin_active_snapshot()
         )
         if snapshot is None or not bool(getattr(snapshot, "complete", False)):
             raise RuntimeError("no complete active planning snapshot is available")

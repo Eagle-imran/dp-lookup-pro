@@ -104,10 +104,7 @@ class LocalNeighbourProvider:
                     "cts_no": cts_no,
                     "village": village,
                     "area_sqm": str(area),
-                    "rings": [
-                        [mercator_to_wgs84(point[0], point[1]) for point in ring]
-                        for ring in rings
-                    ],
+                    "rings": [[mercator_to_wgs84(point[0], point[1]) for point in ring] for ring in rings],
                     "source_objectids": sorted(int(part["objectid"]) for part in parts),
                     "adjacency_relation": relation,
                     "shared_boundary_m": round(shared, 3),

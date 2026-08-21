@@ -146,11 +146,7 @@ def _parse_layer_features(
         # The archival snapshot intentionally retains every published source
         # field. Runtime evidence remains on the same audited allow-list as the
         # live query so local mode cannot leak unrelated/schema-drift fields.
-        attributes = {
-            field: raw_attributes.get(field)
-            for field in spec.out_fields
-            if field in raw_attributes
-        }
+        attributes = {field: raw_attributes.get(field) for field in spec.out_fields if field in raw_attributes}
         rings = geometry.get("rings")
         if not isinstance(rings, list) or not rings:
             malformed += 1
@@ -245,9 +241,7 @@ def _build_summary(outcomes: Sequence[LayerQueryOutcome], context: EvidenceConte
     return {
         "finding_count": len(findings),
         "findings_by_evidence_class": dict(sorted(class_counts.items())),
-        "decision_record_count": sum(
-            1 for finding in findings if finding.layer_id in (83, 2000, 92, 85, 81)
-        ),
+        "decision_record_count": sum(1 for finding in findings if finding.layer_id in (83, 2000, 92, 85, 81)),
         "crz_categories": crz_categories,
         "asi_zone": asi_zone,
         "applicability": {
@@ -419,9 +413,7 @@ class LocalFirstPlanningEvidenceAnalyzer:
         age_days = _snapshot_age_days(finalized_at)
         if age_days is None:
             raise LocalPlanningEvidenceError(f"planning snapshot {snapshot_id} has an invalid finalized timestamp")
-        stale = (
-            self.max_snapshot_age_days is not None and age_days > self.max_snapshot_age_days
-        )
+        stale = self.max_snapshot_age_days is not None and age_days > self.max_snapshot_age_days
         if stale and not self.allow_stale_local:
             raise LocalPlanningEvidenceError(
                 f"planning snapshot {snapshot_id} is stale ({age_days} days old; "
@@ -532,10 +524,7 @@ class LocalFirstPlanningEvidenceAnalyzer:
                 raise LocalPlanningEvidenceError(str(exc)) from exc
             reason = str(exc)
             report = cast(PlanningEvidenceReport, await self.live_analyzer(client, rings, village, selected_mode))
-            warning = (
-                "Local planning snapshot was unavailable; live ArcGIS planning evidence was used "
-                f"({reason})."
-            )
+            warning = f"Local planning snapshot was unavailable; live ArcGIS planning evidence was used ({reason})."
             return replace(
                 report,
                 warnings=(*tuple(report.warnings), warning),

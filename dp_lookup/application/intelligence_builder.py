@@ -161,18 +161,11 @@ def _evidence_refs(report: Any, area_scale: float) -> List[Dict[str, Any]]:
 def _compact(items: Sequence[Mapping[str, Any]]) -> Tuple[Mapping[str, Any], ...]:
     """Keep computed facts; canonical raw attributes/geometry stay in source tables."""
     return tuple(
-        {
-            key: value
-            for key, value in item.items()
-            if key not in {"raw_attributes", "wgs_rings"}
-        }
-        for item in items
+        {key: value for key, value in item.items() if key not in {"raw_attributes", "wgs_rings"}} for item in items
     )
 
 
-def _scaled_items(
-    items: Sequence[Mapping[str, Any]], area_scale: float
-) -> Tuple[Mapping[str, Any], ...]:
+def _scaled_items(items: Sequence[Mapping[str, Any]], area_scale: float) -> Tuple[Mapping[str, Any], ...]:
     result = []
     for item in _compact(items):
         scaled = dict(item)
@@ -214,9 +207,11 @@ class PlotIntelligenceBuilder:
         if workers < 1 or workers > 16:
             raise ValueError("workers must be between 1 and 16")
         selected_mode = EvidenceMode.parse(evidence_mode)
-        with SnapshotStore.open(self.database) as parcels, PlanningSnapshotStore.open(
-            self.database
-        ) as planning, IntelligenceStore.open(self.database) as intelligence:
+        with (
+            SnapshotStore.open(self.database) as parcels,
+            PlanningSnapshotStore.open(self.database) as planning,
+            IntelligenceStore.open(self.database) as intelligence,
+        ):
             parcel_snapshot_id = parcel_snapshot_id or parcels.active_snapshot_id()
             planning_snapshot_id = planning_snapshot_id or planning.active_snapshot_id()
             if parcel_snapshot_id is None:
@@ -241,9 +236,7 @@ class PlotIntelligenceBuilder:
                 )
 
             all_count = _identity_count(parcels, parcel_snapshot_id)
-            identities = _identity_rows(
-                parcels, parcel_snapshot_id, limit=limit, offset=offset
-            )
+            identities = _identity_rows(parcels, parcel_snapshot_id, limit=limit, offset=offset)
             if not identities:
                 raise RuntimeError("selected parcel range contains no identities")
             scope = "full" if limit is None and offset == 0 else "sample"
@@ -270,15 +263,13 @@ class PlotIntelligenceBuilder:
 
             def derive(shard: Sequence[Tuple[str, str]]) -> int:
                 shard_failures = 0
-                with SnapshotStore.open(self.database) as worker_parcels, PlanningSnapshotStore.open(
-                    self.database
-                ) as worker_planning, IntelligenceStore.open(self.database) as worker_intelligence:
-                    road_provider = LocalRoadProvider(
-                        worker_planning, snapshot_id=planning_snapshot_id
-                    )
-                    neighbour_provider = LocalNeighbourProvider(
-                        self.database, store=worker_parcels
-                    )
+                with (
+                    SnapshotStore.open(self.database) as worker_parcels,
+                    PlanningSnapshotStore.open(self.database) as worker_planning,
+                    IntelligenceStore.open(self.database) as worker_intelligence,
+                ):
+                    road_provider = LocalRoadProvider(worker_planning, snapshot_id=planning_snapshot_id)
+                    neighbour_provider = LocalNeighbourProvider(self.database, store=worker_parcels)
                     evidence_analyzer = LocalFirstPlanningEvidenceAnalyzer(
                         worker_planning,
                         mode="local",
@@ -358,8 +349,7 @@ class PlotIntelligenceBuilder:
         geometry = arcgis_rings_to_geometry(parcel.rings)
         area_scale = _ground_area_scale(geometry)
         by_layer = {
-            layer_id: planning.query_layer(planning_snapshot_id, layer_id, geometry)
-            for layer_id in CORE_LAYER_IDS
+            layer_id: planning.query_layer(planning_snapshot_id, layer_id, geometry) for layer_id in CORE_LAYER_IDS
         }
         planning_result = build_spatial_planning_result(geometry, by_layer, [])
         road = road_provider(parcel)
@@ -387,9 +377,7 @@ class PlotIntelligenceBuilder:
         ]
         source_refs.extend(_core_refs(geometry, by_layer, area_scale))
         source_refs.extend(_evidence_refs(report, area_scale))
-        source_refs.sort(
-            key=lambda item: (int(item.get("layer_id", -1)), int(item.get("object_id", -1)))
-        )
+        source_refs.sort(key=lambda item: (int(item.get("layer_id", -1)), int(item.get("object_id", -1))))
         warnings = list(planning_result.get("warnings") or [])
         warnings.extend(road.warnings)
         warnings.extend(report.warnings)
@@ -451,13 +439,9 @@ class PlotIntelligenceBuilder:
             modifications=_scaled_items(planning_result["modifications"], area_scale),
             metro_buffer=str(planning_result["metro_buffer"]),
             crz_status=str(planning_result["crz_status"]),
-            encumbered_area_sqm=round(
-                parcel.area_sqm * float(planning_result["encumbered_percent"]) / 100.0, 2
-            ),
+            encumbered_area_sqm=round(parcel.area_sqm * float(planning_result["encumbered_percent"]) / 100.0, 2),
             encumbered_percent=float(planning_result["encumbered_percent"]),
-            net_unencumbered_sqm=round(
-                parcel.area_sqm * float(planning_result["net_unencumbered_percent"]) / 100.0, 2
-            ),
+            net_unencumbered_sqm=round(parcel.area_sqm * float(planning_result["net_unencumbered_percent"]) / 100.0, 2),
             net_unencumbered_percent=float(planning_result["net_unencumbered_percent"]),
             road_name=road.name,
             road_width=road.width,

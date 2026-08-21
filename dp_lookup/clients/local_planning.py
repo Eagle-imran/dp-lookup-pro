@@ -171,9 +171,7 @@ class LocalFirstPlanningQuery:
         if age_days is None:
             raise LocalPlanningError(f"planning snapshot {snapshot_id} has an invalid finalized timestamp")
         stale = (
-            age_days is not None
-            and self.max_snapshot_age_days is not None
-            and age_days > self.max_snapshot_age_days
+            age_days is not None and self.max_snapshot_age_days is not None and age_days > self.max_snapshot_age_days
         )
         if stale and not self.allow_stale_local:
             raise LocalPlanningError(
@@ -194,7 +192,9 @@ class LocalFirstPlanningQuery:
                     raise LocalPlanningError("planning snapshot store has no spatial layer query method")
                 records = query(snapshot_id, layer_id, parcel)
                 if records is None:
-                    raise LocalPlanningError(f"planning snapshot {snapshot_id} returned no collection for layer {layer_id}")
+                    raise LocalPlanningError(
+                        f"planning snapshot {snapshot_id} returned no collection for layer {layer_id}"
+                    )
                 if not isinstance(records, (list, tuple)):
                     raise LocalPlanningError(f"planning snapshot layer {layer_id} returned a malformed collection")
                 by_layer[layer_id] = [dict(record) for record in records if isinstance(record, Mapping)]

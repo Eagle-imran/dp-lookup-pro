@@ -143,9 +143,11 @@ class PlotIntelligenceServices:
             return store.verify(selected)
 
     def activate(self, database: Path, *, build_id: Optional[int] = None) -> Mapping[str, Any]:
-        with IntelligenceStore.open(database) as store, SnapshotStore.open(
-            database
-        ) as parcels, PlanningSnapshotStore.open(database) as planning:
+        with (
+            IntelligenceStore.open(database) as store,
+            SnapshotStore.open(database) as parcels,
+            PlanningSnapshotStore.open(database) as planning,
+        ):
             selected = build_id
             if selected is None:
                 ready = [item for item in store.status()["builds"] if item["state"] == "ready"]
@@ -154,13 +156,9 @@ class PlotIntelligenceServices:
                 selected = int(ready[-1]["build_id"])
             build = store.build(selected)
             if build.parcel_snapshot_id != parcels.active_snapshot_id():
-                raise IntelligenceStateError(
-                    "intelligence build does not match the active parcel snapshot"
-                )
+                raise IntelligenceStateError("intelligence build does not match the active parcel snapshot")
             if build.planning_snapshot_id != planning.active_snapshot_id():
-                raise IntelligenceStateError(
-                    "intelligence build does not match the active planning snapshot"
-                )
+                raise IntelligenceStateError("intelligence build does not match the active planning snapshot")
             return store.activate(selected).to_dict()
 
     def analyze(
@@ -203,9 +201,11 @@ class PlotIntelligenceServices:
     def check(self, database: Path, *, refresh_days: float = 183.0) -> Mapping[str, Any]:
         if refresh_days <= 0:
             raise ValueError("refresh_days must be positive")
-        with SnapshotStore.open(database) as parcels, PlanningSnapshotStore.open(
-            database
-        ) as planning, IntelligenceStore.open(database) as intelligence:
+        with (
+            SnapshotStore.open(database) as parcels,
+            PlanningSnapshotStore.open(database) as planning,
+            IntelligenceStore.open(database) as intelligence,
+        ):
             parcel_id = parcels.active_snapshot_id()
             planning_id = planning.active_snapshot_id()
             build_id = intelligence.active_build_id()
@@ -215,15 +215,10 @@ class PlotIntelligenceServices:
             parcel_age = _age_days(parcel.finalized_at if parcel else None)
             planning_age = _age_days(planning_snapshot.finalized_at if planning_snapshot else None)
             aligned = bool(
-                build
-                and build.parcel_snapshot_id == parcel_id
-                and build.planning_snapshot_id == planning_id
+                build and build.parcel_snapshot_id == parcel_id and build.planning_snapshot_id == planning_id
             )
             refresh_due = bool(
-                parcel_age is None
-                or planning_age is None
-                or parcel_age >= refresh_days
-                or planning_age >= refresh_days
+                parcel_age is None or planning_age is None or parcel_age >= refresh_days or planning_age >= refresh_days
             )
             actions = []
             if refresh_due:

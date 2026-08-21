@@ -16,9 +16,7 @@ def evidence_cache_key(base_key: str, mode: EvidenceMode) -> str:
     return f"{base_key}:planning-evidence-v1:{mode.value}"
 
 
-def cache_suppression_warning(
-    warnings: Sequence[str], planning_evidence: Optional[Mapping[str, Any]]
-) -> Optional[str]:
+def cache_suppression_warning(warnings: Sequence[str], planning_evidence: Optional[Mapping[str, Any]]) -> Optional[str]:
     """Explain why neither a degraded core nor evidence result may be cached."""
 
     if warnings:
@@ -50,9 +48,7 @@ def normalize_evidence_stage(
     detail = str(result) if isinstance(result, Exception) else "unexpected result"
     note = None
     if mode is not EvidenceMode.SHADOW:
-        note = (
-            "Extended planning evidence failed; the core lookup remains valid but due-diligence evidence is unavailable."
-        )
+        note = "Extended planning evidence failed; the core lookup remains valid but due-diligence evidence is unavailable."
     return (
         {
             "mode": mode.value,
