@@ -68,6 +68,22 @@ jobs:
                       await asyncio.sleep(20)
 
               if result is None or "error" in result:
+                  error = "lookup returned no result" if result is None else str(result.get("error"))
+                  network_markers = (
+                      "ConnectTimeout",
+                      "ConnectError",
+                      "ReadTimeout",
+                      "PoolTimeout",
+                  )
+                  if any(marker in error for marker in network_markers):
+                      summary = {
+                          "outcome": "upstream_unreachable",
+                          "error": error,
+                          "attempts": attempts,
+                      }
+                      summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+                      print(f"::warning title=MCGM ArcGIS unreachable::{error}")
+                      return
                   raise RuntimeError(f"live lookup failed: {result}")
               if not result.get("metadata", {}).get("complete"):
                   raise RuntimeError(f"live lookup incomplete: {result.get('metadata')}")
@@ -108,6 +124,7 @@ jobs:
                   checks[key] = {"path": str(path), "size": path.stat().st_size}
 
               summary = {
+                  "outcome": "passed",
                   "attempts": attempts,
                   "identity": identity,
                   "metadata": result["metadata"],
@@ -122,7 +139,7 @@ jobs:
           asyncio.run(run())
           PY
       - name: Upload smoke summary
-        if: success()
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: live-arcgis-smoke-${{ github.run_id }}

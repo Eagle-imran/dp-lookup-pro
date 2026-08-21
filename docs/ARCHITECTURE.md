@@ -141,7 +141,10 @@ keeping the runtime dependency surface smaller without changing the ArcGIS REST
 contract. ArcGIS polygon rings are converted by one topology adapter, preserving
 holes and multipart parcels. Mocked contract tests lock the layer set and
 response behavior; a scheduled live smoke lookup detects upstream service
-changes separately from deterministic pull-request CI.
+changes separately from deterministic pull-request CI. Its retained summary is
+tri-state: `passed` after artifact validation, `upstream_unreachable` with a
+workflow warning for recognized network timeouts, or a failed workflow for
+reachable-but-invalid application/data responses.
 
 Each run records a unique ID and stage timings in `metadata.diagnostics`.
 `DP_LOOKUP_LOG_JSON=1` mirrors stage-completion events as JSON on stderr for
