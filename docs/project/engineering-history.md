@@ -1,4 +1,4 @@
-# 🧠 MEMORY.md — MCGM DP 2034 Spatial Lookup Pro (`dp-lookup-pro`)
+# 🧠 Engineering history — MCGM DP 2034 Spatial Lookup Pro (`dp-lookup-pro`)
 
 > **Comprehensive Project History, Architecture Reference, Technical Decisions, Performance Benchmarks & Integration Sitemap**
 
@@ -16,31 +16,31 @@
 
 ---
 
-## 📁 Repository Folder Structure & Agent Guidance (v3.11.0)
+## 📁 Repository structure and contributor guidance
 
-> 🤖 **NOTE FOR AI AGENTS & DEVELOPERS**:
-> The repository layout was reorganized in v3.11.0 to declutter the root directory and reduce context window overhead.
+> This section describes the current repository layout. Historical paths in
+> older changelog entries and decisions are retained only as an audit trail.
 >
-> ### **Root Directory Policy**:
-> Keep the root directory minimal. Only user-facing entry points and primary configurations live in the root:
-> - `README.md`: Primary developer reference & overview.
-> - `START-HERE.md`: Plain-English 5-minute setup guide for end users & non-technical clients.
-> - `SKILL.md`: Antigravity / Claude Code agent skill definition.
-> - `LICENSE`: Proprietary license terms.
-> - `pyproject.toml`: Build & dependency configuration.
-> - `cts_dp_lookup_pro.py`: Core application script & CLI entry point.
+> ### **Root directory policy**
+> Keep the root limited to user entry points, repository policy and packaging:
+> - `README.md` and `START-HERE.md`: developer and plain-English entry points.
+> - `CONTRIBUTING.md`, `LICENSE`, `SKILL.md`: contributor, legal and agent policy.
+> - `pyproject.toml` and `uv.lock`: build and locked dependency configuration.
+> - `dp-lookup-pro`: portable source-checkout launcher.
+> - `cts_dp_lookup_pro.py`: backward-compatible import facade; new code belongs in `dp_lookup/`.
 >
-> ### **Documentation Hierarchy (`docs/`)**:
-> All technical reference specifications, architectural diagrams, guides, and version tracking live inside `docs/`:
-> - `docs/DXF-GUIDE.md`: Architect reference guide for DXF CAD layers, linetypes, and setback math.
-> - `docs/CHANGELOG.md`: Detailed release history & bug fix records.
-> - `docs/FEATURES_PLANNED.md`: Product roadmap & planned feasibility calculator specs.
-> - `docs/ROLLBACK.md`: Operational recovery & rollback instructions.
-> - `docs/MEMORY.md`: (This file) Architectural decision records, benchmarks, and agent sitemap.
-> - `docs/APP_FLOW.html`: Self-contained interactive visual flow map.
-> - `docs/APP_FLOW.json`: Machine-readable flow graph dataset.
+> ### **Documentation hierarchy (`docs/`)**
+> - `architecture/`: current dependency rules and extension boundaries.
+> - `guides/`: task-focused product and output guidance.
+> - `operations/`: database lifecycle, maintenance and recovery runbooks.
+> - `reference/`: source-system and layer facts.
+> - `project/`: roadmap, changelog and this historical engineering record.
+> - `decisions/`: dated design decisions; `audits/`: dated verification evidence.
+> - `archive/`: superseded material retained for history, never current guidance.
 >
-> **Rule for new documentation**: When creating new architectural guides, specs, or reference documents, place them inside `docs/` and update relative markdown links accordingly. Do not add raw `.md` files directly to the root directory.
+> Start at the [documentation index](../README.md). Put new material in the
+> section that owns it and update the index. Do not add miscellaneous Markdown
+> files to the repository root.
 
 ---
 

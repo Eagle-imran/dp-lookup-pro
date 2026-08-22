@@ -4,6 +4,31 @@
 ArcGIS services are external evidence sources; the application does not treat
 a missing response as proof that a planning constraint is absent.
 
+## Repository layout
+
+```text
+dp_lookup/                 installable application package
+  application/             use-case coordination
+  core/                    deterministic domain rules and geometry
+  clients/                 ArcGIS, cache and local-data adapters
+  spatial_store/           parcel snapshot persistence
+  planning_snapshot/       planning snapshot persistence and query
+  authority/               versioned certified-source evidence
+  intelligence/            derived portfolio facts and search
+  exporters/               PDF, CAD and geospatial outputs
+  renderers/               map and satellite images
+tests/                     offline unit, integration and contract tests
+tools/                     maintained developer utilities
+docs/                      indexed architecture, guides and runbooks
+data/                      ignored local operational snapshots
+output/                    ignored generated reports and registers
+```
+
+`dp-lookup-pro` is the portable source-checkout launcher.
+`cts_dp_lookup_pro.py` remains a public compatibility facade; it is not the
+implementation home for new code. Local databases, reports, environments,
+caches and build artifacts are deliberately outside version control.
+
 ## Dependency direction
 
 ```text
@@ -288,7 +313,7 @@ Plot-intelligence builds are a third, independent lifecycle layered over the
 two canonical source snapshots. A build records both source IDs, their content
 fingerprint and its deterministic algorithm version. Sample builds cannot be
 activated. Full activation requires completeness and active-source alignment.
-See [PLOT_INTELLIGENCE.md](PLOT_INTELLIGENCE.md).
+See [Plot intelligence](../guides/plot-intelligence.md).
 
 Database administration is intentionally separate from plot lookup. New
 commands use domain nouns; the original flat forms remain supported:

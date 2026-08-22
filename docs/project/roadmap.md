@@ -1,7 +1,7 @@
-# 🚀 FEATURES_PLANNED.md — Roadmap for `dp-lookup-pro`
+# 🚀 Product roadmap — `dp-lookup-pro`
 
 > **Roadmap for `dp-lookup-pro`.** Items shipped in v3.7.0–v3.10.0 are marked ✅ below;
-> see [CHANGELOG.md](CHANGELOG.md) for what each one actually did.
+> see the [changelog](changelog.md) for what each one actually did.
 
 ---
 
@@ -65,16 +65,17 @@ This roadmap outlines planned enterprise upgrades for **`dp-lookup-pro`** design
 ## ⚡ 4. Speed & Computational Performance Optimizations
 
 ### 4.1. ✅ SHIPPED — Local parcel and planning snapshots
-> **Full spec: [SPEC-LOCAL-SPATIAL-CACHE.md](SPEC-LOCAL-SPATIAL-CACHE.md).**
+> **Full spec: [local spatial database](../operations/local-spatial-database.md).**
 
 * **Delivered source database**: one ignored SQLite file now holds independent,
   immutable parcel and planning snapshots with inventory proof, resumable
   ingestion, verification, activation, rollback and provenance.
-* **Measured source size**: Layer 13 contains **135,342 feature records**, not a
-  claim of 135,342 unique legal plots. The planning snapshot contains **65,604
-  records across 52 canonical layers**. The combined active database is about
-  **1.0 GiB** because it preserves full official attributes, exact geometry and
-  audit payloads rather than only a minimal lookup index.
+* **Measured source size**: active parcel snapshot 2 contains **135,345 feature
+  records**, not a claim of 135,345 unique legal plots. Active planning snapshot
+  3 contains **65,598 records across 52 canonical layers**. The local file is
+  about **2.10 GiB** while the previous immutable snapshots are retained for
+  rollback, including full official attributes, exact geometry and audit
+  payloads rather than only a minimal lookup index.
 * **Governing rule**: verified active snapshots are local-first, their ID/date is
   always shown, and `auto` falls back visibly to live MCGM when local data is
   missing, invalid or older than 210 days. DP rendering and satellite

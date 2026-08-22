@@ -1,4 +1,4 @@
-# ⏪ ROLLBACK — How to go back if something breaks
+# ⏪ Rollback — How to recover if something breaks
 
 > **Short version:** 
 > - **Pre-2026-08-18 Checkpoint:** Tag & Branch **`checkpoint-pre-2026-08-18`** (Commit `97b8e62`).

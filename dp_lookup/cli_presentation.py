@@ -10,6 +10,40 @@ import os
 from typing import Any, Mapping, Sequence
 
 
+def _source_summary_rows(metadata: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Return concise, explicit parcel/planning provenance for human output."""
+    evidence = metadata.get("evidence")
+    if not isinstance(evidence, Mapping):
+        return []
+    rows: list[tuple[str, str]] = []
+
+    parcel = evidence.get("parcel")
+    if isinstance(parcel, Mapping):
+        parcel_value = parcel.get("value")
+        parcel_value = parcel_value if isinstance(parcel_value, Mapping) else {}
+        parcel_method = str(parcel.get("method") or "")
+        if parcel_method == "local_snapshot_attribute_query":
+            snapshot_id = parcel_value.get("snapshot_id")
+            label = "Local database" + (f" · parcel snapshot {snapshot_id}" if snapshot_id is not None else "")
+        else:
+            fallback = any("live layer 13 was used" in str(note).casefold() for note in metadata.get("notes") or [])
+            label = "Live MCGM ArcGIS" + (" · fallback" if fallback else "")
+        rows.append(("Parcel source", label))
+
+    planning = evidence.get("planning_source")
+    if isinstance(planning, Mapping):
+        planning_value = planning.get("value")
+        planning_value = planning_value if isinstance(planning_value, Mapping) else {}
+        planning_method = str(planning.get("method") or "")
+        if planning_method == "local_snapshot_spatial_query":
+            snapshot_id = planning_value.get("snapshot_id")
+            label = "Local database" + (f" · planning snapshot {snapshot_id}" if snapshot_id is not None else "")
+        else:
+            label = "Live MCGM ArcGIS" + (" · fallback" if planning_value.get("fallback") else "")
+        rows.append(("Planning source", label))
+    return rows
+
+
 def format_result_human(result: Mapping[str, Any]) -> str:
     """Return the historical readable lookup summary.
 
@@ -52,7 +86,8 @@ def format_result_human(result: Mapping[str, Any]) -> str:
     else:
         des_txt = "None"
 
-    rows: list[tuple[str, Any]] = [("Working plot area", area_txt)]
+    rows: list[tuple[str, Any]] = _source_summary_rows(meta)
+    rows.append(("Working plot area", area_txt))
     if isinstance(assessment, dict):
         recorded = assessment.get("recorded_plot_area_sqm")
         calculated = assessment.get("calculated_boundary_area_sqm")

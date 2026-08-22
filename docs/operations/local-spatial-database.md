@@ -1,7 +1,7 @@
 # Local parcel and planning snapshot database
 
-**Status:** Implemented; first local snapshot built, verified and activated
-**Updated:** 2026-08-21
+**Status:** Implemented; refreshed snapshots verified and active
+**Updated:** 2026-08-23
 **Scope:** MCGM Development Plan 2034 Layer 13 plus the audited planning registry
 
 ## Purpose
@@ -19,21 +19,21 @@ The database is deliberately not committed to Git. Generated files under
 
 ## Verified source facts
 
-The completed local build and immediate live recheck (2026-08-21) measured:
+The active local build and immediate live recheck (2026-08-23) measured:
 
 | Measure | Count |
 | :--- | ---: |
-| Feature records in the source inventory | **135,342** |
-| Records with a non-empty CTS/CS number | **123,388** |
+| Feature records in the source inventory | **135,345** |
+| Records with a non-empty CTS/CS number | **123,391** |
 | Records without a CTS/CS number | **11,954** |
 | Duplicate village/CTS identity groups | **3,050** |
 | Extra feature records in those groups beyond one each | **3,869** |
 | Canonical planning layers | **52** |
-| Planning-layer records | **65,604** |
+| Planning-layer records | **65,598** |
 | Planning validation errors | **0** |
 | Planning source-geometry warnings | **3** |
 
-These are feature-record counts, not a claim that there are 135,342 unique
+These are feature-record counts, not a claim that there are 135,345 unique
 legal plots. A village/CTS identity can contain multiple source features and
 multipart geometry. The importer preserves those parts and the local lookup
 combines all matching source features. Counts are re-measured on every build;
@@ -41,7 +41,9 @@ the figures above must not be treated as a permanent constant.
 
 The three planning warnings are official Designation records 1158, 1159 and
 4817 with empty source rings. They remain complete inventory records but cannot
-produce a spatial intersection. The active combined database is about 1.0 GiB.
+produce a spatial intersection. The local file is currently about 2.10 GiB
+because the former immutable snapshots are retained for rollback; active-record
+counts above exclude the inactive copies.
 
 ## What is implemented
 
@@ -96,7 +98,7 @@ planning builder archives all official fields for future audit, but runtime
 evidence exposes only the registry allow-list. Local core and optional evidence
 adapters use the R-Tree to shortlist features and the shared live/local parser
 for exact intersection, sliver removal and authority rules. See the [planning
-snapshot contract](PLANNING_SNAPSHOT.md) for counts, warnings and refresh rules.
+snapshot contract](planning-snapshots.md) for counts, warnings and refresh rules.
 
 ### Local lookup and exact adjacency
 
@@ -206,7 +208,7 @@ Snapshot 1 was built and activated locally on 2026-08-21. The generated file is
 ignored by Git. Its recorded content hash is
 `4ce5af608b211f4b9f6e6921927d49848830bdcb8d1084c20f98ae8190ebef97`.
 The detailed evidence is retained in
-[`audits/LOCAL-FIRST-VALIDATION-2026-08-21.md`](audits/LOCAL-FIRST-VALIDATION-2026-08-21.md).
+[`LOCAL-FIRST-VALIDATION-2026-08-21.md`](../audits/LOCAL-FIRST-VALIDATION-2026-08-21.md).
 The completed checks were:
 
 - all 135,342 inventory IDs exactly matched the stored parcel IDs;
@@ -232,21 +234,25 @@ The completed checks were:
 - the full project suite passes 441 tests at 84.71% branch-aware coverage, with
   strict mypy and Ruff clean.
 
-The CLI now defaults to `auto` after expanded parity and stress testing. Keep
-the forced-live escape hatch and programmatic live default until longer-term
-field use covers more reviewed irregular/multipart cases.
+The CLI defaults to `auto` after expanded parity and stress testing. The normal
+human summary names the parcel and planning source and snapshot, including any
+live fallback. Keep the forced-live escape hatch for verification and incident
+response.
 
 ## Storage and later work
 
-The active combined database is about 1.0 GiB after removing the failed partial
-planning attempt and compacting SQLite. It contains the 536 MiB parcel snapshot
-plus the complete planning archive, canonical raw source features, query-ready
-attributes, exact geometry and spatial indexes. The application does not
-currently publish or host the database online. A future storage optimization
-can losslessly compress raw audit JSON, and a cloud repository can implement
-the same source contracts after local updates are proven.
+The combined database is about 2.10 GiB while both the 2026-08-21 rollback
+snapshots and the 2026-08-23 active snapshots are retained. It contains the
+complete parcel and planning archives, canonical raw source features,
+query-ready attributes, exact geometry and spatial indexes. The application
+does not currently publish or host the database online. A future storage
+optimization can losslessly compress raw audit JSON, and a cloud repository can
+implement the same source contracts after local updates are proven.
 
-The derived [plot-intelligence database](PLOT_INTELLIGENCE.md) now builds on
+The refreshed baseline, upstream fingerprints and 23-CTS gate are preserved in
+the [2026-08-23 local-first acceptance record](../audits/LOCAL-FIRST-ACCEPTANCE-2026-08-23.md).
+
+The derived [plot-intelligence database](../guides/plot-intelligence.md) now builds on
 this foundation with village/ward/area/planning searches, one-plot dossiers,
 site comparison, local road/access analysis and refresh-alignment checks.
 Future work can add:

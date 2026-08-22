@@ -1,17 +1,17 @@
 {
   "_meta": {
-    "purpose": "Machine-readable architecture map of dp-lookup-pro, written for an AI agent picking up this codebase cold.",
+    "purpose": "Historical machine-readable architecture map of dp-lookup-pro v3.10. Use docs/architecture/overview.md for the current architecture.",
     "generated": "2026-07-29",
     "engine_file": "cts_dp_lookup_pro.py",
     "line_numbers_valid_as_of": "2026-07-29, v3.10.0 (merged to main as 9bc0f2e)",
     "line_numbers_caveat": "Line numbers drift with edits. Treat them as hints; confirm with grep before relying on them.",
     "version": "3.10.0",
     "related_docs": {
-      "changelog": "CHANGELOG.md",
-      "rollback": "ROLLBACK.md",
-      "user_guide": "START-HERE.md",
-      "visual_map": "APP_FLOW.html",
-      "dxf_guide": "DXF-GUIDE.md"
+      "changelog": "../project/changelog.md",
+      "rollback": "../operations/rollback.md",
+      "user_guide": "../../START-HERE.md",
+      "visual_map": "v3.10-system-flow.html",
+      "dxf_guide": "../guides/dxf.md"
     }
   },
   "project": {

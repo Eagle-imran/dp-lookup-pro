@@ -8,8 +8,8 @@ source.
 
 Plot intelligence turns the immutable parcel and planning archives into one
 query-ready record per unique `VILLAGE + CTS_CS_NO` identity. The active MCGM
-cadastral parcel archive currently contains 135,342 source features representing
-119,519 queryable village/CTS identities. Multipart source features are
+cadastral parcel archive currently contains 135,345 source features representing
+119,522 queryable village/CTS identities. Multipart source features are
 combined; they are not counted as separate plots. The technical ArcGIS
 provenance is retained as Development Plan Layer 13.
 
@@ -141,4 +141,4 @@ operation. A set-based enrichment optimization should shorten that one-time job
 before the first full activation without changing the schema or public commands.
 
 The real-data results are recorded in the
-[plot-intelligence validation audit](audits/PLOT-INTELLIGENCE-VALIDATION-2026-08-21.md).
+[plot-intelligence validation audit](../audits/PLOT-INTELLIGENCE-VALIDATION-2026-08-21.md).

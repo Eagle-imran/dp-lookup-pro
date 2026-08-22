@@ -114,4 +114,4 @@ An LLM may summarise raw remarks or help a user find conflicting evidence. It mu
 
 ## Audit record
 
-The complete live-layer investigation, controls, duplicates, positive CTS examples, known parser problems, authority caveats and rollout gates are preserved in [ARCGIS_LAYER_AUDIT.md](ARCGIS_LAYER_AUDIT.md). Revalidate that audit whenever the external service schema, registry version, or interpretation policy changes.
+The complete live-layer investigation, controls, duplicates, positive CTS examples, known parser problems, authority caveats and rollout gates are preserved in the [ArcGIS layer audit](../reference/arcgis-layers.md). Revalidate that audit whenever the external service schema, registry version, or interpretation policy changes.

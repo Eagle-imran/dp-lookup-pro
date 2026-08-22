@@ -1,7 +1,11 @@
-# Virtualenv and bytecode
+# Python environments, bytecode and package metadata
 .venv/
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
 
 # Generated lookup bundles and the audit register
 output/
@@ -17,14 +21,25 @@ data/*.manifest.json
 # or a CI runner saw them as untracked.
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.pyright/
 .cache/
 .coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
 # Local, machine-specific settings
 .claude/settings.local.json
+.claude/*.bak*
+.env
+.env.*
+!.env.example
 
 # Scratch & temporary testing scripts
 scratch/
+tmp/
 
 # macOS
 .DS_Store
+Thumbs.db

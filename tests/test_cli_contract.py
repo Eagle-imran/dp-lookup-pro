@@ -136,6 +136,37 @@ def test_human_summary_shows_both_area_facts_and_reliability():
     assert "Reliability" in output and "Verified source" in output
 
 
+def test_human_summary_makes_local_sources_and_live_fallback_visible():
+    local = _result()
+    local["metadata"]["evidence"] = {
+        "parcel": {
+            "method": "local_snapshot_attribute_query",
+            "value": {"snapshot_id": 2},
+        },
+        "planning_source": {
+            "method": "local_snapshot_spatial_query",
+            "value": {"snapshot_id": 3, "fallback": False},
+        },
+    }
+    local_output = cli.format_result_human(local)
+    assert "Parcel source" in local_output and "Local database · parcel snapshot 2" in local_output
+    assert "Planning source" in local_output and "Local database · planning snapshot 3" in local_output
+
+    fallback = _result()
+    fallback["metadata"]["notes"] = [
+        "Local parcel database was unavailable; live Layer 13 was used (database missing)."
+    ]
+    fallback["metadata"]["evidence"] = {
+        "parcel": {"method": "attribute_query", "value": {}},
+        "planning_source": {
+            "method": "spatial_polygon",
+            "value": {"source": "live_arcgis", "fallback": True},
+        },
+    }
+    fallback_output = cli.format_result_human(fallback)
+    assert fallback_output.count("Live MCGM ArcGIS · fallback") == 2
+
+
 def test_local_source_is_explicit_and_requires_database(monkeypatch, capsys, tmp_path):
     assert cli.main(["WORLI", "733", "--source", "local"]) == cli.EXIT_USAGE
     assert "--database PATH is required" in capsys.readouterr().out

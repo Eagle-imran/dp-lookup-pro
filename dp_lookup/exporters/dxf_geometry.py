@@ -5,8 +5,8 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from shapely.geometry import Polygon  # type: ignore[import-untyped]
-from shapely.geometry.base import BaseMultipartGeometry  # type: ignore[import-untyped]
+from shapely.geometry import Polygon
+from shapely.geometry.base import BaseMultipartGeometry
 
 METRES_PER_DEG_LAT = 111132.0
 METRES_PER_DEG_LON_EQUATOR = 111319.5

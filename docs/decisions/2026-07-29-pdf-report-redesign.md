@@ -1,4 +1,4 @@
-# PDF Report Redesign — Design
+# PDF report redesign — design decision
 
 **Date:** 2026-07-29
 **Status:** Approved, ready for implementation planning

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Thin CLI shim. All logic lives in cts_dp_lookup_pro.main().
+Portable source-checkout launcher. CLI logic lives in dp_lookup.cli.main().
 
 The previous shebang was '#!/usr/bin/env uv run python'. macOS splits shebang
 arguments, but Linux passes the whole remainder as a single argument, so that
@@ -14,7 +14,7 @@ Portable invocations, in order of preference:
 """
 import sys
 
-from cts_dp_lookup_pro import main
+from dp_lookup.cli import main
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -1,4 +1,4 @@
-# `dp-lookup-pro` — Roadmap to a 9+ Product
+# `dp-lookup-pro` — Roadmap to a 9+ product
 
 **Date:** 2026-08-01  
 **Status:** Strategic report for review  

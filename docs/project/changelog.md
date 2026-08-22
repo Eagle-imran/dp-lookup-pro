@@ -1,10 +1,50 @@
-# 📋 CHANGELOG — `dp-lookup-pro`
+# 📋 Changelog — `dp-lookup-pro`
 
 All notable changes to this project. Newest first.
 
-> **If something breaks after an update, see [ROLLBACK.md](ROLLBACK.md).**
+> **If something breaks after an update, see the [rollback guide](../operations/rollback.md).**
 
 ## [Unreleased] — 2026-08-23
+
+### Local-first operational acceptance
+
+* Detected upstream parcel and planning inventory changes, staged complete new
+  snapshots, verified/diffed them, and explicitly activated parcel snapshot 2
+  (135,345 records) and planning snapshot 3 (65,598 records across 52 layers).
+* Recorded database health and current ArcGIS fingerprints. The post-activation
+  check matched the live parcel count, ObjectID inventory, metadata and edit
+  signal and all 52 planning-layer fingerprints.
+* Added a reproducible 15–25 CTS acceptance harness. The 2026-08-23 run passed
+  23/23 local/live identity, raw geometry checksum, area, zoning and constraint
+  comparisons; 21 complete output bundles validated and two missing-zoning
+  cases correctly failed closed.
+* Kept `auto` as the accepted CLI default and added explicit parcel/planning
+  source rows to the human summary so local snapshots and live fallbacks are
+  immediately visible. See the [acceptance record](../audits/LOCAL-FIRST-ACCEPTANCE-2026-08-23.md).
+* Final gates: 507 tests passed at 83.99% branch-aware coverage; Ruff and strict
+  mypy passed; source and wheel distributions built. Real default-local and
+  deliberately forced-fallback CLI smoke tests both produced all seven files
+  and displayed the correct source labels.
+
+### Repository organization
+
+* Grouped current documentation into architecture, guides, operations,
+  reference and project sections with a single navigation index.
+* Moved dated design proposals into `docs/decisions/` and the superseded v3.10
+  flow map into `docs/archive/`, so historical material is not mistaken for
+  current architecture.
+* Kept the public package, compatibility module and portable launcher at their
+  stable paths. The installed console command now enters `dp_lookup.cli`
+  directly; `cts_dp_lookup_pro` remains available to existing callers.
+* Added explicit package markers for core, client, exporter and renderer
+  namespaces; expanded source distributions to include developer documentation
+  and maintained tools.
+* Removed generated caches/builds, macOS metadata, a stale machine-settings
+  backup and an obsolete ignored benchmark. Operational `data/`, `output/` and
+  the local virtual environment remain untouched.
+* Verification after the reorganization: 506 tests passed at 83.96%
+  branch-aware coverage; Ruff passed; strict mypy passed across 107 production
+  modules; source and wheel distributions built with the new layout.
 
 ### Architecture and modularity
 
@@ -68,7 +108,7 @@ All notable changes to this project. Newest first.
   resolved. Active-source changes invalidate affected report-cache and
   plot-intelligence fingerprints.
 * Added the `sources add`, `list`, `show`, `verify`, `recommend`, `activate`,
-  `withdraw`, and `audit` command grammar. See [Certified sources](CERTIFIED_SOURCES.md).
+  `withdraw`, and `audit` command grammar. See [Certified sources](../guides/certified-sources.md).
 
 * Added one shared immutable area assessment across live lookup, local lookup,
   plot intelligence, CLI, JSON, PDF, Excel, HTML, DXF, GeoJSON and KML.

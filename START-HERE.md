@@ -12,7 +12,7 @@ No GIS software. No portal logins. No manual searching.
 
 Once the local database is built, you can also search all plots at once—for
 example, residential sites above 2,000 m² without reservations—and compare
-shortlisted sites side by side. See [Plot intelligence](docs/PLOT_INTELLIGENCE.md).
+shortlisted sites side by side. See [Plot intelligence](docs/guides/plot-intelligence.md).
 
 ---
 
@@ -39,7 +39,7 @@ shared Excel register at the output root:
 | :--- | :--- | :--- |
 | 📄 **PDF Report** | Your client | 2-page DP remark docket — email it, print it, attach it to a proposal |
 | 🌐 **Interactive Map Dossier** | You & Client | Standalone interactive map in your browser with 1-click satellite toggle and developable envelope |
-| 📐 **AutoCAD `.dxf`** | Your architect | Opens in AutoCAD to scale, with the road, setback lines, neighbouring plots and a layer legend. Send them [docs/DXF-GUIDE.md](docs/DXF-GUIDE.md) with it. |
+| 📐 **AutoCAD `.dxf`** | Your architect | Opens in AutoCAD to scale, with the road, setback lines, neighbouring plots and a layer legend. Send them the [DXF guide](docs/guides/dxf.md) with it. |
 | 🗺️ **HD Zoning Map** | You | Zone, reservations and road widths at a glance |
 | 📸 **Satellite View** | You | What's actually built on the ground today |
 | 🌐 **QGIS `.geojson`** | Your GIS team | Import the scale-accurate plot polygon into QGIS or ArcGIS |
@@ -284,9 +284,11 @@ Each build downloads a complete official inventory in atomic batches and leaves
 a new snapshot ready for review. If interrupted, rerun the same command to skip
 already committed ObjectIDs; it resumes only when the source inventory still
 matches. It refuses to publish an incomplete download. Complete parcel and
-planning snapshots were built, live-compared, and activated on 2026-08-21.
-Together they occupy about 1.0 GiB in the ignored local database. Ordinary CLI
-lookups now use them first and fall back visibly to live MCGM when necessary.
+planning snapshots were refreshed, live-compared, and activated on 2026-08-23.
+The active data contains 135,345 parcel records and 65,598 planning records
+across 52 layers. The database currently occupies about 2.10 GiB because it
+also keeps the prior snapshots as a safe rollback point. Ordinary CLI lookups
+use the active snapshots first and show when live MCGM was used instead.
 
 For routine maintenance, check before downloading:
 
@@ -330,7 +332,7 @@ official source data; it is not itself a legal authority.
 
 To switch snapshots safely, use `db parcels diff`, `db parcels activate`, and
 `db parcels rollback`. See the [local snapshot
-specification](docs/SPEC-LOCAL-SPATIAL-CACHE.md) for the reliability checks and
+specification](docs/operations/local-spatial-database.md) for the reliability checks and
 the verified source counts.
 
 ### Add better documents later
@@ -352,7 +354,7 @@ The order is register, verify, recommend, then explicitly activate for `area`,
 field while keeping disagreements visible. Every document is versioned,
 checksummed and audited. Normal lookup uses only active selections, and a
 source change makes the affected cached report or intelligence record stale.
-See [Certified sources](docs/CERTIFIED_SOURCES.md) for the simple manifest
+See [Certified sources](docs/guides/certified-sources.md) for the simple manifest
 format and all commands.
 
 ## 🔎 Optional deeper planning evidence
@@ -367,8 +369,8 @@ uv run dp-lookup-pro "VILE PARLE" 1449 --evidence full --no-cache --json
 
 `full` mode checks more MCGM layers and can take noticeably longer. Its findings
 are screening evidence, not an official DP Remark or an automatic FSI/buildable
-area conclusion. See [Planning evidence](docs/PLANNING_EVIDENCE.md) and the
-[ArcGIS layer audit](docs/ARCGIS_LAYER_AUDIT.md).
+area conclusion. See [Planning evidence](docs/guides/planning-evidence.md) and the
+[ArcGIS layer audit](docs/reference/arcgis-layers.md).
 
 ---
 
@@ -386,8 +388,8 @@ before making any legal, financial or development decision.
 
 Proprietary software. © 2026 Imran Patel. All rights reserved.
 
-*Version 3.14.0 — see [docs/CHANGELOG.md](docs/CHANGELOG.md). If an update ever breaks
-something, [docs/ROLLBACK.md](docs/ROLLBACK.md) explains how to go back.*
+*Version 3.14.0 — see the [changelog](docs/project/changelog.md). If an update ever breaks
+something, the [rollback guide](docs/operations/rollback.md) explains how to go back.*
 
 Free for personal evaluation and testing. Commercial use, redistribution and
 modification are not permitted without written permission — see [LICENSE](LICENSE).

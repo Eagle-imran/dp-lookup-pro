@@ -237,7 +237,7 @@ These are reproducible engineering observations from the external service on the
 ## Planning snapshot archival validation — 21 August 2026
 
 The later local-source phase archived all 52 canonical registry layers and
-65,604/65,604 official inventory records. This changes source availability, not
+65,598/65,598 official inventory records in active snapshot 3. This changes source availability, not
 the authority rules above: only curated/conditional layers enter runtime
 findings, and spatial overlap remains screening evidence.
 
@@ -256,7 +256,7 @@ optional-evidence matches. Three fresh CLI runs then produced all seven
 artifacts with complete local planning evidence and no result warning. Current
 offline gates are 441 passing tests, 84.71% branch-aware coverage, Ruff clean
 and strict mypy clean. The detailed record is
-[`audits/PLANNING-SNAPSHOT-VALIDATION-2026-08-21.md`](audits/PLANNING-SNAPSHOT-VALIDATION-2026-08-21.md).
+[`PLANNING-SNAPSHOT-VALIDATION-2026-08-21.md`](../audits/PLANNING-SNAPSHOT-VALIDATION-2026-08-21.md).
 
 ## Safe rollout sequence
 

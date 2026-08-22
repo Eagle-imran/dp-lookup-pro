@@ -27,7 +27,7 @@ The test suite never touches the MCGM servers, so it is safe to run repeatedly.
 | Job | What it does |
 | :--- | :--- |
 | `ruff` | Lint and format checks with the rules in `pyproject.toml` |
-| `typing, coverage, dependency audit` | Strict typed-spine check, branch-aware 80% coverage ratchet, and runtime vulnerability audit |
+| `typing, coverage, dependency audit` | Strict package-wide typing, branch-aware 83% coverage ratchet, and runtime vulnerability audit |
 | `build` | Builds distributions and installs the wheel in a clean environment |
 | `pytest` | Full offline suite across the supported CI Python versions |
 | CLI smoke | The installed command reports help/version and lists all 128 villages |
@@ -51,9 +51,9 @@ Deliberately excluded, with reasons recorded in `pyproject.toml`:
 - **DTZ** — naive datetimes. These are local report timestamps for one city.
 - **S110** — `try/except/pass`. Several are deliberate (optional ezdxf
   linetypes); reviewed by hand rather than gated.
-- **E501** — retained for the legacy drawing/report modules where reflow would
-  be style-only churn. New application/client modules stay within the formatter
-  contract.
+- **E501** — retained because generated markup, ArcGIS schemas and drawing
+  declarations contain a small number of intentionally indivisible lines.
+  New application and client code still follows the 120-column convention.
 
 ## Testing against the live server
 

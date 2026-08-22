@@ -1,7 +1,7 @@
 # Local planning-layer snapshot contract
 
-**Status:** Implemented; first complete planning snapshot verified and active
-**Updated:** 2026-08-21
+**Status:** Implemented; refreshed planning snapshot verified and active
+**Updated:** 2026-08-23
 
 ## Purpose and boundary
 
@@ -108,4 +108,13 @@ planning and five of those against full optional evidence. All core results
 were equal (15/15) and all full-evidence reports were equal (5/5), ignoring only
 source/timing provenance. Three subsequent real CLI runs completed without a
 warning and produced all seven artifacts. See the durable [planning snapshot
-validation record](audits/PLANNING-SNAPSHOT-VALIDATION-2026-08-21.md).
+validation record](../audits/PLANNING-SNAPSHOT-VALIDATION-2026-08-21.md).
+
+## Current active snapshot
+
+The checked 2026-08-23 refresh activated planning snapshot 3 with 52/52
+canonical layers and 65,598/65,598 records. Its content hash is
+`10217c44677a33a304be5d9ff59985f2db51d623ab713fb3132c3d8095e734a9`.
+The record-count change is isolated to upstream layer 85; all current layer
+inventories and metadata fingerprints match live MCGM. See the
+[local-first acceptance record](../audits/LOCAL-FIRST-ACCEPTANCE-2026-08-23.md).

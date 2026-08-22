@@ -11,7 +11,7 @@ The rest of this README is the technical reference for developers.
 > ⚖️ **Proprietary software** — © 2026 Imran Patel. All rights reserved. Not open-source.
 > Free for personal evaluation; commercial use requires a licence. See [LICENSE](LICENSE).
 
-**v3.14.0** · [Architecture](docs/ARCHITECTURE.md) · [Planning evidence](docs/PLANNING_EVIDENCE.md) · [Certified sources](docs/CERTIFIED_SOURCES.md) · [ArcGIS layer audit](docs/ARCGIS_LAYER_AUDIT.md) · [What changed](docs/CHANGELOG.md) · [Reading the DXF](docs/DXF-GUIDE.md) · [How to roll back](docs/ROLLBACK.md) · [System flow map](docs/APP_FLOW.html)
+**v3.14.0** · [Documentation index](docs/README.md) · [Architecture](docs/architecture/overview.md) · [Planning evidence](docs/guides/planning-evidence.md) · [Certified sources](docs/guides/certified-sources.md) · [ArcGIS layer audit](docs/reference/arcgis-layers.md) · [What changed](docs/project/changelog.md) · [Reading the DXF](docs/guides/dxf.md) · [How to roll back](docs/operations/rollback.md)
 
 ---
 
@@ -105,9 +105,9 @@ uv run dp-lookup-pro COLABA 1/600 --evidence standard --no-cache --json
 uv run dp-lookup-pro "VILE PARLE" 1449 --evidence full --no-cache --json
 ```
 
-See [Planning evidence](docs/PLANNING_EVIDENCE.md) for `basic`, `shadow`,
+See [Planning evidence](docs/guides/planning-evidence.md) for `basic`, `shadow`,
 `standard`, and conditional `full` mode semantics.
-*(The answer appears in about a second; the PDF, maps and CAD files finish a few seconds later. A cached lookup is instant. See [docs/CHANGELOG.md](docs/CHANGELOG.md).)*
+*(The answer appears in about a second; the PDF, maps and CAD files finish a few seconds later. A cached lookup is instant. See the [changelog](docs/project/changelog.md).)*
 
 ### Step 5: Inspect the Generated Output Bundle
 Navigate to the newly created subfolder `./output/worli_cts_748A/` to access all generated assets:
@@ -165,11 +165,13 @@ The original flat `database build` and `database build-planning` forms remain
 supported for existing scripts. The first live validation is preserved in the
 [database maintenance audit](docs/audits/DATABASE-MAINTENANCE-CHECK-2026-08-23.md).
 
-Complete parcel and planning snapshots were built, verified, sampled against
-the live source, and activated on 2026-08-21. The current database is about
-1.0 GiB and contains 135,342 parcel records plus 65,604 records across 52
-planning layers. It remains ignored by Git and is not bundled with the package.
-Normal CLI lookup uses it automatically when available:
+Complete parcel and planning snapshots were refreshed, verified, sampled
+against the live source, and activated on 2026-08-23. Active snapshot 2 contains
+135,345 parcel records and active planning snapshot 3 contains 65,598 records
+across 52 layers. The local file is currently about 2.10 GiB because it also
+preserves the former snapshots for rollback. It remains ignored by Git and is
+not bundled with the package. Normal CLI lookup uses it automatically when
+available:
 
 ```bash
 dp-lookup-pro lookup WORLI 733
@@ -190,13 +192,16 @@ parcel snapshot older than 210 days remains usable with a warning; stale
 planning falls back live in `auto` because planning status is more sensitive to
 change. `auto` is the CLI default; `DP_LOOKUP_DATABASE` or `--database` can
 override the database path.
+The default human-readable summary identifies the parcel and planning source,
+snapshot ID, and any live fallback. The complete 23-CTS acceptance record is
+[here](docs/audits/LOCAL-FIRST-ACCEPTANCE-2026-08-23.md).
 Explicit `live` remains the verification escape hatch. Parcel identity,
 neighbours, zoning, reservations, designations, DP modifications, CRZ, Metro
 influence, optional planning evidence and road access are local-first. Live road
 probes remain the fallback; the rendered DP map and satellite imagery remain
 live. See the [local
-snapshot specification](docs/SPEC-LOCAL-SPATIAL-CACHE.md) and [planning snapshot
-contract](docs/PLANNING_SNAPSHOT.md) for validation and lifecycle details.
+snapshot specification](docs/operations/local-spatial-database.md) and [planning snapshot
+contract](docs/operations/planning-snapshots.md) for validation and lifecycle details.
 
 ### Certified-source registry
 
@@ -217,7 +222,7 @@ Activation is explicit and purpose-specific (`area`, `geometry`, or
 `planning`). Normal lookup uses only active selections. Equal-ranked sources
 are reported as a conflict until a person resolves them. A source change
 invalidates the affected report-cache and plot-intelligence fingerprints. See
-[Certified sources](docs/CERTIFIED_SOURCES.md) for the manifest format and
+[Certified sources](docs/guides/certified-sources.md) for the manifest format and
 complete lifecycle.
 
 ### Build and query plot intelligence
@@ -246,7 +251,7 @@ dp-lookup-pro plots check
 
 This is an internal operational system of record, not a replacement for MCGM
 or statutory/title documents. The complete lifecycle, refresh runbook and area
-quality rules are in [Plot intelligence](docs/PLOT_INTELLIGENCE.md).
+quality rules are in [Plot intelligence](docs/guides/plot-intelligence.md).
 
 ### Plot-area terminology
 

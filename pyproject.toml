@@ -27,7 +27,7 @@ dev = [
 ]
 
 [project.scripts]
-dp-lookup-pro = "cts_dp_lookup_pro:main"
+dp-lookup-pro = "dp_lookup.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -37,7 +37,19 @@ build-backend = "hatchling.build"
 include = ["cts_dp_lookup_pro.py", "dp_lookup"]
 
 [tool.hatch.build.targets.sdist]
-include = ["cts_dp_lookup_pro.py", "dp_lookup", "README.md", "START-HERE.md", "LICENSE", "tests"]
+include = [
+    "cts_dp_lookup_pro.py",
+    "dp_lookup",
+    "dp-lookup-pro",
+    "README.md",
+    "START-HERE.md",
+    "CONTRIBUTING.md",
+    "SKILL.md",
+    "LICENSE",
+    "docs",
+    "tests",
+    "tools",
+]
 
 [tool.ruff]
 line-length = 120
@@ -54,10 +66,8 @@ exclude = [".venv", "output", "docs"]
 #   S110   - try/except/pass. Several are deliberate (optional ezdxf linetypes);
 #            reviewed by hand rather than gated in CI.
 select = ["E", "F", "I", "B", "RUF"]
-# E501: the ArcGIS request payloads that originally caused these are now wrapped
-# (see identify_payload / map_export_params). The 34 that remain are inside
-# build_pdf_doc and export_dxf, which have not been split yet. Re-enable when
-# they are - the count should drop to zero rather than needing exclusions.
+# E501 remains disabled for a small number of generated-markup, ArcGIS schema,
+# and drawing-declaration lines where wrapping would reduce readability.
 ignore = ["E501"]
 
 [tool.pytest.ini_options]
