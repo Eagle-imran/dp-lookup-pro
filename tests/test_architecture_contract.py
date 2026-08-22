@@ -215,3 +215,27 @@ def test_planning_snapshot_spatial_reads_are_separate_from_lifecycle_store():
     assert "class PlanningFeatureQuery" in query_source
     assert "PlanningFeatureQuery(" in store_source
     assert "CROSS JOIN planning_feature_rtree" not in store_source
+
+
+def test_experimental_extensions_are_opt_in_and_keep_transport_and_output_boundaries():
+    package = PROJECT_ROOT / "dp_lookup" / "experimental"
+    assert package.is_dir(), "experimental extensions must live in their own package"
+    modules = tuple((package / "assemblies").glob("*.py"))
+    assert modules, "the experimental package must contain a focused adapter"
+
+    forbidden = (
+        "dp_lookup.cli",
+        "dp_lookup.clients",
+        "dp_lookup.exporters",
+        "dp_lookup.renderers",
+    )
+    for path in modules:
+        offenders = [name for name in _imports(path) if _matches_layer(name, forbidden)]
+        assert offenders == [], f"{path.relative_to(PROJECT_ROOT)} crosses an opt-in boundary: {offenders}"
+
+    # Importing the normal parser must not import or register the experiment.
+    parser_source = (PROJECT_ROOT / "dp_lookup" / "cli_parser.py").read_text(encoding="utf-8")
+    assert "dp_lookup.experimental" not in parser_source
+    cli_source = (package / "assemblies_cli.py").read_text(encoding="utf-8")
+    assert "importlib.import_module" in cli_source
+    assert "dp_lookup.application.assembly_services" in cli_source

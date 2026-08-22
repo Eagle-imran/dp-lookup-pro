@@ -8,6 +8,16 @@ All notable changes to this project. Newest first.
 
 ### Local-first operational acceptance
 
+* Added the opt-in experimental plot-assembly extension. It deterministically
+  studies neighbouring CTS geometry, gaps, overlaps, union area, perimeter and
+  removed internal boundaries; recalculates combined local planning evidence;
+  and writes traceable JSON, GeoJSON, KML and DXF files. It does not change the
+  normal lookup, source snapshots or ArcGIS ingestion.
+* Experimental-extension verification: 532 tests passed at 84.08%
+  branch-aware coverage; Ruff and strict package-wide mypy passed; source and
+  wheel distributions built; and a three-plot WORLI smoke study produced and
+  validated all four assembly artifacts against active local snapshots.
+
 * Detected upstream parcel and planning inventory changes, staged complete new
   snapshots, verified/diffed them, and explicitly activated parcel snapshot 2
   (135,345 records) and planning snapshot 3 (65,598 records across 52 layers).

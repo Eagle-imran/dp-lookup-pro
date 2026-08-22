@@ -14,6 +14,12 @@ Once the local database is built, you can also search all plots at once—for
 example, residential sites above 2,000 m² without reservations—and compare
 shortlisted sites side by side. See [Plot intelligence](docs/guides/plot-intelligence.md).
 
+For an opt-in experiment with neighbouring plots, see the [experimental plot
+assembly guide](docs/guides/experimental-plot-assemblies.md). It studies
+geometry, adjacency and combined local planning constraints, and writes JSON,
+GeoJSON, KML and DXF hand-off files. It does not establish ownership, title or
+approval.
+
 ---
 
 ## 📋 What it tells you

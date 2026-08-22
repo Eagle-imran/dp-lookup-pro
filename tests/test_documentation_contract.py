@@ -10,6 +10,7 @@ LAYER_AUDIT = (ROOT / "docs" / "reference" / "arcgis-layers.md").read_text(encod
 PLANNING_EVIDENCE = (ROOT / "docs" / "guides" / "planning-evidence.md").read_text(encoding="utf-8")
 PLOT_INTELLIGENCE = (ROOT / "docs" / "guides" / "plot-intelligence.md").read_text(encoding="utf-8")
 DOCS_INDEX = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+ASSEMBLIES = (ROOT / "docs" / "guides" / "experimental-plot-assemblies.md").read_text(encoding="utf-8")
 
 MARKDOWN_LINK = re.compile(r"(?<!!)\[[^]]+\]\(([^)]+)\)")
 
@@ -63,6 +64,20 @@ def test_plot_intelligence_docs_preserve_authority_and_refresh_boundaries():
 def test_documentation_index_exposes_each_owned_section():
     for section in ("architecture/", "guides/", "operations/", "reference/", "project/", "decisions/", "audits/"):
         assert section in DOCS_INDEX
+
+
+def test_experimental_assembly_docs_keep_the_feature_opt_in_and_honest():
+    assert "experimental assembly analyze" in ASSEMBLIES
+    assert "--gap-tolerance" in ASSEMBLIES
+    assert "No AI, LLM or agent is required" in ASSEMBLIES
+    assert "certified boundary survey" in ASSEMBLIES.lower()
+    assert "Raw snapshots are never rewritten" in ASSEMBLIES
+    assert "combined-site zoning" in ASSEMBLIES
+    assert "assembly-boundary.geojson" in ASSEMBLIES
+    assert "assembly-boundary.dxf" in ASSEMBLIES
+    assert "PDF, HTML" in ASSEMBLIES and "not included" in ASSEMBLIES
+    assert "promotion gates" in ASSEMBLIES.lower()
+    assert "experimental-plot-assemblies.md" in DOCS_INDEX
 
 
 def test_local_markdown_links_resolve():

@@ -34,6 +34,7 @@ It automatically generates a complete export bundle containing an **Interactive 
 * **🏘️ Adjoining CTS Plot Cluster Identification**: Identifies neighboring land parcels and their areas for site amalgamation and layout analysis.
 * **🗃️ Audited local source database**: Keeps complete, independently versioned parcel and planning-layer snapshots in one SQLite file. Normal CLI lookup uses active local data first, records its snapshot provenance, and falls back visibly to live MCGM when local data is missing, stale, or invalid.
 * **🔎 Plot Intelligence & Site Search**: Builds one verified record per unique village/CTS identity for instant dossiers, citywide filtering and side-by-side site comparison, with every fact linked to its source snapshot, layer and ObjectID.
+* **🧪 Experimental plot assemblies**: An opt-in adapter unions selected neighbouring CTS parcels, recalculates local planning constraints and writes JSON, GeoJSON, KML and DXF feasibility files. It is not part of normal lookup and does not certify legal amalgamation. See the [assembly guide](docs/guides/experimental-plot-assemblies.md).
 * **📐 Native AutoCAD CAD & Google Earth Exports**:
   * **`.dxf`**: Native AutoCAD Drawing file ready to double-click and open instantly in **AutoCAD, AutoCAD LT, Civil 3D, and TurboCAD**! Includes layer styling & text annotations.
   * **`.geojson`**: Scale-accurate WGS84 (`EPSG:4326`) polygon for QGIS and ArcGIS.

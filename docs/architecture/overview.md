@@ -15,6 +15,7 @@ dp_lookup/                 installable application package
   planning_snapshot/       planning snapshot persistence and query
   authority/               versioned certified-source evidence
   intelligence/            derived portfolio facts and search
+  experimental/            opt-in feasibility extensions (currently assemblies)
   exporters/               PDF, CAD and geospatial outputs
   renderers/               map and satellite images
 tests/                     offline unit, integration and contract tests
@@ -86,6 +87,13 @@ application.lookup_service (composition shell, <375 lines)
   can replace boundaries without monkeypatching module globals. New workflows—
   feasibility, massing, or automated planning—belong here and should compose
   domain services rather than expand the lookup CLI.
+- `experimental/assemblies` contains the pure opt-in plot-assembly models and
+  deterministic geometry policy. It does not import the CLI, ArcGIS transport,
+  exporters or renderers. A thin experimental CLI adapter late-loads the
+  application service; that service composes stable stores, the planning query
+  policy and output adapters. Command registration does not change the normal
+  single-plot lookup path. Experimental results remain screening studies until
+  their documented promotion gates are met.
 - `exporters` and `renderers` transform an already-computed result. They do not
   decide planning status. Bundle outputs and report-stage outputs use typed
   exporter registries; map-image construction has typed render requests. New

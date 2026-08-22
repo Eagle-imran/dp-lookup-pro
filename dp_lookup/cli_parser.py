@@ -21,6 +21,7 @@ USAGE = """Usage: dp-lookup-pro <VILLAGE_NAME> <CTS_NUMBER> [OUTPUT_DIR] [option
        dp-lookup-pro db <COMMAND> [--database PATH] [--json]
        dp-lookup-pro plots <COMMAND> [--database PATH] [--json]
        dp-lookup-pro evidence <COMMAND> [--database PATH] [--json]
+       dp-lookup-pro experimental assembly analyze VILLAGE:CTS VILLAGE:CTS [options]
 
 Options:
   --json            print the full JSON response instead of a summary
@@ -36,6 +37,7 @@ Examples:
   dp-lookup-pro BANDRA-A 409 ./client-reports --no-cache
   dp-lookup-pro db health
   dp-lookup-pro db check-upstream
+  dp-lookup-pro experimental assembly analyze WORLI:733 WORLI:734
 
 Village must be one of the 128 exact MCGM revenue village names
 (e.g. BANDRA-A, not BANDRA). See START-HERE.md for the full list."""

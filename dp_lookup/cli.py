@@ -139,6 +139,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         return EXIT_SUCCESS
 
     raw_args = _normalize_admin_args(raw_args)
+    if raw_args and raw_args[0] == "experimental":
+        from dp_lookup.experimental.assemblies_cli import main as experimental_main
+
+        return int(experimental_main(raw_args))
     if raw_args and raw_args[0] == "intelligence":
         from dp_lookup.intelligence_cli import main as intelligence_main
 

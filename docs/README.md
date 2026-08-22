@@ -15,6 +15,7 @@ plain-English [quick start](../START-HERE.md) to run a lookup, or the main
 | [Planning evidence](guides/planning-evidence.md) | Evidence modes and what additional layers add to a study |
 | [Certified sources](guides/certified-sources.md) | Adding, reviewing and activating Property Cards, surveys and CTS/FP plans |
 | [Plot intelligence](guides/plot-intelligence.md) | Building and querying portfolio-ready derived facts |
+| [Experimental plot assemblies](guides/experimental-plot-assemblies.md) | Opt-in neighbouring-CTS union and amalgamation feasibility study |
 | [DXF guide](guides/dxf.md) | Reading and handing off the architectural CAD output |
 | [Rollback](operations/rollback.md) | Safe recovery when a release or snapshot causes a problem |
 
