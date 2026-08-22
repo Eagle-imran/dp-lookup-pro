@@ -4,8 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Optional, Sequence, Tuple
 
-from shapely.geometry.base import BaseGeometry  # type: ignore[import-untyped]
-from shapely.ops import unary_union  # type: ignore[import-untyped]
+from shapely.geometry.base import BaseGeometry
+from shapely.ops import unary_union
 
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 

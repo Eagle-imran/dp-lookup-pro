@@ -12,7 +12,7 @@ import math
 import re
 from html import escape as _escape_html
 from importlib import resources
-from typing import Any, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.ops import unary_union
@@ -169,14 +169,17 @@ def _reliability_css_class(status: str) -> str:
     }.get(status, "reliability-screening")
 
 
-def _compute_net_developable_wgs(wgs_rings: list, encumbered_items: list) -> List[List[List[float]]]:
+def _compute_net_developable_wgs(
+    wgs_rings: List[List[List[float]]],
+    encumbered_items: Sequence[Mapping[str, Any]],
+) -> List[List[List[float]]]:
     """Compute the unencumbered polygon in WGS84 coordinates using Shapely."""
     try:
         plot_poly = Polygon(wgs_rings[0])
         if not plot_poly.is_valid:
             plot_poly = plot_poly.buffer(0)
 
-        enc_polys = []
+        enc_polys: List[Any] = []
         for item in encumbered_items:
             for ring in item.get("wgs_rings", []):
                 if len(ring) >= 3:
@@ -193,7 +196,7 @@ def _compute_net_developable_wgs(wgs_rings: list, encumbered_items: list) -> Lis
         if net_poly.is_empty:
             return []
 
-        out_rings = []
+        out_rings: List[List[List[float]]] = []
         parts = list(net_poly.geoms) if isinstance(net_poly, MultiPolygon) else [net_poly]
         for part in parts:
             if getattr(part, "exterior", None) is not None:
@@ -206,13 +209,13 @@ def _compute_net_developable_wgs(wgs_rings: list, encumbered_items: list) -> Lis
 
 
 def export_html_map(
-    wgs_rings: list,
+    wgs_rings: List[List[List[float]]],
     properties: ExportPayload,
     output_path: str,
-    neighbors: Optional[list] = None,
-    roads: Optional[list] = None,
-    reservations: Optional[list] = None,
-    designations: Optional[list] = None,
+    neighbors: Optional[List[Dict[str, Any]]] = None,
+    roads: Optional[Sequence[Sequence[Sequence[float]]]] = None,
+    reservations: Optional[List[Dict[str, Any]]] = None,
+    designations: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     """
     Generates a streamlined, clean HTML Map Dossier (.html)
@@ -258,11 +261,16 @@ def export_html_map(
         },
     }
 
-    net_plot_geojson = {
+    net_coordinates: Any
+    if len(net_rings) == 1:
+        net_coordinates = net_rings
+    else:
+        net_coordinates = [net_rings]
+    net_plot_geojson: Dict[str, Any] = {
         "type": "Feature",
         "geometry": {
             "type": "Polygon" if len(net_rings) == 1 else "MultiPolygon",
-            "coordinates": net_rings if len(net_rings) == 1 else [net_rings],
+            "coordinates": net_coordinates,
         },
         "properties": {
             "title": "Net Developable Envelope",

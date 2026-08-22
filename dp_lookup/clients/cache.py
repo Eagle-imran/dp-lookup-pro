@@ -11,7 +11,7 @@ import tempfile
 import threading
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Optional
 
 from dp_lookup.clients.responses import usable_json as usable_json
 from dp_lookup.clients.tile_cache import _TILE_CACHE as _TILE_CACHE
@@ -61,7 +61,7 @@ def _lock_path(path: str) -> str:
 
 
 @contextmanager
-def _disk_lock(path: str):
+def _disk_lock(path: str) -> Iterator[None]:
     """Best-effort advisory lock for cache operations.
 
     ``fcntl`` is part of the standard library on the Unix platforms we ship
@@ -239,7 +239,10 @@ def read_cache_entry(
     if not bundle_is_intact(result):
         return None
 
-    result = json.loads(json.dumps(result))
+    copied_result = json.loads(json.dumps(result))
+    if not isinstance(copied_result, dict):
+        return None
+    result = copied_result
     age = max(0.0, time.time() - cached_at)
     meta = result.setdefault("metadata", {})
     meta["cached_result"] = True

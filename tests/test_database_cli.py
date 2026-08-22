@@ -54,3 +54,49 @@ def test_service_error_has_error_exit_and_json():
     output = io.StringIO()
     assert main(["database", "status", "--database", "x", "--json"], services=Broken(), out=output) == EXIT_ERROR
     assert json.loads(output.getvalue())["error"] == "corrupt"
+
+
+def test_upstream_human_summary_is_compact():
+    class Upstream(Services):
+        def check_upstream(self, _database):
+            return {
+                "overall_status": "changed",
+                "geometry_downloaded": False,
+                "parcels": {"status": "changed"},
+                "planning": {"status": "changed", "changed_layer_ids": [85]},
+                "next_action": "stage a snapshot",
+            }
+
+    output = io.StringIO()
+    assert (
+        main(
+            ["database", "check-upstream", "--database", "db.sqlite"],
+            services=Upstream(),
+            out=output,
+        )
+        == EXIT_SUCCESS
+    )
+    text = output.getvalue()
+    assert "check-upstream: CHANGED" in text
+    assert "geometry downloaded: False" in text
+    assert "changed layers: 85" in text
+
+
+def test_unconfigured_service_and_parser_edge_cases_are_stable():
+    output = io.StringIO()
+    assert main(["database", "health", "--database", "db.sqlite"], out=output) == EXIT_ERROR
+    assert "not configured" in output.getvalue()
+
+    for args, message in (
+        (["db", "status", "--database", "x"], "expected 'database'"),
+        (["database", "status", "--database"], "requires a path"),
+        (["database", "status", "--database="], "requires a path"),
+        (["database", "status", "--help"], "help requested"),
+        (["database", "status", "--wat"], "unknown database option"),
+    ):
+        try:
+            parse_database_args(args)
+        except ValueError as exc:
+            assert message in str(exc)
+        else:
+            raise AssertionError(f"expected ValueError for {args}")

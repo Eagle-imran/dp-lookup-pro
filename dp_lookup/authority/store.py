@@ -3,300 +3,52 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
-import json
-import math
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union, cast
-from urllib.parse import unquote, urlparse
 
-from dp_lookup.authority.models import (
-    AuthorityManifest,
-    AuthorityRecord,
-    SelectionPurpose,
-    SourceStatus,
-    SourceType,
-    canonical_json,
+from dp_lookup.authority.codecs import (
+    crs_wkid as _crs_wkid,
 )
-from dp_lookup.core.area_assessment import calculated_boundary_area_sqm
-from dp_lookup.core.constants import WEB_MERCATOR_R
-from dp_lookup.core.topology import arcgis_rings_to_geometry
-
-AUTHORITY_SCHEMA_VERSION = 1
-
-
-class AuthorityStoreError(RuntimeError):
-    """Base error for authority registry failures."""
-
-
-class AuthorityValidationError(AuthorityStoreError, ValueError):
-    """An authority manifest or lifecycle operation is invalid."""
-
-
-class AuthorityStateError(AuthorityStoreError):
-    """An operation conflicts with immutable evidence lifecycle rules."""
-
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS authority_meta (
-    key TEXT PRIMARY KEY NOT NULL,
-    value TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS authority_records (
-    record_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    village TEXT NOT NULL,
-    cts_no TEXT NOT NULL,
-    ward TEXT,
-    source_type TEXT NOT NULL,
-    version INTEGER NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('registered','verified','superseded','withdrawn','rejected')),
-    issuer TEXT,
-    reference_no TEXT,
-    issue_date TEXT,
-    survey_date TEXT,
-    source_uri TEXT NOT NULL,
-    source_sha256 TEXT NOT NULL,
-    mime_type TEXT,
-    byte_size INTEGER,
-    recorded_area_sqm REAL,
-    original_geometry_json TEXT,
-    original_crs INTEGER,
-    normalized_rings_json TEXT,
-    normalized_crs INTEGER,
-    geometry_sha256 TEXT,
-    calculated_area_sqm REAL,
-    supersedes_id INTEGER REFERENCES authority_records(record_id),
-    metadata_json TEXT NOT NULL,
-    created_by TEXT,
-    reviewed_by TEXT,
-    created_at TEXT NOT NULL,
-    reviewed_at TEXT,
-    updated_at TEXT NOT NULL,
-    record_checksum TEXT NOT NULL UNIQUE,
-    UNIQUE(village, cts_no, source_type, version)
-);
-CREATE INDEX IF NOT EXISTS authority_records_identity
-    ON authority_records(village, cts_no, source_type, status, version);
-CREATE TABLE IF NOT EXISTS authority_events (
-    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    record_id INTEGER NOT NULL REFERENCES authority_records(record_id),
-    event_type TEXT NOT NULL,
-    actor TEXT,
-    event_at TEXT NOT NULL,
-    reason TEXT,
-    details_json TEXT NOT NULL DEFAULT '{}'
-);
-CREATE INDEX IF NOT EXISTS authority_events_record
-    ON authority_events(record_id, event_at, event_id);
-CREATE TABLE IF NOT EXISTS authority_selections (
-    selection_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    record_id INTEGER NOT NULL REFERENCES authority_records(record_id),
-    village TEXT NOT NULL,
-    cts_no TEXT NOT NULL,
-    purpose TEXT NOT NULL CHECK(purpose IN ('area','geometry','planning')),
-    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
-    selected_at TEXT NOT NULL,
-    selected_by TEXT,
-    reason TEXT,
-    deactivated_at TEXT,
-    deactivated_by TEXT,
-    deactivation_reason TEXT
-);
-CREATE UNIQUE INDEX IF NOT EXISTS authority_active_selection
-    ON authority_selections(village, cts_no, purpose) WHERE active = 1;
-CREATE INDEX IF NOT EXISTS authority_selection_record
-    ON authority_selections(record_id, purpose, selected_at);
-"""
+from dp_lookup.authority.codecs import (
+    digest as _hash,
+)
+from dp_lookup.authority.codecs import document_path as _document_path
+from dp_lookup.authority.codecs import (
+    file_sha256 as _file_sha256,
+)
+from dp_lookup.authority.codecs import (
+    json_value as _json,
+)
+from dp_lookup.authority.codecs import (
+    loads as _loads,
+)
+from dp_lookup.authority.codecs import (
+    manifest_payload as _manifest_payload,
+)
+from dp_lookup.authority.codecs import (
+    normalise_geometry as _normalise_geometry,
+)
+from dp_lookup.authority.codecs import (
+    normalised_identity as _normalised_identity,
+)
+from dp_lookup.authority.codecs import (
+    positive_area as _positive_area,
+)
+from dp_lookup.authority.codecs import (
+    record_from_row as _codec_record_from_row,
+)
+from dp_lookup.authority.codecs import (
+    sha256_value as _sha256_value,
+)
+from dp_lookup.authority.errors import AuthorityStateError, AuthorityStoreError, AuthorityValidationError
+from dp_lookup.authority.models import AuthorityManifest, AuthorityRecord, SelectionPurpose, SourceStatus, SourceType
+from dp_lookup.authority.schema import AUTHORITY_SCHEMA_VERSION, SCHEMA
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _canonical(value: Any) -> str:
-    return canonical_json(value)
-
-
-def _json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False, default=str)
-
-
-def _loads(value: Optional[str], default: Any) -> Any:
-    if not value:
-        return default
-    try:
-        return json.loads(value)
-    except (TypeError, ValueError) as exc:
-        raise AuthorityStoreError("authority database contains invalid JSON") from exc
-
-
-def _hash(value: Any) -> str:
-    return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
-
-
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _sha256_text(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _normalised_identity(value: Any) -> str:
-    text = str(value or "").strip().upper()
-    if not text:
-        raise AuthorityValidationError("village and cts_no are required")
-    return text
-
-
-def _sha256_value(value: str, field: str) -> str:
-    result = str(value or "").strip().casefold()
-    if len(result) != 64 or any(char not in "0123456789abcdef" for char in result):
-        raise AuthorityValidationError(f"{field} must be a SHA-256 hexadecimal digest")
-    return result
-
-
-def _positive_area(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        raise AuthorityValidationError("recorded_area_sqm must be numeric")
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as exc:
-        raise AuthorityValidationError("recorded_area_sqm must be numeric") from exc
-    if not math.isfinite(number) or number <= 0:
-        raise AuthorityValidationError("recorded_area_sqm must be positive and finite")
-    return number
-
-
-def _crs_wkid(value: Any) -> Optional[int]:
-    if value is None or value == "":
-        return None
-    if isinstance(value, Mapping):
-        value = value.get("wkid", value.get("latestWkid"))
-    text = str(value).strip().upper()
-    if text.startswith("EPSG:"):
-        text = text[5:]
-    try:
-        wkid = int(text)
-    except (TypeError, ValueError) as exc:
-        raise AuthorityValidationError("original_crs must be an EPSG/WKID integer") from exc
-    if wkid not in {3857, 102100, 4326}:
-        raise AuthorityValidationError("original_crs must be EPSG:3857/102100 or EPSG:4326")
-    return wkid
-
-
-def _extract_rings(geometry: Any) -> Optional[List[List[List[float]]]]:
-    if geometry is None:
-        return None
-    value = geometry
-    if isinstance(value, Mapping):
-        if "rings" in value:
-            value = value["rings"]
-        elif value.get("type") == "Polygon":
-            value = value.get("coordinates")
-        elif value.get("type") == "MultiPolygon":
-            polygons = value.get("coordinates")
-            if isinstance(polygons, list):
-                value = [ring for polygon in polygons for ring in polygon]
-    if not isinstance(value, list) or not value:
-        raise AuthorityValidationError("original_geometry must contain polygon rings")
-    result: List[List[List[float]]] = []
-    for ring in value:
-        if not isinstance(ring, list) or len(ring) < 4:
-            raise AuthorityValidationError("each geometry ring must contain at least four points")
-        normalized_ring: List[List[float]] = []
-        for point in ring:
-            if not isinstance(point, (list, tuple)) or len(point) < 2:
-                raise AuthorityValidationError("geometry points must contain x and y")
-            try:
-                x, y = float(point[0]), float(point[1])
-            except (TypeError, ValueError) as exc:
-                raise AuthorityValidationError("geometry coordinates must be numeric") from exc
-            if not math.isfinite(x) or not math.isfinite(y):
-                raise AuthorityValidationError("geometry coordinates must be finite")
-            normalized_ring.append([x, y])
-        result.append(normalized_ring)
-    return result
-
-
-def _wgs84_to_mercator(lon: float, lat: float) -> List[float]:
-    safe_lat = max(-85.05112878, min(85.05112878, lat))
-    return [
-        WEB_MERCATOR_R * math.radians(lon),
-        WEB_MERCATOR_R * math.log(math.tan(math.pi / 4.0 + math.radians(safe_lat) / 2.0)),
-    ]
-
-
-def _normalise_geometry(
-    geometry: Any, crs: Optional[int]
-) -> Tuple[Optional[str], Optional[int], Optional[str], Optional[float]]:
-    rings = _extract_rings(geometry)
-    if rings is None:
-        if crs is not None:
-            raise AuthorityValidationError("original_crs cannot be supplied without geometry")
-        return None, None, None, None
-    if crs is None:
-        raise AuthorityValidationError("original_crs is required when original_geometry is supplied")
-    if crs == 4326:
-        normalized = [[_wgs84_to_mercator(point[0], point[1]) for point in ring] for ring in rings]
-    else:
-        normalized = rings
-    normalized_json = _json(normalized)
-    geometry_hash = _sha256_text(normalized_json)
-    try:
-        topology = arcgis_rings_to_geometry(normalized)
-    except (IndexError, TypeError, ValueError) as exc:
-        raise AuthorityValidationError(f"geometry could not be interpreted: {exc}") from exc
-    calculated = calculated_boundary_area_sqm(normalized)
-    if topology.is_empty or calculated is None:
-        raise AuthorityValidationError("geometry must have a positive calculated area")
-    return normalized_json, 3857, geometry_hash, calculated
-
-
-def _source_group(village: str, cts_no: str, source_type: SourceType) -> str:
-    return f"{village}|{cts_no}|{source_type.value}"
-
-
-def _manifest_payload(
-    manifest: AuthorityManifest,
-    version: int,
-    normalized_json: Optional[str],
-    geometry_hash: Optional[str],
-    calculated: Optional[float],
-) -> Dict[str, Any]:
-    return {
-        "village": manifest.village,
-        "cts_no": manifest.cts_no,
-        "ward": manifest.ward,
-        "source_type": manifest.source_type.value,
-        # Version is a database lineage number, not part of the content
-        # identity. Registering the same immutable manifest twice must return
-        # the existing record instead of creating another revision.
-        "issuer": manifest.issuer,
-        "reference_no": manifest.reference_no,
-        "issue_date": manifest.issue_date,
-        "survey_date": manifest.survey_date,
-        "source_uri": manifest.source_uri,
-        "source_sha256": manifest.source_sha256,
-        "mime_type": manifest.mime_type,
-        "byte_size": manifest.byte_size,
-        "recorded_area_sqm": manifest.recorded_area_sqm,
-        "original_geometry": manifest.original_geometry,
-        "original_crs": manifest.original_crs,
-        "normalized_rings_json": normalized_json,
-        "geometry_sha256": geometry_hash,
-        "calculated_area_sqm": calculated,
-        "supersedes_id": manifest.supersedes_id,
-        "metadata": dict(manifest.metadata),
-    }
 
 
 class AuthorityStore:
@@ -380,37 +132,7 @@ class AuthorityStore:
         return cast(sqlite3.Row, row)
 
     def _record_from_row(self, row: sqlite3.Row) -> AuthorityRecord:
-        return AuthorityRecord(
-            record_id=int(row["record_id"]),
-            village=str(row["village"]),
-            cts_no=str(row["cts_no"]),
-            ward=row["ward"],
-            source_type=SourceType(row["source_type"]),
-            status=SourceStatus(row["status"]),
-            version=int(row["version"]),
-            issuer=row["issuer"],
-            reference_no=row["reference_no"],
-            issue_date=row["issue_date"],
-            survey_date=row["survey_date"],
-            source_uri=str(row["source_uri"]),
-            source_sha256=str(row["source_sha256"]),
-            mime_type=row["mime_type"],
-            byte_size=int(row["byte_size"]) if row["byte_size"] is not None else None,
-            recorded_area_sqm=float(row["recorded_area_sqm"]) if row["recorded_area_sqm"] is not None else None,
-            original_geometry=_loads(row["original_geometry_json"], None),
-            original_crs=int(row["original_crs"]) if row["original_crs"] is not None else None,
-            normalized_epsg3857_rings=_loads(row["normalized_rings_json"], []),
-            geometry_sha256=row["geometry_sha256"],
-            calculated_area_sqm=float(row["calculated_area_sqm"]) if row["calculated_area_sqm"] is not None else None,
-            supersedes_id=int(row["supersedes_id"]) if row["supersedes_id"] is not None else None,
-            metadata=_loads(row["metadata_json"], {}),
-            created_by=row["created_by"],
-            reviewed_by=row["reviewed_by"],
-            created_at=str(row["created_at"]),
-            reviewed_at=row["reviewed_at"],
-            updated_at=str(row["updated_at"]),
-            record_checksum=str(row["record_checksum"]),
-        )
+        return _codec_record_from_row(row)
 
     def _event(
         self,
@@ -589,17 +311,6 @@ class AuthorityStore:
     def get_source(self, record_id: Union[int, str]) -> Dict[str, Any]:
         return self.get(int(record_id)).to_dict()
 
-    def _document_path(self, uri: str, manifest_dir: Optional[Union[str, Path]]) -> Optional[Path]:
-        parsed = urlparse(uri)
-        if parsed.scheme in {"http", "https"}:
-            return None
-        if parsed.scheme == "file":
-            return Path(unquote(parsed.path))
-        path = Path(uri)
-        if not path.is_absolute() and manifest_dir is not None:
-            path = Path(manifest_dir) / path
-        return path
-
     def verify(
         self,
         record_id: int,
@@ -616,7 +327,7 @@ class AuthorityStore:
             raise AuthorityStateError(f"record {record_id} cannot be verified from status {record.status.value}")
         if not record.issuer or not record.source_uri or not record.source_sha256:
             raise AuthorityValidationError("verification requires issuer, document URI, and document SHA-256")
-        path = self._document_path(record.source_uri, manifest_dir)
+        path = _document_path(record.source_uri, manifest_dir)
         if path is None or not path.is_file():
             raise AuthorityValidationError("verification requires a readable local document URI")
         if _file_sha256(path) != record.source_sha256:

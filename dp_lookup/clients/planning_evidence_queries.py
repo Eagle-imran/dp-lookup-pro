@@ -10,7 +10,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 
-from shapely.errors import GEOSException  # type: ignore[import-untyped]
+from shapely.errors import GEOSException
 
 from dp_lookup.clients.responses import usable_json
 from dp_lookup.core.constants import SERVER_URL, SLIVER_AREA_THRESHOLD_SQM, SLIVER_PERCENT_THRESHOLD

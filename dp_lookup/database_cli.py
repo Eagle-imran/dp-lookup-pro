@@ -15,7 +15,7 @@ EXIT_SUCCESS = 0
 EXIT_ERROR = 1
 EXIT_USAGE = 2
 
-COMMANDS = ("build", "status", "verify", "diff", "activate", "rollback")
+COMMANDS = ("build", "status", "health", "check-upstream", "verify", "diff", "activate", "rollback")
 
 
 class DatabaseServices(Protocol):
@@ -27,6 +27,8 @@ class DatabaseServices(Protocol):
 
     def build(self, database: Path) -> Any: ...
     def status(self, database: Path) -> Any: ...
+    def health(self, database: Path) -> Any: ...
+    def check_upstream(self, database: Path) -> Any: ...
     def verify(self, database: Path) -> Any: ...
     def diff(self, database: Path) -> Any: ...
     def activate(self, database: Path) -> Any: ...
@@ -97,6 +99,34 @@ def _emit(value: Any, command: str, database: Path, as_json: bool, out: TextIO) 
     if as_json:
         print(json.dumps({"command": command, "database": str(database), "result": _json_safe(value)}, sort_keys=True, default=str), file=out)
         return
+    if command == "health" and isinstance(value, Mapping):
+        status = str(value.get("overall_status", "unknown")).upper()
+        print(f"database health: {status}", file=out)
+        checks = value.get("checks")
+        if isinstance(checks, Mapping):
+            for name, section in checks.items():
+                section_status = section.get("status", "unknown") if isinstance(section, Mapping) else "unknown"
+                print(f"  {name}: {str(section_status).upper()}", file=out)
+        findings = value.get("findings")
+        if isinstance(findings, list):
+            for finding in findings:
+                if isinstance(finding, Mapping):
+                    print(f"  {str(finding.get('severity', 'info')).upper()}: {finding.get('message')}", file=out)
+        return
+    if command == "check-upstream" and isinstance(value, Mapping):
+        status = str(value.get("overall_status", "unknown")).upper()
+        print(f"database check-upstream: {status}", file=out)
+        print(f"  geometry downloaded: {value.get('geometry_downloaded', False)}", file=out)
+        for name in ("parcels", "planning"):
+            section = value.get(name)
+            if isinstance(section, Mapping):
+                line = f"  {name}: {str(section.get('status', 'unknown')).upper()}"
+                changed = section.get("changed_layer_ids")
+                if isinstance(changed, list) and changed:
+                    line += " (changed layers: " + ", ".join(str(item) for item in changed) + ")"
+                print(line, file=out)
+        print(f"  next action: {value.get('next_action')}", file=out)
+        return
     print(f"database {command}: OK", file=out)
     if isinstance(value, Mapping):
         for key, item in value.items():
@@ -115,13 +145,16 @@ def main(argv: Optional[Sequence[str]] = None, *, services: Optional[DatabaseSer
         return EXIT_USAGE
     service = services or _MissingServices()
     try:
-        result = getattr(service, parsed["command"])(parsed["database"])
+        service_method = parsed["command"].replace("-", "_")
+        result = getattr(service, service_method)(parsed["database"])
         _emit(result, parsed["command"], parsed["database"], parsed["json"], output)
     except Exception as exc:  # adapter errors become stable CLI failures
         if parsed["json"]:
             print(json.dumps({"command": parsed["command"], "database": str(parsed["database"]), "error": str(exc)}, sort_keys=True), file=output)
         else:
             print(f"Error: database {parsed['command']} failed: {exc}", file=output)
+        return EXIT_ERROR
+    if parsed["command"] == "health" and isinstance(result, Mapping) and result.get("overall_status") == "critical":
         return EXIT_ERROR
     return EXIT_SUCCESS
 

@@ -34,9 +34,11 @@ def stitch_satellite(
     overlay = Image.new("RGBA", (canvas_w, canvas_h), (255, 255, 255, 0))
     draw = ImageDraw.Draw(overlay)
 
-    def to_px(lon, lat):
-        return ((lon - left_lon) / (right_lon - left_lon) * canvas_w,
-                (top_lat - lat) / (top_lat - bot_lat) * canvas_h)
+    def to_px(lon: float, lat: float) -> Tuple[float, float]:
+        return (
+            (lon - left_lon) / (right_lon - left_lon) * canvas_w,
+            (top_lat - lat) / (top_lat - bot_lat) * canvas_h,
+        )
 
     for ring in wgs_rings:
         draw.polygon([to_px(p[0], p[1]) for p in ring],

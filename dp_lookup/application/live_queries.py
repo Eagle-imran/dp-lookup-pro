@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Awaitable, Dict, List, Tuple
+from typing import Any, Awaitable, Dict, List, Tuple, cast
 
 from dp_lookup.application.contracts import ParcelContext
 from dp_lookup.clients.arcgis import identify_payload
@@ -28,10 +28,11 @@ def build_live_probe_queries(
         async with semaphore:
             return await client.post(f"{SERVER_URL}/identify", data=data)
 
-    road_points = (
-        [] if has_local_road else road_probe_points(parcel.rings[0], parcel.mcx, parcel.mcy, parcel.xs, parcel.ys)
+    road_points = cast(
+        List[ProbePoint],
+        [] if has_local_road else road_probe_points(parcel.rings[0], parcel.mcx, parcel.mcy, parcel.xs, parcel.ys),
     )
-    road_tasks = [
+    road_tasks: List[ProbeRequest] = [
         post_limited(
             identify_payload(
                 x,
@@ -46,10 +47,11 @@ def build_live_probe_queries(
         )
         for x, y in road_points
     ]
-    neighbour_points = (
-        [] if has_local_neighbours else neighbour_probe_points(parcel.mcx, parcel.mcy, parcel.window_radius)
+    neighbour_points = cast(
+        List[ProbePoint],
+        [] if has_local_neighbours else neighbour_probe_points(parcel.mcx, parcel.mcy, parcel.window_radius),
     )
-    neighbour_tasks = [
+    neighbour_tasks: List[ProbeRequest] = [
         post_limited(
             identify_payload(
                 x,

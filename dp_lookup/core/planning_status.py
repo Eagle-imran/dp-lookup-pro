@@ -33,11 +33,11 @@ def select_road(road_map: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
       2. a real name OR a recorded width
       3. whatever was found, so the field is never empty when something matched
     """
-    def real_name(r):
-        return str(r.get("name") or "").strip().casefold() not in GENERIC_ROAD_NAMES
+    def real_name(road: Dict[str, Any]) -> bool:
+        return str(road.get("name") or "").strip().casefold() not in GENERIC_ROAD_NAMES
 
-    def real_width(r):
-        return r.get("width") != "N/A"
+    def real_width(road: Dict[str, Any]) -> bool:
+        return road.get("width") != "N/A"
 
     values = list(road_map.values())
     named_with_width = [r for r in values if real_width(r) and real_name(r)]
@@ -110,8 +110,8 @@ def derive_status(
                     "summary": "Unreserved Land Parcel"}
 
         if encumbered_percent < 90.0:
-            codes = [r["code"] for r in res_list] + [d["code"] for d in des_list]
-            code_str = ", ".join(codes[:3])
+            partial_codes = [r["code"] for r in res_list] + [d["code"] for d in des_list]
+            code_str = ", ".join(partial_codes[:3])
             enc_txt = f"{encumbered_area_sqm:,.1f} m²" if encumbered_area_sqm else f"{encumbered_percent:.1f}%"
             net_txt = f"{net_unencumbered_sqm:,.1f} m²" if net_unencumbered_sqm is not None else "N/A"
             if res_list and not des_list:
@@ -134,11 +134,11 @@ def derive_status(
                 "summary": f"Designated as {d0.get('description', 'Designation')} ({d0.get('code', 'Des')})",
             }
         if res_list:
-            types = ", ".join(r.get("type", "Reservation") for r in res_list[:2])
-            codes = ", ".join(r.get("code", "Res") for r in res_list[:2])
+            reservation_types = ", ".join(r.get("type", "Reservation") for r in res_list[:2])
+            reservation_codes = ", ".join(r.get("code", "Res") for r in res_list[:2])
             return {
-                "badge": f"\U0001F534 RESERVED ({types})",
-                "summary": f"Reserved under {codes}",
+                "badge": f"\U0001F534 RESERVED ({reservation_types})",
+                "summary": f"Reserved under {reservation_codes}",
             }
 
     if des_item and des_desc != "None":

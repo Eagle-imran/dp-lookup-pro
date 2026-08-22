@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence
 
-from shapely.geometry.base import BaseGeometry  # type: ignore[import-untyped]
+from shapely.geometry.base import BaseGeometry
 
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.spatial_store import SnapshotStore, SpatialStoreError

@@ -51,19 +51,9 @@ def test_lookup_signature_preserves_public_and_injection_parameters():
     ]
 
 
-def test_mypy_configuration_is_strict_and_scoped_to_typed_spine():
+def test_mypy_configuration_is_strict_for_the_complete_production_package():
     pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert "[tool.mypy]" in pyproject
     assert "strict = true" in pyproject
-    for module in (
-        "dp_lookup/application/artifacts.py",
-        "dp_lookup/application/exporting.py",
-        "dp_lookup/application/reporting.py",
-        "dp_lookup/clients/arcgis_payloads.py",
-        "dp_lookup/clients/responses.py",
-        "dp_lookup/clients/validation.py",
-        "dp_lookup/core/constants.py",
-        "dp_lookup/core/models.py",
-        "dp_lookup/core/villages.py",
-    ):
-        assert f'"{module}"' in pyproject
+    assert 'files = ["dp_lookup"]' in pyproject
+    assert "project code is not" in pyproject

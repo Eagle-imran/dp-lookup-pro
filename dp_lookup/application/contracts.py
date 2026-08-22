@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -56,7 +57,7 @@ class NeighbourContext:
 @dataclass
 class PlanningContext:
     zone: str
-    zones: List[Mapping[str, Any]]
+    zones: Sequence[Mapping[str, Any]]
     reservations: List[Dict[str, Any]]
     designations: List[Dict[str, Any]]
     modifications: List[Dict[str, Any]]
@@ -148,3 +149,65 @@ class MapFetchContext:
     tile_y: int
     zoom: int
     grid_dimension: int
+
+
+@dataclass(frozen=True)
+class DpMapRenderRequest:
+    """Everything needed to render the Development Plan image."""
+
+    base_png: Optional[bytes]
+    rings: List[List[List[float]]]
+    bbox: Tuple[float, float, float, float]
+    size: Tuple[int, int]
+    labels: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class SatelliteRenderRequest:
+    """Everything needed to stitch and annotate the satellite image."""
+
+    tiles: List[Any]
+    coordinates: List[Tuple[int, int]]
+    grid_dimension: int
+    wgs_rings: List[List[List[float]]]
+    bounds: Tuple[float, float, float, float]
+    labels: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class RenderedMapAssets:
+    """Rendered files shared by the report exporters in one lookup bundle."""
+
+    dp_map_path: str
+    satellite_path: str
+    qr_png: io.BytesIO
+
+
+@dataclass(frozen=True)
+class ReportArtifactContext:
+    """Typed view of a lookup supplied to report and register exporters."""
+
+    artifact: ArtifactContext
+    maps: RenderedMapAssets
+
+
+@dataclass(frozen=True)
+class PdfReportRequest:
+    """Stable, complete input contract for a PDF dossier writer."""
+
+    context: ReportArtifactContext
+
+    @property
+    def output_path(self) -> str:
+        return self.context.artifact.paths.pdf
+
+
+@dataclass(frozen=True)
+class ExcelRegisterRequest:
+    """Stable, complete input contract for the master-register writer."""
+
+    context: ReportArtifactContext
+
+    @property
+    def output_path(self) -> str:
+        return self.context.artifact.paths.register

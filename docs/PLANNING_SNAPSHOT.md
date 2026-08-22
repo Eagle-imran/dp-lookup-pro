@@ -19,12 +19,18 @@ it is not itself an official DP Remark or legal certificate.
 ## Build and verification commands
 
 ```bash
-dp-lookup-pro database build-planning    --database data/mcgm-layer13.sqlite
-dp-lookup-pro database status-planning   --database data/mcgm-layer13.sqlite
-dp-lookup-pro database verify-planning   --database data/mcgm-layer13.sqlite
-dp-lookup-pro database activate-planning --database data/mcgm-layer13.sqlite
-dp-lookup-pro database rollback-planning --database data/mcgm-layer13.sqlite
+dp-lookup-pro db planning build
+dp-lookup-pro db planning status
+dp-lookup-pro db planning verify
+dp-lookup-pro db planning activate
+dp-lookup-pro db planning rollback
 ```
+
+The older `database build-planning`, `status-planning`, and related forms remain
+supported. `db check-upstream` compares all active planning-layer schemas, edit
+signals and ObjectID inventories without downloading feature geometry. It can
+therefore avoid an unnecessary six-month rebuild when no change is detected;
+an annual full rebuild remains the final verification backstop.
 
 `build-planning` creates or resumes a `building` snapshot and leaves a complete
 result `ready`. Verification is explicit; activation is a separate atomic

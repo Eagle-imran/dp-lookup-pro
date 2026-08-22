@@ -4,7 +4,58 @@ All notable changes to this project. Newest first.
 
 > **If something breaks after an update, see [ROLLBACK.md](ROLLBACK.md).**
 
-## [Unreleased] — 2026-08-22
+## [Unreleased] — 2026-08-23
+
+### Architecture and modularity
+
+* Split the main CLI into pure parsing, local/live bootstrap, lookup execution
+  and presentation modules. `dp_lookup.cli:main`, historical commands, aliases,
+  exit codes and output contracts remain compatible; the explicit
+  `dp-lookup-pro lookup VILLAGE CTS` form is available for users and agents.
+* Put vector, PDF and Excel generation behind typed artifact registries and
+  moved DP/satellite image production behind typed render requests. Legacy
+  exporter functions remain supported only at adapter edges.
+* Split DXF policy, metric geometry, text collision and legend composition into
+  independently testable modules while preserving `export_dxf` and compatibility
+  re-exports.
+* Split road, neighbour and planning normalization into focused modules. ArcGIS
+  responses are now decoded once into typed feature/result models, preserving
+  the distinction between an empty response and a malformed collection.
+* Made typed `PlotReportData` and `ExcelRegisterData` the default PDF/register
+  path. Historical long writer signatures remain supported only when a caller
+  explicitly injects or calls the compatibility adapter.
+* Reduced `dxf.py` and `pdf.py` to stable public facades over dedicated render
+  implementations, and separated indexed planning-feature reads from snapshot
+  lifecycle mutations in `planning_snapshot/query.py`.
+* Extracted SQLite schemas and lossless codecs from parcel, planning and
+  authority stores without changing tables or requiring migration.
+* Extended strict mypy from a selected spine to every production module under
+  `dp_lookup/`; the package-wide gate now covers 103 source modules with zero
+  project-module exclusions.
+* Moved report-result cache access behind injected reader/writer ports while
+  retaining the existing atomic, locked JSON implementation as the default.
+* Raised the branch-aware coverage ratchet from 80% to 83%. Final test, build
+  and live-smoke figures for this pass are recorded in
+  `docs/audits/QUERY-PIPELINE-MODULARITY-2026-08-23.md`.
+* Final verification: 504 tests passed at 83.96% branch-aware coverage; Ruff
+  and strict package-wide mypy passed; source and wheel distributions built.
+  A fresh forced-live `WORLI / 733` lookup completed with no warnings and all
+  seven artifacts; PDF, PNG, DXF, GeoJSON, KML, HTML and Excel structures were
+  independently opened and validated.
+
+### Database health, update checks and CLI
+
+* Added `db health`, a read-only unified report for SQLite integrity, active
+  parcel/planning completeness, registry coverage, snapshot freshness,
+  intelligence alignment and optional certified-document enrichment.
+* Added `db check-upstream`, a GET-only comparison of ArcGIS schema, edit
+  signals and ObjectID inventories. It downloads no geometry, never changes an
+  active snapshot and treats ArcGIS errors as unknown rather than unchanged.
+* Added clearer `db parcels ...`, `db planning ...`, `evidence ...`, and
+  `plots ...` aliases with a shared configured database default. Every existing
+  `database`, `sources`, and `intelligence` command remains supported.
+* Documented the maintenance policy: cheap monthly/quarterly checks, a checked
+  six-month refresh when signals change, and an annual forced full rebuild.
 
 ### Area accuracy and authority
 

@@ -7,7 +7,9 @@ a missing response as proof that a planning constraint is absent.
 ## Dependency direction
 
 ```text
-CLI / Python facade
+CLI compatibility facade
+        |
+        +--> cli_parser + cli_bootstrap + cli_command + cli_presentation
         |
         v
 application.lookup_service (composition shell, <375 lines)
@@ -60,9 +62,13 @@ application.lookup_service (composition shell, <375 lines)
   feasibility, massing, or automated planning—belong here and should compose
   domain services rather than expand the lookup CLI.
 - `exporters` and `renderers` transform an already-computed result. They do not
-  decide planning status. New formats implement the `ArtifactExporter`
-  protocol and register through `LookupDependencies.artifact_exporters`; the
-  coordinator does not need another format-specific branch.
+  decide planning status. Bundle outputs and report-stage outputs use typed
+  exporter registries; map-image construction has typed render requests. New
+  formats register through `LookupDependencies`, so the coordinator does not
+  need another format-specific branch.
+- `cli.py` is a compatibility facade and router. Parsing, source composition,
+  execution and presentation are independent modules; both explicit
+  `dp-lookup-pro lookup ...` and historical positional lookup remain valid.
 - `dp_lookup.core.orchestrator` is a compatibility import only. New code should
   use `dp_lookup.application.lookup_service` or the package-level API.
 
@@ -75,14 +81,23 @@ The boundary and compatibility facades are protected by
 | :--- | :--- |
 | `core/area_assessment.py` | Recorded/calculated area separation, UTM calculation, reliability and deterministic quality flags |
 | `application/ingestion.py` | Required Layer 13 parcel acquisition and validation |
-| `application/normalization.py` | Road, neighbour, and planning evidence reconciliation |
+| `application/normalization.py` | Compatibility facade for the focused evidence normalizers |
+| `application/road_normalization.py` | Road-probe decoding, selection and evidence state |
+| `application/neighbour_normalization.py` | Adjoining-parcel decoding and deduplication |
+| `application/planning_normalization.py` | Spatial/identify planning reconciliation and fail-closed status inputs |
 | `application/output_layout.py` | Canonical, collision-free artifact paths and typed `ExportData` |
 | `application/result_factory.py` | Typed contracts to stable public dictionary serialization |
 | `application/exporting.py` | Typed artifact protocol, built-in adapters, and plug-in registry |
-| `application/reporting.py` | Failure-isolated registry, image, PDF, and register generation |
-| `application/dependencies.py` | Replaceable network/export/rendering adapter composition |
+| `application/reporting.py` | Small failure-isolated coordinator for bundle and report artifact registries |
+| `application/image_artifacts.py` | Typed DP-map/satellite render requests, image persistence and QR production |
+| `application/dependencies.py` | Replaceable network, result-cache, export and rendering adapter composition |
+| `cli_parser.py` | Pure lookup parsing, aliases, help and stable exit-code contract |
+| `cli_bootstrap.py` | Owned local/live database and dependency composition lifecycle |
+| `cli_command.py` | Lookup execution and process-result handling |
+| `cli_presentation.py` | Human-readable output independent of lookup execution |
 | `application/planning_evidence.py` | Optional evidence cache/result boundary without changing core completeness |
 | `clients/arcgis_payloads.py` | Pure ArcGIS REST request construction |
+| `clients/arcgis_models.py` | Typed, defensive ArcGIS feature/result response decoding |
 | `clients/planning_queries.py` | Layer fetching and deterministic polygon intersection |
 | `clients/planning_evidence_queries.py` | Bounded, explicit-field optional evidence queries and audit outcomes |
 | `clients/tile_cache.py` | Atomic satellite tile caching |
@@ -90,11 +105,14 @@ The boundary and compatibility facades are protected by
 | `clients/local_parcels.py` | Active local snapshot lookup with explicit live fallback |
 | `clients/local_planning.py` | Local-first core planning query with freshness guard and live fallback |
 | `application/snapshot_ingestion.py` | Bounded Layer 13 inventory/batch importer and manifest |
+| `application/database_health.py` | Read-only cross-store integrity, completeness, freshness and enrichment audit |
+| `application/upstream_check.py` | Metadata, edit-signal and ObjectID fingerprint comparison without geometry download |
 | `application/database_services.py` | Database build/status/verify/diff/activate/rollback services |
 | `spatial_store/` | Standard-library SQLite snapshots, spatial index, validation and lifecycle |
 | `application/planning_snapshot.py` | Canonical planning-layer inventory/batch downloader and manifests |
 | `application/planning_database_services.py` | Planning build/status/verify/activate/rollback services |
-| `planning_snapshot/` | Independent planning tables, R-Tree queries, validation and lifecycle |
+| `planning_snapshot/query.py` | Indexed planning-feature reads and exact intersection repository |
+| `planning_snapshot/` | Independent planning tables, validation and immutable snapshot lifecycle |
 | `application/intelligence_builder.py` | Resumable derivation pinned to exact source snapshot IDs |
 | `application/intelligence_services.py` | Analyze/search/compare/check application facade |
 | `application/local_roads.py` | Deterministic local road distance, name and width evidence |
@@ -107,11 +125,13 @@ The boundary and compatibility facades are protected by
 
 `ArtifactContext` carries immutable `ExportData`; the application no longer
 passes a loosely assembled property dictionary between stages. Historical
-GeoJSON, DXF, KML, and HTML writer signatures remain behind explicit adapters
-so existing callers keep working. A new SVG, IFC, or massing hand-off exporter
-only needs `name`, `manifest_key`, and `export(context)`. Returned artifacts are
-accepted only when they are non-empty files inside the lookup bundle, keeping
-manifests and cache-integrity checks trustworthy.
+GeoJSON, DXF, KML and HTML signatures remain behind explicit typed adapters.
+PDF and Excel now use native `PlotReportData` / `ExcelRegisterData` contracts in
+the normal pipeline; their historical long signatures remain compatibility
+adapters only. Bundle and report-stage exporters use registries with unique
+manifest keys and isolated failures. DP-map and satellite renderers receive
+typed requests rather than positional argument collections. Returned artifacts
+are accepted only when non-empty and in the expected location.
 
 The HTML dossier is maintained as packaged `html_map.html`, `dossier.css`, and
 `dossier.js` resources. They are embedded at export time, so each generated
@@ -121,10 +141,23 @@ is opened.
 
 The JSON lookup cache and shared Excel register both use stable sidecar locks,
 same-directory temporary files, and atomic replacement. This protects
-concurrent CLI processes from partial writes and lost Excel rows. The DXF
-exporter exposes one frozen `DxfLayoutPolicy`; sheet geometry, labels, collision
-nudges, legends, and viewport tuning can be changed and tested as one coherent
-policy instead of scattered literals.
+concurrent CLI processes from partial writes and lost Excel rows. DXF is split
+into independent policy, metric geometry, text/collision, legend and ezdxf
+render modules, with `dxf.py` retaining a small compatible writer facade. PDF
+uses the same facade/typed-renderer split. The frozen
+`DxfLayoutPolicy` keeps sheet tuning explicit and testable instead of scattering
+layout literals through the drawing code.
+
+Every production module under `dp_lookup/` is checked with strict mypy. The
+only missing-import exceptions are named third-party packages that do not ship
+complete type information; no project module is excluded. Branch-aware test
+coverage is ratcheted at 83%, alongside Ruff, architecture-contract, package
+build and live ArcGIS smoke gates.
+
+The lookup service accesses its report-result cache through injected reader and
+writer ports. The default remains the compatible file cache, but a future
+SQLite, server or in-memory implementation can be substituted without changing
+lookup orchestration.
 
 Each public result now includes field-level source evidence in
 `metadata.evidence`. A successful request is distinct from confirmed evidence:
@@ -173,6 +206,11 @@ tri-state: `passed` after artifact validation, `upstream_unreachable` with a
 workflow warning for recognized network timeouts, or a failed workflow for
 reachable-but-invalid application/data responses.
 
+ArcGIS JSON is decoded once into `ArcGISPayload` and `ArcGISFeature` at the
+client boundary. Malformed collections remain distinguishable from valid empty
+collections, so downstream stages cannot silently turn schema drift into
+"nothing found".
+
 Each run records a unique ID and stage timings in `metadata.diagnostics`.
 `DP_LOOKUP_LOG_JSON=1` mirrors stage-completion events as JSON on stderr for
 automation and incident diagnosis without coupling the library to a monitoring
@@ -213,7 +251,9 @@ local-first `auto`; the programmatic dependency default remains live for
 backwards compatibility. `planning_snapshot.PlanningSnapshotStore` applies the
 same publish-after-verification lifecycle to every canonical planning layer in
 the audited registry. Both stores share one SQLite file without sharing tables,
-version numbers, or active pointers.
+version numbers, or active pointers. Parcel, planning and authority persistence
+keep stable public store facades while schema DDL and lossless row/geometry
+codecs live in focused modules. Existing SQLite files require no migration.
 
 The parcel source is selected at the CLI boundary:
 
@@ -250,18 +290,30 @@ fingerprint and its deterministic algorithm version. Sample builds cannot be
 activated. Full activation requires completeness and active-source alignment.
 See [PLOT_INTELLIGENCE.md](PLOT_INTELLIGENCE.md).
 
-Database administration is intentionally separate from plot lookup:
+Database administration is intentionally separate from plot lookup. New
+commands use domain nouns; the original flat forms remain supported:
 
 ```text
-parcel:   database build | status | verify | diff | activate | rollback
-planning: database build-planning | status-planning | verify-planning
-          | activate-planning | rollback-planning
+local audit: db health
+source check: db check-upstream
+parcel:      db parcels build | status | verify | diff | activate | rollback
+planning:    db planning build | status | verify | activate | rollback
 ```
 
 Activation is an explicit pointer switch, and rollback selects a previous
 finalized snapshot. This gives the future city-wide search and amalgamation
 features a stable repository boundary without locking the application to
 SQLite, cloud hosting, or a vector database.
+
+The maintenance path has two different safety boundaries. `db health` opens
+SQLite in read-only mode and checks the database without contacting MCGM.
+`db check-upstream` performs GET-only ArcGIS probes for schema, record count,
+edit signals and complete sorted ObjectID inventories. It requests no geometry
+and never writes or activates a snapshot. Matching fingerprints mean “no change
+detected,” not legal or cryptographic proof that feature coordinates are
+unchanged. Changed or unknown checks feed the existing build → verify → diff →
+explicit activation lifecycle; an annual full rebuild closes the remaining
+upstream-detection gap.
 
 ## Automated planning extension
 

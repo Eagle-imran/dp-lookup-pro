@@ -2,14 +2,14 @@
 DP Zoning Map Overlay Renderer with North Arrow and Plot Callouts.
 """
 import io
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image, ImageDraw
 
 
 def render_dp_map(
     base_png: Optional[bytes],
-    rings: list,
+    rings: List[List[List[float]]],
     bbox: Tuple[float, float, float, float],
     size: Tuple[int, int],
     labels: Dict[str, Any],
@@ -28,12 +28,16 @@ def render_dp_map(
     overlay = Image.new("RGBA", base.size, (255, 255, 255, 0))
     draw = ImageDraw.Draw(overlay)
 
-    def to_px(x, y):
+    def to_px(x: float, y: float) -> Tuple[float, float]:
         return ((x - x0) / (x1 - x0) * width, (y1 - y) / (y1 - y0) * height)
 
     for ring in rings:
-        draw.polygon([to_px(p[0], p[1]) for p in ring],
-                     fill=(255, 23, 68, 45), outline=(255, 23, 68, 255), width=5)
+        draw.polygon(
+            [to_px(p[0], p[1]) for p in ring],
+            fill=(255, 23, 68, 45),
+            outline=(255, 23, 68, 255),
+            width=5,
+        )
 
     # North arrow
     nx, ny = width - 80, 80

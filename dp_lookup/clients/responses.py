@@ -1,17 +1,11 @@
-"""Safe response decoding for ArcGIS JSON endpoints."""
+"""Compatibility helpers for safely decoded ArcGIS JSON endpoints."""
 
 from typing import Any, Dict, Optional
 
+from dp_lookup.clients.arcgis_models import decode_arcgis_response
+
 
 def usable_json(response: Any) -> Optional[Dict[str, Any]]:
-    if response is None or isinstance(response, Exception):
-        return None
-    if getattr(response, "status_code", None) != 200:
-        return None
-    try:
-        data = response.json()
-    except Exception:
-        return None
-    if not isinstance(data, dict) or "error" in data:
-        return None
-    return data
+    """Return the historical mapping shape after typed boundary validation."""
+    payload = decode_arcgis_response(response)
+    return dict(payload.raw) if payload is not None else None

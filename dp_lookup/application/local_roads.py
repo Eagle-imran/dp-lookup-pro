@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, List, Mapping, Optional, Sequence, Tuple
 
-from shapely.geometry import LineString, MultiLineString  # type: ignore[import-untyped]
+from shapely.geometry import LineString, MultiLineString
 
 from dp_lookup.application.contracts import ParcelContext, RoadContext
 from dp_lookup.core.constants import GENERIC_ROAD_NAMES

@@ -72,68 +72,28 @@ branch = true
 source = ["dp_lookup"]
 
 [tool.coverage.report]
-fail_under = 80
+fail_under = 83
 show_missing = true
 skip_covered = true
 
 [tool.mypy]
-# Keep strict checking honest while the HTTP/rendering adapters are gradually
-# typed. This spine contains pure contracts and boundary helpers with no
-# missing third-party stubs or intentionally dynamic rendering APIs.
+# Strict checking covers the complete production package. Third-party modules
+# without inline typing are ignored explicitly below; project code is not.
 python_version = "3.9"
 strict = true
 # The selected modules are checked strictly; avoid recursively turning the
 # package's legacy facade and third-party rendering stack into this boundary.
 follow_imports = "skip"
-files = [
-    "dp_lookup/authority",
-    "dp_lookup/authority_cli.py",
-    "dp_lookup/application/artifacts.py",
-    "dp_lookup/application/contracts.py",
-    "dp_lookup/application/database_services.py",
-    "dp_lookup/application/dependencies.py",
-    "dp_lookup/application/exporting.py",
-    "dp_lookup/application/intelligence_builder.py",
-    "dp_lookup/application/intelligence_services.py",
-    "dp_lookup/application/local_roads.py",
-    "dp_lookup/application/local_spatial.py",
-    "dp_lookup/application/output_layout.py",
-    "dp_lookup/application/planning_evidence.py",
-    "dp_lookup/application/planning_database_services.py",
-    "dp_lookup/application/planning_snapshot.py",
-    "dp_lookup/application/reporting.py",
-    "dp_lookup/application/result_factory.py",
-    "dp_lookup/application/snapshot_ingestion.py",
-    "dp_lookup/application/telemetry.py",
-    "dp_lookup/clients/arcgis_payloads.py",
-    "dp_lookup/clients/local_parcels.py",
-    "dp_lookup/clients/local_planning.py",
-    "dp_lookup/clients/parcel_snapshot.py",
-    "dp_lookup/clients/planning_evidence_queries.py",
-    "dp_lookup/clients/responses.py",
-    "dp_lookup/clients/tile_cache.py",
-    "dp_lookup/clients/transport.py",
-    "dp_lookup/clients/validation.py",
-    "dp_lookup/core/constants.py",
-    "dp_lookup/core/area_assessment.py",
-    "dp_lookup/core/models.py",
-    "dp_lookup/core/parcel_analysis.py",
-    "dp_lookup/core/villages.py",
-    "dp_lookup/database_cli.py",
-    "dp_lookup/exporters/contracts.py",
-    "dp_lookup/intelligence/models.py",
-    "dp_lookup/intelligence/store.py",
-    "dp_lookup/intelligence_cli.py",
-    "dp_lookup/planning_evidence/models.py",
-    "dp_lookup/planning_evidence/registry.py",
-    "dp_lookup/planning_snapshot/models.py",
-    "dp_lookup/planning_snapshot/store.py",
-    "dp_lookup/planning_snapshot_cli.py",
-    "dp_lookup/spatial_store/store.py",
-]
+files = ["dp_lookup"]
 
 [[tool.mypy.overrides]]
-module = ["qrcode"]
+module = [
+    "ezdxf.*",
+    "openpyxl.*",
+    "qrcode.*",
+    "reportlab.*",
+    "shapely.*",
+]
 ignore_missing_imports = true
 
 [dependency-groups]

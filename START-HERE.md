@@ -269,15 +269,15 @@ not the 30-day report cache, and the generated database stays on your machine
 Build and check it explicitly:
 
 ```bash
-uv run dp-lookup-pro database build  --database data/mcgm-layer13.sqlite
-uv run dp-lookup-pro database status --database data/mcgm-layer13.sqlite
-uv run dp-lookup-pro database verify --database data/mcgm-layer13.sqlite
-uv run dp-lookup-pro database activate --database data/mcgm-layer13.sqlite
+uv run dp-lookup-pro db parcels build
+uv run dp-lookup-pro db parcels status
+uv run dp-lookup-pro db parcels verify
+uv run dp-lookup-pro db parcels activate
 
-uv run dp-lookup-pro database build-planning    --database data/mcgm-layer13.sqlite
-uv run dp-lookup-pro database status-planning   --database data/mcgm-layer13.sqlite
-uv run dp-lookup-pro database verify-planning   --database data/mcgm-layer13.sqlite
-uv run dp-lookup-pro database activate-planning --database data/mcgm-layer13.sqlite
+uv run dp-lookup-pro db planning build
+uv run dp-lookup-pro db planning status
+uv run dp-lookup-pro db planning verify
+uv run dp-lookup-pro db planning activate
 ```
 
 Each build downloads a complete official inventory in atomic batches and leaves
@@ -288,10 +288,30 @@ planning snapshots were built, live-compared, and activated on 2026-08-21.
 Together they occupy about 1.0 GiB in the ignored local database. Ordinary CLI
 lookups now use them first and fall back visibly to live MCGM when necessary.
 
+For routine maintenance, check before downloading:
+
+```bash
+uv run dp-lookup-pro db health
+uv run dp-lookup-pro db check-upstream
+uv run dp-lookup-pro db check-upstream --json > docs/audits/upstream-check.json
+```
+
+`health` is local and read-only. `check-upstream` contacts MCGM but retrieves
+only metadata, edit signals and ObjectID inventories; it does not retrieve
+geometry. If a signal changed or could not be checked, build a new staged
+snapshot, verify and diff it, and activate it only after review. Run this cheap
+check monthly or quarterly, perform the checked refresh every six months, and
+force one complete rebuild annually because upstream timestamps and unchanged
+ObjectIDs cannot prove that the coordinates themselves stayed unchanged.
+
 With an activated snapshot, the normal command is local-first:
 
 ```bash
+uv run dp-lookup-pro lookup WORLI 733
+# Explicit form recommended for agents and new scripts.
+
 uv run dp-lookup-pro WORLI 733
+# Historical short form remains supported.
 uv run dp-lookup-pro WORLI 733 --source local --database data/mcgm-layer13.sqlite
 uv run dp-lookup-pro WORLI 733 --source auto --database data/mcgm-layer13.sqlite
 uv run dp-lookup-pro WORLI 733 --source live
@@ -308,8 +328,8 @@ influence and optional evidence are local-first. Road name/width probes, the DP
 map image and satellite image remain live. The database is an audited copy of
 official source data; it is not itself a legal authority.
 
-To switch snapshots safely, use `database diff`, `database activate`, and
-`database rollback` with the same `--database` path. See the [local snapshot
+To switch snapshots safely, use `db parcels diff`, `db parcels activate`, and
+`db parcels rollback`. See the [local snapshot
 specification](docs/SPEC-LOCAL-SPATIAL-CACHE.md) for the reliability checks and
 the verified source counts.
 
@@ -321,10 +341,10 @@ source registry. It lives in the same SQLite file, but never overwrites the
 original MCGM snapshots.
 
 ```bash
-uv run dp-lookup-pro sources add evidence/worli-733.json --database data/mcgm-layer13.sqlite --actor imran
-uv run dp-lookup-pro sources verify 12 --database data/mcgm-layer13.sqlite --reviewed-by imran
-uv run dp-lookup-pro sources recommend WORLI 733 --database data/mcgm-layer13.sqlite
-uv run dp-lookup-pro sources activate 12 --purpose geometry --database data/mcgm-layer13.sqlite --activated-by imran --reason "accepted boundary evidence"
+uv run dp-lookup-pro evidence add evidence/worli-733.json --actor imran
+uv run dp-lookup-pro evidence verify 12 --reviewed-by imran
+uv run dp-lookup-pro evidence recommend WORLI 733
+uv run dp-lookup-pro evidence activate 12 --purpose geometry --activated-by imran --reason "accepted boundary evidence"
 ```
 
 The order is register, verify, recommend, then explicitly activate for `area`,

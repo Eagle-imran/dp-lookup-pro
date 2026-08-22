@@ -115,7 +115,7 @@ def polygon_centroid(pts: List[List[float]]) -> Tuple[float, float]:
     return (cx / (6.0 * signed_area), cy / (6.0 * signed_area))
 
 
-def prepare_geometry(rings: list) -> Dict[str, Any]:
+def prepare_geometry(rings: List[List[List[float]]]) -> Dict[str, Any]:
     """
     Everything derived from the parcel rings: centroid, bounding box, the
     half-extent used for map windows, and the WGS84 reprojection.
@@ -151,17 +151,17 @@ def prepare_geometry(rings: list) -> Dict[str, Any]:
 
 
 def road_probe_points(
-    outer_ring: list,
+    outer_ring: List[List[float]],
     mcx: float,
     mcy: float,
-    xs: list,
-    ys: list,
+    xs: List[float],
+    ys: List[float],
 ) -> List[Tuple[float, float]]:
     """
     Where to look for the abutting road.
     Centroid and both corners, plus the midpoints of the longest edges pushed outward at three distances.
     """
-    edge_probes = []
+    edge_probes: List[Tuple[float, Tuple[float, float]]] = []
     for i in range(len(outer_ring)):
         p1 = outer_ring[i]
         p2 = outer_ring[(i + 1) % len(outer_ring)]
@@ -192,10 +192,10 @@ def neighbour_probe_points(mcx: float, mcy: float, d: float) -> List[Tuple[float
 
 
 def nearest_road_geoms(
-    road_geoms: list,
-    wgs_rings: list,
+    road_geoms: List[List[List[float]]],
+    wgs_rings: List[List[List[float]]],
     limit: int = 8,
-) -> list:
+) -> List[List[List[float]]]:
     """The limit road paths closest to the plot."""
     if not road_geoms or not wgs_rings or not wgs_rings[0]:
         return road_geoms[:limit]
@@ -204,7 +204,7 @@ def nearest_road_geoms(
     lat0 = sum(p[1] for p in ring) / len(ring)
     lon_scale = math.cos(math.radians(lat0))
 
-    def nearest_sq(path):
+    def nearest_sq(path: List[List[float]]) -> float:
         best = float("inf")
         for pt in path:
             dx = (pt[0] - lon0) * lon_scale

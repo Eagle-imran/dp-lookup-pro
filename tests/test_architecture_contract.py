@@ -130,4 +130,88 @@ def test_artifact_orchestration_uses_typed_registry_instead_of_writer_calls():
     assert "context.export_data.to_legacy_dict()" not in exporting.read_text(encoding="utf-8")
     reporting_source = reporting.read_text(encoding="utf-8")
     assert "registered_artifact_exporters" in reporting_source
+    assert "registered_report_artifact_exporters" in reporting_source
     assert "dependencies.geojson_writer" not in reporting_source
+    assert "dependencies.pdf_writer" not in reporting_source
+    assert "dependencies.excel_writer" not in reporting_source
+    contracts_source = contracts.read_text(encoding="utf-8")
+    assert "class PdfReportRequest" in contracts_source
+    assert "class ExcelRegisterRequest" in contracts_source
+
+
+def test_cli_is_a_small_compatibility_facade_over_focused_boundaries():
+    facade = PROJECT_ROOT / "dp_lookup" / "cli.py"
+    source = facade.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 225
+    for module in ("cli_parser.py", "cli_bootstrap.py", "cli_command.py", "cli_presentation.py"):
+        assert (facade.parent / module).is_file()
+    assert "def format_result_human(" not in source
+    assert "def _parse_cli_args(" in source  # deliberately retained compatibility wrapper
+
+
+def test_dxf_facade_delegates_policy_geometry_text_and_legend_subsystems():
+    exporter = PROJECT_ROOT / "dp_lookup" / "exporters" / "dxf.py"
+    source = exporter.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 100
+    for module in ("dxf_policy.py", "dxf_geometry.py", "dxf_text.py", "dxf_legend.py"):
+        assert (exporter.parent / module).is_file()
+    assert (exporter.parent / "dxf_renderer.py").is_file()
+    assert "class DxfLayoutPolicy" not in source
+    assert "def polygon_signed_area(" not in source
+    assert "def text_extents(" not in source
+    assert "def legend_data_rows(" not in source
+    assert "shapely" not in source
+
+
+def test_pdf_public_module_is_a_small_facade_over_typed_renderer():
+    exporter = PROJECT_ROOT / "dp_lookup" / "exporters" / "pdf.py"
+    source = exporter.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 15
+    assert (exporter.parent / "pdf_renderer.py").is_file()
+    assert "build_pdf_doc" in source
+    assert "write_pdf_report" in source
+
+
+def test_normalization_facade_delegates_to_focused_typed_stages():
+    facade = PROJECT_ROOT / "dp_lookup" / "application" / "normalization.py"
+    source = facade.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 25
+    for module in (
+        "road_normalization.py",
+        "neighbour_normalization.py",
+        "planning_normalization.py",
+    ):
+        assert (facade.parent / module).is_file()
+    assert "def normalize_planning_evidence(" not in source
+
+
+def test_arcgis_http_payload_is_typed_before_ingestion_and_normalization():
+    models = PROJECT_ROOT / "dp_lookup" / "clients" / "arcgis_models.py"
+    ingestion = PROJECT_ROOT / "dp_lookup" / "application" / "ingestion.py"
+    source = ingestion.read_text(encoding="utf-8")
+    assert "class ArcGISFeature" in models.read_text(encoding="utf-8")
+    assert "class ArcGISPayload" in models.read_text(encoding="utf-8")
+    assert "decode_arcgis_response" in source
+    assert "usable_json" not in source
+
+
+def test_pdf_and_excel_default_to_native_typed_data_writers():
+    exporter_contracts = PROJECT_ROOT / "dp_lookup" / "exporters" / "contracts.py"
+    dependencies = PROJECT_ROOT / "dp_lookup" / "application" / "dependencies.py"
+    contracts_source = exporter_contracts.read_text(encoding="utf-8")
+    dependencies_source = dependencies.read_text(encoding="utf-8")
+    assert "class PlotReportData" in contracts_source
+    assert "class ExcelRegisterData" in contracts_source
+    assert "pdf_data_writer: PdfDataWriter = write_pdf_report" in dependencies_source
+    assert "excel_data_writer: ExcelDataWriter = write_excel_register" in dependencies_source
+    assert "pdf_writer: Optional[ArtifactProcedure] = None" in dependencies_source
+    assert "excel_writer: Optional[ArtifactProcedure] = None" in dependencies_source
+
+
+def test_planning_snapshot_spatial_reads_are_separate_from_lifecycle_store():
+    package = PROJECT_ROOT / "dp_lookup" / "planning_snapshot"
+    query_source = (package / "query.py").read_text(encoding="utf-8")
+    store_source = (package / "store.py").read_text(encoding="utf-8")
+    assert "class PlanningFeatureQuery" in query_source
+    assert "PlanningFeatureQuery(" in store_source
+    assert "CROSS JOIN planning_feature_rtree" not in store_source

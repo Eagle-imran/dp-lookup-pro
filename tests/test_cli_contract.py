@@ -158,3 +158,30 @@ def test_database_command_routes_before_lookup_grammar(capsys, tmp_path):
     database = tmp_path / "not-built.sqlite"
     assert cli.main(["database", "status", "--database", str(database), "--json"]) == cli.EXIT_SUCCESS
     assert '"exists": false' in capsys.readouterr().out
+
+
+def test_streamlined_admin_aliases_preserve_legacy_grammars(monkeypatch):
+    monkeypatch.setenv("DP_LOOKUP_DATABASE", "/tmp/configured.sqlite")
+
+    assert cli._normalize_admin_args(["db", "parcels", "status"]) == [
+        "database",
+        "status",
+        "--database",
+        "/tmp/configured.sqlite",
+    ]
+    assert cli._normalize_admin_args(["db", "refresh", "planning", "--json"]) == [
+        "database",
+        "build-planning",
+        "--json",
+        "--database",
+        "/tmp/configured.sqlite",
+    ]
+    legacy = ["database", "build-planning", "--database", "old.sqlite"]
+    assert cli._normalize_admin_args(legacy) == legacy
+
+
+def test_database_specific_help_is_successful(capsys):
+    assert cli.main(["db", "--help"]) == cli.EXIT_SUCCESS
+    output = capsys.readouterr().out
+    assert "db health" in output
+    assert "existing `database build`" in output

@@ -10,127 +10,25 @@ from __future__ import annotations
 
 import contextlib
 import json
-import math
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple, Union, cast
 
 from dp_lookup.planning_evidence.registry import canonical_layer_id
+from dp_lookup.planning_snapshot.codecs import bbox as _bbox
+from dp_lookup.planning_snapshot.codecs import json_value as _json
 from dp_lookup.planning_snapshot.models import (
     PlanningFeature,
     PlanningLayerSnapshot,
     PlanningSnapshot,
     PlanningSnapshotStateError,
     PlanningSnapshotValidationError,
-    canonical_json,
     sha256_json,
     utc_now,
 )
-
-SCHEMA_VERSION = 1
-
-
-def _json(value: Any, field: str) -> str:
-    if isinstance(value, str):
-        try:
-            json.loads(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{field} is not valid JSON") from exc
-        return value
-    try:
-        return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False, default=str)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field} cannot be encoded as JSON") from exc
-
-
-def _canonical(value: Any, field: str) -> str:
-    try:
-        return canonical_json(value).decode("utf-8")
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field} cannot be encoded as canonical JSON") from exc
-
-
-def _bbox(geometry: Any) -> Optional[Tuple[float, float, float, float]]:
-    if geometry is None or isinstance(geometry, (str, bytes)):
-        return None
-    if isinstance(geometry, Mapping):
-        if "x" in geometry and "y" in geometry:
-            geometry = [[geometry["x"], geometry["y"]]]
-        elif "point" in geometry:
-            point = geometry["point"]
-            if isinstance(point, Mapping) and "x" in point and "y" in point:
-                geometry = [[point["x"], point["y"]]]
-            else:
-                geometry = point
-        if isinstance(geometry, Mapping) and "rings" in geometry:
-            geometry = geometry["rings"]
-        elif isinstance(geometry, Mapping) and "coordinates" in geometry:
-            geometry = geometry["coordinates"]
-        elif isinstance(geometry, Mapping) and "paths" in geometry:
-            geometry = geometry["paths"]
-        elif isinstance(geometry, Mapping) and "points" in geometry:
-            geometry = geometry["points"]
-        elif isinstance(geometry, Mapping):
-            return None
-    points: List[Tuple[float, float]] = []
-
-    def walk(value: Any) -> None:
-        if isinstance(value, (list, tuple)):
-            if len(value) >= 2 and not isinstance(value[0], (list, tuple, Mapping)):
-                try:
-                    x, y = float(value[0]), float(value[1])
-                except (TypeError, ValueError, OverflowError):
-                    return
-                if math.isfinite(x) and math.isfinite(y):
-                    points.append((x, y))
-                return
-            for child in value:
-                walk(child)
-
-    walk(geometry)
-    if not points:
-        return None
-    xs, ys = zip(*points)
-    return min(xs), max(xs), min(ys), max(ys)
-
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS planning_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS planning_snapshots (
- snapshot_id INTEGER PRIMARY KEY AUTOINCREMENT,
- version INTEGER NOT NULL,
- state TEXT NOT NULL CHECK(state IN ('building','ready','active','retired','failed')),
- source_url TEXT, source_metadata_json TEXT NOT NULL, created_at TEXT NOT NULL,
- finalized_at TEXT, content_hash TEXT NOT NULL DEFAULT '', complete INTEGER NOT NULL DEFAULT 0,
- validation_json TEXT
-);
-CREATE UNIQUE INDEX IF NOT EXISTS planning_snapshot_versions ON planning_snapshots(version);
-CREATE TABLE IF NOT EXISTS planning_layers (
- snapshot_id INTEGER NOT NULL REFERENCES planning_snapshots(snapshot_id) ON DELETE CASCADE,
- layer_id INTEGER NOT NULL, canonical_layer_id INTEGER NOT NULL, name TEXT NOT NULL,
- geometry_type TEXT, object_id_field TEXT NOT NULL, metadata_json TEXT NOT NULL,
- expected_count INTEGER, received_count INTEGER NOT NULL DEFAULT 0,
- content_hash TEXT NOT NULL DEFAULT '', complete INTEGER NOT NULL DEFAULT 0,
- PRIMARY KEY(snapshot_id, canonical_layer_id)
-);
-CREATE TABLE IF NOT EXISTS planning_layer_inventory (
- snapshot_id INTEGER NOT NULL, canonical_layer_id INTEGER NOT NULL, object_id INTEGER NOT NULL,
- PRIMARY KEY(snapshot_id, canonical_layer_id, object_id),
- FOREIGN KEY(snapshot_id, canonical_layer_id) REFERENCES planning_layers(snapshot_id, canonical_layer_id) ON DELETE CASCADE
-);
-CREATE TABLE IF NOT EXISTS planning_features (
- snapshot_id INTEGER NOT NULL, canonical_layer_id INTEGER NOT NULL, object_id INTEGER NOT NULL,
- attributes_json TEXT NOT NULL, geometry_json TEXT, raw_feature_json TEXT NOT NULL,
- bbox_min_x REAL, bbox_max_x REAL, bbox_min_y REAL, bbox_max_y REAL,
- PRIMARY KEY(snapshot_id, canonical_layer_id, object_id),
- FOREIGN KEY(snapshot_id, canonical_layer_id) REFERENCES planning_layers(snapshot_id, canonical_layer_id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS planning_features_bbox ON planning_features(snapshot_id, canonical_layer_id, bbox_min_x, bbox_max_x, bbox_min_y, bbox_max_y);
-CREATE TABLE IF NOT EXISTS planning_activations (
- activation_id INTEGER PRIMARY KEY AUTOINCREMENT, snapshot_id INTEGER NOT NULL REFERENCES planning_snapshots(snapshot_id),
- activated_at TEXT NOT NULL, deactivated_at TEXT
-);
-"""
+from dp_lookup.planning_snapshot.query import PlanningFeatureQuery, feature_dict
+from dp_lookup.planning_snapshot.schema import SCHEMA, SCHEMA_VERSION
+from dp_lookup.planning_snapshot.validation import validate_snapshot as _validate_snapshot
 
 
 class PlanningSnapshotStore:
@@ -375,59 +273,7 @@ class PlanningSnapshotStore:
 
     def validate(self, snapshot_id: int) -> Dict[str, Any]:
         self._snapshot_row(snapshot_id)
-        errors: List[str] = []
-        warnings: List[str] = []
-        layers: List[Dict[str, Any]] = []
-        for layer in self.connection.execute("SELECT * FROM planning_layers WHERE snapshot_id=? ORDER BY canonical_layer_id", (snapshot_id,)):
-            layer_id = int(layer["canonical_layer_id"])
-            count = int(self.connection.execute("SELECT COUNT(*) FROM planning_features WHERE snapshot_id=? AND canonical_layer_id=?", (snapshot_id, layer_id)).fetchone()[0])
-            expected = layer["expected_count"]
-            inventory = int(self.connection.execute("SELECT COUNT(*) FROM planning_layer_inventory WHERE snapshot_id=? AND canonical_layer_id=?", (snapshot_id, layer_id)).fetchone()[0])
-            layer_errors: List[str] = []
-            layer_warnings: List[str] = []
-            if expected is not None and count != int(expected):
-                layer_errors.append(f"expected {expected} features, received {count}")
-            if inventory:
-                missing = self.connection.execute("SELECT object_id FROM planning_layer_inventory WHERE snapshot_id=? AND canonical_layer_id=? EXCEPT SELECT object_id FROM planning_features WHERE snapshot_id=? AND canonical_layer_id=? LIMIT 20", (snapshot_id, layer_id, snapshot_id, layer_id)).fetchall()
-                extra = self.connection.execute("SELECT object_id FROM planning_features WHERE snapshot_id=? AND canonical_layer_id=? EXCEPT SELECT object_id FROM planning_layer_inventory WHERE snapshot_id=? AND canonical_layer_id=? LIMIT 20", (snapshot_id, layer_id, snapshot_id, layer_id)).fetchall()
-                if missing:
-                    layer_errors.append("inventory IDs missing: " + ", ".join(str(row[0]) for row in missing))
-                if extra:
-                    layer_errors.append("feature IDs absent from inventory: " + ", ".join(str(row[0]) for row in extra))
-            for feature in self.connection.execute("SELECT object_id,attributes_json,geometry_json,bbox_min_x,bbox_max_x,bbox_min_y,bbox_max_y FROM planning_features WHERE snapshot_id=? AND canonical_layer_id=?", (snapshot_id, layer_id)):
-                try:
-                    json.loads(feature["attributes_json"])
-                    if feature["geometry_json"] is None:
-                        layer_warnings.append(f"object ID {feature['object_id']}: source geometry is missing")
-                    else:
-                        geometry = json.loads(feature["geometry_json"])
-                        if _bbox(geometry) is None:
-                            layer_warnings.append(
-                                f"object ID {feature['object_id']}: source geometry has no finite coordinates"
-                            )
-                except (TypeError, ValueError) as exc:
-                    layer_errors.append(f"object ID {feature['object_id']}: invalid JSON ({exc})")
-            if layer_errors:
-                errors.extend(f"layer {layer_id}: {error}" for error in layer_errors)
-            warnings.extend(f"layer {layer_id}: {warning}" for warning in layer_warnings)
-            layers.append(
-                {
-                    "layer_id": layer_id,
-                    "count": count,
-                    "expected_count": expected,
-                    "content_hash": self._layer_hash(snapshot_id, layer_id),
-                    "complete": not layer_errors,
-                    "errors": layer_errors,
-                    "warnings": layer_warnings,
-                }
-            )
-        return {
-            "ok": not errors,
-            "snapshot_id": snapshot_id,
-            "layers": layers,
-            "errors": errors,
-            "warnings": warnings,
-        }
+        return _validate_snapshot(self.connection, snapshot_id, self._layer_hash)
 
     validate_snapshot = validate
 
@@ -472,47 +318,19 @@ class PlanningSnapshotStore:
         snapshot_id: Optional[int],
         include_archive_payload: bool,
     ) -> List[Dict[str, Any]]:
-        sid = snapshot_id if snapshot_id is not None else self.active_snapshot_id()
-        if sid is None:
-            return []
-        canonical_id = canonical_layer_id(layer_id)
-        selection = "f.*" if include_archive_payload else "f.object_id,f.attributes_json,f.geometry_json"
-        if self._rtree_available:
-            # CROSS JOIN is deliberate: it makes SQLite begin with the R-tree
-            # bounding-box search, then resolve the tiny candidate set back to
-            # stored features. A regular JOIN lets the planner begin with every
-            # feature in a large layer (notably CRZ), turning one parcel lookup
-            # into thousands of repeated R-tree scans.
-            rows = self.connection.execute(
-                f"SELECT {selection} FROM planning_feature_rtree r "
-                "CROSS JOIN planning_feature_rtree_map m "
-                "CROSS JOIN planning_features f "
-                "WHERE r.id=m.id "
-                "AND m.snapshot_id=f.snapshot_id "
-                "AND m.canonical_layer_id=f.canonical_layer_id "
-                "AND m.object_id=f.object_id "
-                "AND m.snapshot_id=? AND m.canonical_layer_id=? "
-                "AND r.max_x>=? AND r.min_x<=? AND r.max_y>=? AND r.min_y<=? "
-                "ORDER BY f.object_id",
-                (sid, canonical_id, min_x, max_x, min_y, max_y),
-            )
-        else:
-            rows = self.connection.execute(
-                f"SELECT {selection.replace('f.', '')} FROM planning_features "
-                "WHERE snapshot_id=? AND canonical_layer_id=? AND bbox_max_x>=? AND bbox_min_x<=? "
-                "AND bbox_max_y>=? AND bbox_min_y<=? ORDER BY object_id",
-                (sid, canonical_id, min_x, max_x, min_y, max_y),
-            )
-        if include_archive_payload:
-            return [self._feature_dict(row) for row in rows]
-        return [
-            {
-                "object_id": int(row["object_id"]),
-                "attributes": json.loads(row["attributes_json"]),
-                "geometry": None if row["geometry_json"] is None else json.loads(row["geometry_json"]),
-            }
-            for row in rows
-        ]
+        return PlanningFeatureQuery(
+            self.connection,
+            rtree_available=self._rtree_available,
+            active_snapshot_id=self.active_snapshot_id,
+        ).features_in_bbox(
+            layer_id,
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+            snapshot_id=snapshot_id,
+            include_archive_payload=include_archive_payload,
+        )
 
     def features_in_bbox(self, layer_id: int, min_x: float, max_x: float, min_y: float, max_y: float, *, snapshot_id: Optional[int] = None) -> List[Dict[str, Any]]:
         return self._features_in_bbox(
@@ -528,31 +346,11 @@ class PlanningSnapshotStore:
     parcels_in_bbox = features_in_bbox
 
     def query_layer(self, snapshot_id: int, layer_id: int, parcel_geometry: Any) -> List[Dict[str, Any]]:
-        """Return exact geometry intersections for the local-query adapter."""
-        bounds = getattr(parcel_geometry, "bounds", None)
-        if not bounds or len(bounds) != 4:
-            raise ValueError("parcel_geometry must expose shapely bounds")
-        candidates = self._features_in_bbox(
-            layer_id,
-            float(bounds[0]),
-            float(bounds[2]),
-            float(bounds[1]),
-            float(bounds[3]),
-            snapshot_id=snapshot_id,
-            include_archive_payload=False,
-        )
-        from dp_lookup.core.topology import arcgis_rings_to_geometry
-
-        result: List[Dict[str, Any]] = []
-        for candidate in candidates:
-            geometry = candidate.get("geometry") or {}
-            rings = geometry.get("rings") if isinstance(geometry, Mapping) else None
-            if not rings:
-                continue
-            polygon = arcgis_rings_to_geometry(rings)
-            if not polygon.is_empty and parcel_geometry.intersects(polygon):
-                result.append(candidate)
-        return result
+        return PlanningFeatureQuery(
+            self.connection,
+            rtree_available=self._rtree_available,
+            active_snapshot_id=self.active_snapshot_id,
+        ).query_layer(snapshot_id, layer_id, parcel_geometry)
 
     records_intersecting = query_layer
 
@@ -572,11 +370,7 @@ class PlanningSnapshotStore:
 
     @staticmethod
     def _feature_dict(row: sqlite3.Row) -> Dict[str, Any]:
-        result = dict(row)
-        result["attributes"] = json.loads(result["attributes_json"])
-        result["geometry"] = None if result["geometry_json"] is None else json.loads(result["geometry_json"])
-        result["raw_feature"] = json.loads(result["raw_feature_json"])
-        return result
+        return feature_dict(row)
 
     def active_snapshot_id(self) -> Optional[int]:
         row = self.connection.execute("SELECT snapshot_id FROM planning_activations WHERE deactivated_at IS NULL ORDER BY activation_id DESC LIMIT 1").fetchone()

@@ -130,19 +130,40 @@ builder starts from the complete source ObjectID inventory, commits bounded
 batches atomically, preserves the official attributes and geometry, resumes a
 matching interrupted build, and refuses to activate an incomplete result.
 
-Build and review a database explicitly:
+Build and review a database explicitly. The shorter `db` commands use
+`DP_LOOKUP_DATABASE`, then `data/mcgm-layer13.sqlite`, unless `--database` is
+supplied:
 
 ```bash
-dp-lookup-pro database build  --database data/mcgm-layer13.sqlite
-dp-lookup-pro database status --database data/mcgm-layer13.sqlite
-dp-lookup-pro database verify --database data/mcgm-layer13.sqlite
-dp-lookup-pro database activate --database data/mcgm-layer13.sqlite
+dp-lookup-pro db parcels build
+dp-lookup-pro db parcels status
+dp-lookup-pro db parcels verify
+dp-lookup-pro db parcels activate
 
-dp-lookup-pro database build-planning    --database data/mcgm-layer13.sqlite
-dp-lookup-pro database status-planning   --database data/mcgm-layer13.sqlite
-dp-lookup-pro database verify-planning   --database data/mcgm-layer13.sqlite
-dp-lookup-pro database activate-planning --database data/mcgm-layer13.sqlite
+dp-lookup-pro db planning build
+dp-lookup-pro db planning status
+dp-lookup-pro db planning verify
+dp-lookup-pro db planning activate
 ```
+
+Before downloading a new six-month snapshot, run the read-only checks:
+
+```bash
+dp-lookup-pro db health
+dp-lookup-pro db check-upstream
+dp-lookup-pro db check-upstream --json > docs/audits/upstream-check.json
+```
+
+`health` audits the local SQLite file, active snapshots, inventory equality,
+planning registry, derived intelligence and optional enrichment. It performs no
+network requests. `check-upstream` downloads only ArcGIS metadata, edit signals
+and ObjectID inventories—never geometry. A changed or unknown result recommends
+a staged build; it never activates or replaces data. Matching fingerprints are
+strong operational evidence but not proof that coordinates under an existing
+ObjectID are unchanged, so an annual forced full rebuild remains recommended.
+The original flat `database build` and `database build-planning` forms remain
+supported for existing scripts. The first live validation is preserved in the
+[database maintenance audit](docs/audits/DATABASE-MAINTENANCE-CHECK-2026-08-23.md).
 
 Complete parcel and planning snapshots were built, verified, sampled against
 the live source, and activated on 2026-08-21. The current database is about
@@ -151,7 +172,11 @@ planning layers. It remains ignored by Git and is not bundled with the package.
 Normal CLI lookup uses it automatically when available:
 
 ```bash
+dp-lookup-pro lookup WORLI 733
+# Explicit form recommended for agents and new scripts.
+
 dp-lookup-pro WORLI 733
+# Historical short form remains fully supported.
 # auto: local MCGM cadastral parcel snapshot first, live service fallback
 
 dp-lookup-pro WORLI 733 --source local --database data/mcgm-layer13.sqlite
@@ -182,10 +207,10 @@ planning records untouched, while preserving every supplied file, checksum,
 version and review event.
 
 ```bash
-dp-lookup-pro sources add evidence/worli-733.json --database data/mcgm-layer13.sqlite --actor imran
-dp-lookup-pro sources verify 12 --database data/mcgm-layer13.sqlite --reviewed-by imran
-dp-lookup-pro sources recommend WORLI 733 --database data/mcgm-layer13.sqlite
-dp-lookup-pro sources activate 12 --purpose geometry --database data/mcgm-layer13.sqlite --activated-by imran --reason "accepted boundary evidence"
+dp-lookup-pro evidence add evidence/worli-733.json --actor imran
+dp-lookup-pro evidence verify 12 --reviewed-by imran
+dp-lookup-pro evidence recommend WORLI 733
+dp-lookup-pro evidence activate 12 --purpose geometry --activated-by imran --reason "accepted boundary evidence"
 ```
 
 Activation is explicit and purpose-specific (`area`, `geometry`, or
@@ -204,20 +229,19 @@ processed and its source versions match the active source snapshots.
 
 ```bash
 # Validate the pipeline with a non-publishable sample
-dp-lookup-pro intelligence build --database data/mcgm-layer13.sqlite --limit 25 --json
+dp-lookup-pro plots build --limit 25 --json
 
 # Complete resumable publication build
-dp-lookup-pro intelligence build --database data/mcgm-layer13.sqlite
-dp-lookup-pro intelligence verify --database data/mcgm-layer13.sqlite
-dp-lookup-pro intelligence activate --database data/mcgm-layer13.sqlite
+dp-lookup-pro plots build
+dp-lookup-pro plots verify
+dp-lookup-pro plots activate
 
 # Real workflow commands
-dp-lookup-pro intelligence analyze WORLI 733 --database data/mcgm-layer13.sqlite --json
-dp-lookup-pro intelligence search --database data/mcgm-layer13.sqlite \
+dp-lookup-pro plots analyze WORLI 733 --json
+dp-lookup-pro plots search \
   --zone R --min-area 2000 --has-reservation no --max-encumbered 10
-dp-lookup-pro intelligence compare WORLI:733 COLABA:1/600 \
-  --database data/mcgm-layer13.sqlite --json
-dp-lookup-pro intelligence check --database data/mcgm-layer13.sqlite
+dp-lookup-pro plots compare WORLI:733 COLABA:1/600 --json
+dp-lookup-pro plots check
 ```
 
 This is an internal operational system of record, not a replacement for MCGM
@@ -351,13 +375,14 @@ uv run python dp-lookup-pro "<VILLAGE_NAME>" "<CTS_NUMBER>" [OUTPUT_DIR] [option
 | `--database PATH` | override auto's default SQLite path; required with strict `local` |
 | `--list-villages` | print all 128 valid village names and exit |
 
-Database administration is separate from plot lookup:
+Database administration is separate from plot lookup. The `database` flat
+forms remain compatibility aliases:
 
 ```bash
-dp-lookup-pro database <COMMAND> --database PATH
-# Parcel: build, status, verify, diff, activate, rollback
-# Planning: build-planning, status-planning, verify-planning,
-#           activate-planning, rollback-planning
+dp-lookup-pro db health
+dp-lookup-pro db check-upstream
+dp-lookup-pro db parcels <build|status|verify|diff|activate|rollback>
+dp-lookup-pro db planning <build|status|verify|activate|rollback>
 ```
 
 ### Examples:

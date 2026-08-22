@@ -2,7 +2,7 @@
 Google Earth KML 3D Exporter.
 """
 
-from typing import Any, List, Mapping
+from typing import Any, Iterable, List, Mapping, Sequence
 from xml.sax.saxutils import escape as xml_escape
 
 from shapely.geometry import MultiPolygon, Polygon
@@ -18,7 +18,7 @@ def _esc(val: Any) -> str:
     return xml_escape(str(val))
 
 
-def _coordinates(coords) -> str:
+def _coordinates(coords: Iterable[Sequence[float]]) -> str:
     return " ".join(f"{x},{y},0" for x, y in coords)
 
 

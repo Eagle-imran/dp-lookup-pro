@@ -7,9 +7,11 @@ import os
 import tempfile
 import threading
 from contextlib import contextmanager
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterator, List, Optional
 
 from openpyxl import Workbook, load_workbook
+
+from dp_lookup.exporters.contracts import ExcelRegisterData
 
 try:  # pragma: no cover - platform-specific import
     import fcntl
@@ -26,7 +28,7 @@ _REGISTER_LOCK = threading.RLock()
 
 
 @contextmanager
-def _register_file_lock(register_path: str):
+def _register_file_lock(register_path: str) -> Iterator[None]:
     """Hold a stable advisory lock beside the register while it is rewritten."""
     lock_path = f"{register_path}.lock"
     lock_handle = None
@@ -117,8 +119,8 @@ def update_excel_register(
     geojson_fname: str,
     kml_fname: str,
     map_link: str,
-    reservations: Any = None,
-    designations: Any = None,
+    reservations: Optional[List[Dict[str, Any]]] = None,
+    designations: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     """Append a structured lookup record row to the master Excel register."""
     with _REGISTER_LOCK:
@@ -181,15 +183,23 @@ def update_excel_register(
         authority = attrs.get("_DP_AUTHORITY_RESOLUTION")
         if not isinstance(authority, dict):
             authority = {}
-        area_authority = authority.get("area") if isinstance(authority.get("area"), dict) else {}
-        geometry_authority = authority.get("geometry") if isinstance(authority.get("geometry"), dict) else {}
-        planning_authority = authority.get("planning") if isinstance(authority.get("planning"), list) else []
+        raw_area_authority = authority.get("area")
+        area_authority = raw_area_authority if isinstance(raw_area_authority, dict) else {}
+        raw_geometry_authority = authority.get("geometry")
+        geometry_authority = raw_geometry_authority if isinstance(raw_geometry_authority, dict) else {}
+        raw_planning_authority = authority.get("planning")
+        planning_authority = raw_planning_authority if isinstance(raw_planning_authority, list) else []
         planning_record_ids = "; ".join(
             str(item.get("record_id"))
             for item in planning_authority
             if isinstance(item, dict) and item.get("record_id") is not None
         )
-        active_record_ids = "; ".join(str(value) for value in authority.get("active_record_ids", []))
+        raw_active_record_ids = authority.get("active_record_ids")
+        active_record_ids = (
+            "; ".join(str(value) for value in raw_active_record_ids)
+            if isinstance(raw_active_record_ids, list)
+            else ""
+        )
 
         excel_res_code = "; ".join(r["code"] for r in reservations) if reservations else res_code
         excel_res_type = (
@@ -266,3 +276,38 @@ def update_excel_register(
                 _save_workbook_atomic(wb, register_path)
             finally:
                 wb.close()
+
+
+def write_excel_register(data: ExcelRegisterData) -> None:
+    """Append one row from the pipeline's typed report contract."""
+    report = data.report
+    names = data.artifact_filenames
+    update_excel_register(
+        register_path=report.output_path,
+        attrs=dict(report.attrs),
+        village=report.village,
+        cts_number=report.cts_number,
+        zone=report.zone,
+        status_badge=report.status_badge,
+        res_code=report.reservation_code,
+        res_type=report.reservation_type,
+        des_code=report.designation_code,
+        des_desc=report.designation_description,
+        mod_approval=report.modification_approval,
+        mod_label=report.modification_label,
+        mod_doc=report.modification_document,
+        crz_buffer_flag=report.crz_status,
+        metro_buffer_flag=report.metro_buffer,
+        road_name=report.road_name,
+        road_width=report.road_width,
+        neighbors=[dict(item) for item in report.neighbours],
+        dp_snapshot_fname=str(names["dp_map"]),
+        sat_snapshot_fname=str(names["satellite"]),
+        pdf_fname=str(names["pdf"]),
+        dxf_fname=str(names["dxf"]),
+        geojson_fname=str(names["geojson"]),
+        kml_fname=str(names["kml"]),
+        map_link=report.map_link,
+        reservations=[dict(item) for item in report.reservations],
+        designations=[dict(item) for item in report.designations],
+    )

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any, List, Mapping, Optional, Sequence, Tuple
 
-from shapely.geometry import MultiPolygon, Polygon  # type: ignore[import-untyped]
+from shapely.geometry import MultiPolygon, Polygon
 
 from dp_lookup.core.geometry import mercator_to_wgs84, wgs84_to_utm43n
 from dp_lookup.core.models import AreaAssessment, AreaQualityFlag, ReliabilityStatus

@@ -113,27 +113,52 @@ point-probe approximation.
 
 ## CLI contract
 
-Database administration requires an explicit file path:
+The streamlined commands use `DP_LOOKUP_DATABASE`, then
+`data/mcgm-layer13.sqlite`; `--database` remains available:
 
 ```bash
-dp-lookup-pro database build    --database data/mcgm-layer13.sqlite
-dp-lookup-pro database status   --database data/mcgm-layer13.sqlite
-dp-lookup-pro database verify   --database data/mcgm-layer13.sqlite
-dp-lookup-pro database diff     --database data/mcgm-layer13.sqlite
-dp-lookup-pro database activate --database data/mcgm-layer13.sqlite
-dp-lookup-pro database rollback --database data/mcgm-layer13.sqlite
+dp-lookup-pro db health
+dp-lookup-pro db check-upstream
+dp-lookup-pro db parcels build
+dp-lookup-pro db parcels status
+dp-lookup-pro db parcels verify
+dp-lookup-pro db parcels diff
+dp-lookup-pro db parcels activate
+dp-lookup-pro db parcels rollback
 
-dp-lookup-pro database build-planning    --database data/mcgm-layer13.sqlite
-dp-lookup-pro database status-planning   --database data/mcgm-layer13.sqlite
-dp-lookup-pro database verify-planning   --database data/mcgm-layer13.sqlite
-dp-lookup-pro database activate-planning --database data/mcgm-layer13.sqlite
-dp-lookup-pro database rollback-planning --database data/mcgm-layer13.sqlite
+dp-lookup-pro db planning build
+dp-lookup-pro db planning status
+dp-lookup-pro db planning verify
+dp-lookup-pro db planning activate
+dp-lookup-pro db planning rollback
 ```
+
+The legacy flat `database build`, `database build-planning`, and corresponding
+lifecycle commands remain exact compatibility aliases.
 
 Each build downloads and validates a new independent snapshot but deliberately
 leaves it `ready`; review it with its status/verify command, then activate it.
 Parcel `diff` requires at least two finalized parcel snapshots. Each rollback
 activates the previous snapshot in its own lifecycle.
+
+### Six-month maintenance check
+
+`db health` is a deterministic local audit. It checks SQLite integrity and
+foreign keys, parcel/planning active pointers, schema versions, inventory
+equality, required planning layers, stored validation, source age, derived
+intelligence alignment, area-discrepancy buckets when intelligence is active,
+and optional enrichment records. Missing enrichment is `not_configured`, not a
+source-database failure. A critical result exits non-zero for automation.
+
+`db check-upstream` is separate and networked. It fetches each ArcGIS layer's
+data-contract metadata, complete ObjectID inventory, and the strongest
+available edit timestamp. It never requests feature geometry and never writes
+the database. Any changed or unknown signal requires a staged rebuild and
+review. If every signal matches, no six-month download is required; retain the
+JSON result as the dated no-change report. Because an edit timestamp is not a
+formal ArcGIS content-version contract and an ObjectID can retain its identity
+while its geometry changes, force a complete download and comparison at least
+annually.
 
 Plot lookup source selection is explicit:
 

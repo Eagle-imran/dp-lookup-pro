@@ -177,7 +177,7 @@ def _working_assessment(
         return None
     difference = None
     difference_percent = None
-    thresholds = ()
+    thresholds: Tuple[int, ...] = ()
     flags = [flag for flag in baseline.flags if not flag.code.startswith("area_difference_over_")]
     if baseline.recorded_area_sqm is not None and calculated is not None:
         difference = calculated - baseline.recorded_area_sqm

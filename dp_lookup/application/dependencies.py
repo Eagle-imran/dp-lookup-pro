@@ -6,17 +6,27 @@ from typing import Any, Awaitable, Dict, List, Optional, Protocol, Sequence, Tup
 from PIL import Image
 
 from dp_lookup.application.contracts import NeighbourContext, ParcelContext, RoadContext
-from dp_lookup.application.exporting import ArtifactExporter, RichVectorWriter, SimpleVectorWriter
+from dp_lookup.application.exporting import (
+    ArtifactExporter,
+    ExcelDataWriter,
+    ExcelRegisterWriter,
+    PdfDataWriter,
+    PdfReportWriter,
+    ReportArtifactExporter,
+    RichVectorWriter,
+    SimpleVectorWriter,
+)
 from dp_lookup.application.ingestion import fetch_parcel_feature
 from dp_lookup.clients.arcgis import fetch_tile_cached, query_spatial_planning_layers
+from dp_lookup.clients.cache import read_cache_entry, write_cache_entry
 from dp_lookup.clients.planning_evidence_queries import collect_planning_evidence
 from dp_lookup.clients.transport import create_arcgis_client
 from dp_lookup.exporters.dxf import export_dxf
-from dp_lookup.exporters.excel import update_excel_register
+from dp_lookup.exporters.excel import write_excel_register
 from dp_lookup.exporters.geojson import export_geojson
 from dp_lookup.exporters.html_map import export_html_map
 from dp_lookup.exporters.kml import export_kml
-from dp_lookup.exporters.pdf import build_pdf_doc
+from dp_lookup.exporters.pdf import write_pdf_report
 from dp_lookup.planning_evidence.models import EvidenceMode, PlanningEvidenceReport
 from dp_lookup.renderers.map_overlay import render_dp_map
 from dp_lookup.renderers.satellite import stitch_satellite
@@ -83,6 +93,14 @@ class TileFetcher(Protocol):
     ) -> Awaitable[Optional[bytes]]: ...
 
 
+class ResultCacheReader(Protocol):
+    def __call__(self, output_dir: str, key: str, ttl_seconds: int) -> Optional[Dict[str, Any]]: ...
+
+
+class ResultCacheWriter(Protocol):
+    def __call__(self, output_dir: str, key: str, result: Dict[str, Any]) -> None: ...
+
+
 class ArtifactProcedure(Protocol):
     """Legacy report/register callable retained behind a named output port."""
 
@@ -129,13 +147,20 @@ class LookupDependencies:
     spatial_planning_query: SpatialPlanningQuery = query_spatial_planning_layers
     planning_identify_required: bool = True
     tile_fetcher: TileFetcher = fetch_tile_cached
+    result_cache_reader: ResultCacheReader = read_cache_entry
+    result_cache_writer: ResultCacheWriter = write_cache_entry
     geojson_writer: SimpleVectorWriter = export_geojson
     dxf_writer: RichVectorWriter = export_dxf
     kml_writer: SimpleVectorWriter = export_kml
     html_writer: RichVectorWriter = export_html_map
     artifact_exporters: Sequence[ArtifactExporter] = field(default_factory=tuple)
-    pdf_writer: ArtifactProcedure = build_pdf_doc
-    excel_writer: ArtifactProcedure = update_excel_register
+    report_artifact_exporters: Sequence[ReportArtifactExporter] = field(default_factory=tuple)
+    pdf_report_writer: Optional[PdfReportWriter] = None
+    excel_register_writer: Optional[ExcelRegisterWriter] = None
+    pdf_data_writer: PdfDataWriter = write_pdf_report
+    excel_data_writer: ExcelDataWriter = write_excel_register
+    pdf_writer: Optional[ArtifactProcedure] = None
+    excel_writer: Optional[ArtifactProcedure] = None
     dp_map_renderer: DpMapRenderer = render_dp_map
     satellite_renderer: SatelliteRenderer = stitch_satellite
     planning_evidence_analyzer: PlanningEvidenceAnalyzer = collect_planning_evidence

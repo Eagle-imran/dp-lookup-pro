@@ -2,9 +2,10 @@
 
 import asyncio
 import math
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
 from dp_lookup.clients.arcgis_payloads import spatial_query_payload
@@ -25,7 +26,11 @@ from dp_lookup.core.geometry import mercator_to_wgs84
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
 
-def _overlap(parcel, feature: Dict[str, Any], threshold: float):
+def _overlap(
+    parcel: BaseGeometry,
+    feature: Dict[str, Any],
+    threshold: float,
+) -> Tuple[Optional[BaseGeometry], Optional[BaseGeometry]]:
     geometry = feature.get("geometry") or {}
     rings = geometry.get("rings")
     if not rings:
@@ -42,13 +47,17 @@ def _wgs_rings(feature: Dict[str, Any]) -> List[List[List[float]]]:
     return [[mercator_to_wgs84(point[0], point[1]) for point in ring] for ring in rings]
 
 
-async def _fetch_layers(client: httpx.AsyncClient, bbox: str, layer_ids: List[int]):
+async def _fetch_layers(
+    client: httpx.AsyncClient,
+    bbox: str,
+    layer_ids: List[int],
+) -> Tuple[Dict[int, List[Dict[str, Any]]], List[str]]:
     responses = await asyncio.gather(
         *[client.post(f"{SERVER_URL}/{layer_id}/query", data=spatial_query_payload(bbox)) for layer_id in layer_ids],
         return_exceptions=True,
     )
     features_by_layer: Dict[int, List[Dict[str, Any]]] = {}
-    warnings = []
+    warnings: List[str] = []
     for layer_id, response in zip(layer_ids, responses):
         if isinstance(response, Exception):
             features_by_layer[layer_id] = []
@@ -99,7 +108,7 @@ def build_spatial_planning_result(
     for feature in by_layer.get(LAYER_RESERVATION, []):
         try:
             intersection, polygon = _overlap(parcel, feature, threshold)
-            if intersection is None:
+            if intersection is None or polygon is None:
                 continue
             attributes = feature.get("attributes", {})
             reservation_polygons.append(intersection)
@@ -132,7 +141,7 @@ def build_spatial_planning_result(
     for feature in by_layer.get(LAYER_DESIGNATION, []):
         try:
             intersection, polygon = _overlap(parcel, feature, threshold)
-            if intersection is None:
+            if intersection is None or polygon is None:
                 continue
             attributes = feature.get("attributes", {})
             designation_polygons.append(intersection)
@@ -271,7 +280,10 @@ def build_spatial_planning_result(
     return result
 
 
-async def query_spatial_planning_layers(client: httpx.AsyncClient, rings: list) -> Dict[str, Any]:
+async def query_spatial_planning_layers(
+    client: httpx.AsyncClient,
+    rings: List[List[List[float]]],
+) -> Dict[str, Any]:
     """Query all planning layers and compute exact parcel intersections."""
     parcel = arcgis_rings_to_geometry(rings)
     if parcel.is_empty or parcel.area <= 0:

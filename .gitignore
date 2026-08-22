@@ -18,6 +18,7 @@ data/*.manifest.json
 .pytest_cache/
 .ruff_cache/
 .cache/
+.coverage
 
 # Local, machine-specific settings
 .claude/settings.local.json

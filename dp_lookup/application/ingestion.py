@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 import httpx
 
 from dp_lookup.application.contracts import ParcelContext
-from dp_lookup.clients.responses import usable_json
+from dp_lookup.clients.arcgis_models import ArcGISFeature, decode_arcgis_response
 from dp_lookup.core.area_assessment import assess_plot_area
 from dp_lookup.core.constants import MCGM_VILLAGES, SERVER_URL
 from dp_lookup.core.geometry import prepare_geometry
@@ -20,18 +20,17 @@ class ParcelIngestionError(RuntimeError):
 
 
 def _annotate_live_match(
-    feature: Dict[str, Any],
-    matches: list,
+    feature: ArcGISFeature,
+    matches: Sequence[ArcGISFeature],
     *,
     requested_cts_no: str,
     prefix_fallback: bool,
 ) -> Dict[str, Any]:
     """Copy one historical live match and expose ambiguity without changing selection."""
-    if not isinstance(feature, dict) or not isinstance(feature.get("attributes"), dict):
-        raise ParcelIngestionError("MCGM Layer 13 returned a malformed parcel feature.")
-    copied = dict(feature)
-    attrs = dict(feature["attributes"])
+    copied = dict(feature.raw)
+    attrs = dict(feature.attributes)
     copied["attributes"] = attrs
+    copied["geometry"] = dict(feature.geometry)
     attrs["_DP_QUERY_MATCH_COUNT"] = len(matches)
     attrs["_DP_QUERY_MATCH_TYPE"] = "prefix" if prefix_fallback else "exact"
     if len(matches) > 1:
@@ -39,10 +38,10 @@ def _annotate_live_match(
     recorded_values = set()
     returned_cts_values = set()
     for match in matches:
-        match_attrs = match.get("attributes") if isinstance(match, dict) else None
-        if not isinstance(match_attrs, dict):
-            continue
+        match_attrs = match.attributes
         value = match_attrs.get("AREA_APP_SQ_MTRS")
+        if value is None:
+            continue
         try:
             number = float(value)
             if math.isfinite(number) and number > 0:
@@ -91,27 +90,27 @@ async def fetch_parcel_feature(client: Any, village: str, cts_no: str) -> Option
         detail = str(exc).strip() or type(exc).__name__
         raise ParcelIngestionError(f"MCGM server error while querying Layer 13 ({detail}).") from exc
 
-    data = usable_json(response)
-    if data is None:
+    payload = decode_arcgis_response(response)
+    if payload is None or not payload.features_valid:
         raise ParcelIngestionError(
             f"Cadastral query to MCGM Layer 13 failed (status {getattr(response, 'status_code', 'unknown')}). "
             "The server may be down or rejecting requests. Please retry."
         )
-    features = data.get("features")
-    if isinstance(features, list) and features:
-        return _annotate_live_match(features[0], features, requested_cts_no=cts_no, prefix_fallback=False)
+    if payload.features:
+        return _annotate_live_match(
+            payload.features[0], payload.features, requested_cts_no=cts_no, prefix_fallback=False
+        )
 
     try:
         fallback_response = await client.get(
             f"{SERVER_URL}/13/query",
             params={**query_params, "where": f"VILLAGE='{village}' AND CTS_CS_NO LIKE '{cts_no}%'"},
         )
-        fallback = usable_json(fallback_response)
-        fallback_features = fallback.get("features") if fallback else None
-        if isinstance(fallback_features, list) and fallback_features:
+        fallback = decode_arcgis_response(fallback_response)
+        if fallback is not None and fallback.features_valid and fallback.features:
             return _annotate_live_match(
-                fallback_features[0],
-                fallback_features,
+                fallback.features[0],
+                fallback.features,
                 requested_cts_no=cts_no,
                 prefix_fallback=True,
             )
@@ -121,7 +120,9 @@ async def fetch_parcel_feature(client: Any, village: str, cts_no: str) -> Option
     return None
 
 
-def build_parcel_context(feature: Dict[str, Any], village: str, cts_no: str) -> tuple:
+def build_parcel_context(
+    feature: Dict[str, Any], village: str, cts_no: str
+) -> Tuple[ParcelContext, Optional[str]]:
     """Validate and normalize one Layer 13 feature into the stage contract."""
     try:
         attrs = dict(feature["attributes"])

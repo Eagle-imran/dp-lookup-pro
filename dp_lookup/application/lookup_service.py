@@ -4,7 +4,7 @@ import asyncio
 import os
 import sys
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from dp_lookup.application.contracts import ArtifactContext, MapFetchContext
 from dp_lookup.application.dependencies import DEFAULT_DEPENDENCIES, LookupDependencies
@@ -35,7 +35,6 @@ from dp_lookup.clients.arcgis import (
     map_export_params,
     planning_layers,
 )
-from dp_lookup.clients.cache import read_cache_entry, write_cache_entry
 from dp_lookup.clients.local_parcels import LocalParcelError
 from dp_lookup.clients.validation import sanitize_query_value
 from dp_lookup.core.constants import (
@@ -100,7 +99,7 @@ async def lookup_plot_pro(
     output_root = os.path.realpath(os.path.abspath(os.path.expanduser(os.fspath(output_dir))))
     os.makedirs(output_root, exist_ok=True)
     if use_cache:
-        cached = read_cache_entry(output_root, cache_key, ttl_seconds=cache_ttl_seconds)
+        cached = deps.result_cache_reader(output_root, cache_key, cache_ttl_seconds)
         if cached is not None:
             diagnostics.mark("cache_lookup", outcome="hit")
             cached.setdefault("metadata", {})["diagnostics"] = diagnostics.snapshot()
@@ -212,16 +211,17 @@ async def lookup_plot_pro(
             asyncio.gather(*satellite_tasks, return_exceptions=True),
             return_exceptions=True,
         )
+        evidence_task: Awaitable[Any]
+        if evidence_mode is not EvidenceMode.BASIC:
+            evidence_task = deps.planning_evidence_analyzer(client, parcel.rings, village_upper, evidence_mode)
+        else:
+            evidence_task = asyncio.sleep(0)
         fast_results = await asyncio.gather(
             identify_task,
             deps.spatial_planning_query(client, parcel.rings),
             asyncio.gather(*road_tasks, return_exceptions=True),
             asyncio.gather(*neighbour_tasks, return_exceptions=True),
-            (
-                deps.planning_evidence_analyzer(client, parcel.rings, village_upper, evidence_mode)
-                if evidence_mode is not EvidenceMode.BASIC
-                else asyncio.sleep(0, result=None)
-            ),
+            evidence_task,
             return_exceptions=True,
         )
         diagnostics.mark("source_queries")
@@ -346,5 +346,5 @@ async def lookup_plot_pro(
     if cache_warning:
         print(f"[dp-lookup-pro] WARNING: {cache_warning}", file=sys.stderr)
     else:
-        write_cache_entry(output_root, cache_key, result)
+        deps.result_cache_writer(output_root, cache_key, result)
     return result

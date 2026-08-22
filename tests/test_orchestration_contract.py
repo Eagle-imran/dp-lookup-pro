@@ -12,7 +12,7 @@ import httpx
 from PIL import Image
 
 from dp_lookup.application import lookup_service as orchestrator
-from dp_lookup.application.contracts import ArtifactContext
+from dp_lookup.application.contracts import ArtifactContext, ExcelRegisterRequest, PdfReportRequest
 from dp_lookup.application.dependencies import DEFAULT_DEPENDENCIES
 from dp_lookup.core.models import ExportData
 from dp_lookup.planning_evidence import EvidenceMode, PlanningEvidenceReport
@@ -181,7 +181,11 @@ def test_complete_lookup_preserves_arcgis_contract(tmp_path):
         client_options.update(timeout_seconds=timeout_seconds, verify_tls=verify_tls)
         return client
 
-    dependencies = _stub_dependencies(client_factory)
+    cache_writes = []
+    dependencies = replace(
+        _stub_dependencies(client_factory),
+        result_cache_writer=lambda output, key, result: cache_writes.append((output, key, result)),
+    )
     snapshots = []
 
     result = asyncio.run(
@@ -210,6 +214,9 @@ def test_complete_lookup_preserves_arcgis_contract(tmp_path):
     assert result["spatial_cluster"]["adjacency_method"] == "probe"
     assert snapshots and snapshots[0]["metadata"]["documents_pending"] is True
     assert client_options == {"timeout_seconds": 20.0, "verify_tls": True}
+    assert len(cache_writes) == 1
+    assert cache_writes[0][1] == "WORLI:733"
+    assert cache_writes[0][2] is result
 
     queried_layers = {
         int(url.rsplit("/", 2)[-2]) for method, url, _ in client.calls if method == "POST" and url.endswith("/query")
@@ -224,6 +231,37 @@ def test_complete_lookup_preserves_arcgis_contract(tmp_path):
         for key, path in result["export_files"].items()
         if key not in ("bundle_folder", "master_excel_register")
     )
+
+
+def test_result_cache_is_a_replaceable_lookup_port(tmp_path):
+    calls = []
+    cached = {"metadata": {"complete": True}, "plot_identity": {"village": "WORLI", "cts_no": "733"}}
+
+    def cache_reader(output: str, key: str, ttl_seconds: int):
+        calls.append((output, key, ttl_seconds))
+        return cached
+
+    def forbidden_client(*_args, **_kwargs):
+        raise AssertionError("a cache hit must not create an ArcGIS client")
+
+    dependencies = replace(
+        DEFAULT_DEPENDENCIES,
+        client_factory=forbidden_client,
+        result_cache_reader=cache_reader,
+    )
+    result = asyncio.run(
+        orchestrator.lookup_plot_pro(
+            "WORLI",
+            "733",
+            str(tmp_path),
+            cache_ttl_seconds=123,
+            dependencies=dependencies,
+        )
+    )
+
+    assert result is cached
+    assert calls == [(str(tmp_path.resolve()), "WORLI:733", 123)]
+    assert result["metadata"]["diagnostics"]["stages_ms"]["cache_lookup"] >= 0
 
 
 def test_registered_artifact_plugin_requires_no_orchestrator_change(tmp_path):
@@ -265,6 +303,37 @@ def test_registered_artifact_must_stay_inside_bundle(tmp_path):
 
     assert "unsafe_external" not in result["export_files"]
     assert any("must be inside the lookup bundle" in warning for warning in result["metadata"]["warnings"])
+
+
+def test_typed_report_writers_replace_legacy_call_shape_without_changing_manifest(tmp_path):
+    requests = []
+
+    class PdfWriter:
+        def write(self, request: PdfReportRequest) -> None:
+            requests.append(request)
+            Path(request.output_path).write_bytes(b"%PDF-typed")
+
+    class ExcelWriter:
+        def write(self, request: ExcelRegisterRequest) -> None:
+            requests.append(request)
+            Path(request.output_path).write_bytes(b"typed-register")
+
+    def legacy_writer_should_not_run(*_args, **_kwargs):
+        raise AssertionError("typed writer should take precedence")
+
+    dependencies = replace(
+        _stub_dependencies(lambda timeout_seconds, verify_tls=True: FakeArcGISClient()),
+        pdf_writer=legacy_writer_should_not_run,
+        excel_writer=legacy_writer_should_not_run,
+        pdf_report_writer=PdfWriter(),
+        excel_register_writer=ExcelWriter(),
+    )
+    result = asyncio.run(orchestrator.lookup_plot_pro("WORLI", "733", str(tmp_path), use_cache=False, dependencies=dependencies))
+
+    assert [type(request) for request in requests] == [PdfReportRequest, ExcelRegisterRequest]
+    assert all(request.context.artifact.parcel.cts_no == "733" for request in requests)
+    assert Path(result["export_files"]["pdf_report"]).read_bytes() == b"%PDF-typed"
+    assert Path(result["export_files"]["master_excel_register"]).read_bytes() == b"typed-register"
 
 
 def test_missing_zoning_evidence_never_becomes_clear(tmp_path):

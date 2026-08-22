@@ -60,7 +60,7 @@ class PlanningSnapshotStore(Protocol):
     village or CTS are deliberately not part of this contract.
     """
 
-    def pin_active_snapshot(self) -> Optional[PlanningSnapshot]:
+    def pin_active_snapshot(self) -> Optional[Any]:
         """Return the active snapshot's metadata, or ``None`` when unavailable."""
 
     def query_layer(
@@ -220,15 +220,12 @@ class LocalFirstPlanningQuery:
             if stale
             else None
         )
-        return cast(
-            Dict[str, Any],
-            build_spatial_planning_result(
-                parcel,
-                by_layer,
-                [warning] if warning else [],
-                provenance=provenance,
-                area_scale=area_scale,
-            ),
+        return build_spatial_planning_result(
+            parcel,
+            by_layer,
+            [warning] if warning else [],
+            provenance=provenance,
+            area_scale=area_scale,
         )
 
     async def __call__(self, client: Any, rings: List[Any]) -> Dict[str, Any]:

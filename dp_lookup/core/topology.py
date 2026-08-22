@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Sequence, Tuple, cast
 
 from shapely.geometry import MultiPolygon, Polygon, mapping
 from shapely.geometry.base import BaseGeometry
@@ -23,7 +23,7 @@ def arcgis_rings_to_geometry(rings: Sequence[Sequence[Sequence[float]]]) -> Base
     real services are not perfectly consistent.  Containment depth is therefore
     used instead: even-depth rings are shells and odd-depth rings are holes.
     """
-    candidates = []
+    candidates: List[Tuple[Any, List[Tuple[float, float]]]] = []
     for raw_ring in rings:
         points = _clean_ring(raw_ring)
         if len(points) < 4:
@@ -62,7 +62,9 @@ def arcgis_rings_to_geometry(rings: Sequence[Sequence[Sequence[float]]]) -> Base
         containers_by_ring.append(containers)
         depths.append(len(containers))
 
-    holes_by_shell = {index: [] for index, depth in enumerate(depths) if depth % 2 == 0}
+    holes_by_shell: Dict[int, List[List[Tuple[float, float]]]] = {
+        index: [] for index, depth in enumerate(depths) if depth % 2 == 0
+    }
     for index, depth in enumerate(depths):
         if depth % 2 == 0:
             continue
@@ -75,7 +77,7 @@ def arcgis_rings_to_geometry(rings: Sequence[Sequence[Sequence[float]]]) -> Base
             parent = min(direct_shells, key=lambda candidate_index: polygons[candidate_index].area)
             holes_by_shell[parent].append(candidates[index][1])
 
-    shells = []
+    shells: List[Any] = []
     for index, (_polygon, shell_points) in enumerate(candidates):
         if depths[index] % 2:
             continue
@@ -94,9 +96,9 @@ def arcgis_rings_to_geometry(rings: Sequence[Sequence[Sequence[float]]]) -> Base
     return MultiPolygon(shells)
 
 
-def rings_to_geojson_geometry(rings: Sequence[Sequence[Sequence[float]]]) -> dict:
+def rings_to_geojson_geometry(rings: Sequence[Sequence[Sequence[float]]]) -> Dict[str, Any]:
     """Return an RFC 7946-compatible Polygon or MultiPolygon geometry object."""
     geometry = arcgis_rings_to_geometry(rings)
     if geometry.is_empty:
         return {"type": "Polygon", "coordinates": []}
-    return mapping(geometry)
+    return cast(Dict[str, Any], mapping(geometry))

@@ -7,10 +7,12 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Iterable, Mapping, Optional, Protocol, Sequence, Tuple, cast
 
+from dp_lookup.application.database_health import database_health
 from dp_lookup.application.snapshot_ingestion import (
     SnapshotIngestionConfig,
     ingest_layer13_snapshot,
 )
+from dp_lookup.application.upstream_check import check_database_upstream
 from dp_lookup.clients.parcel_snapshot import (
     LAYER13_URL,
     SnapshotFeature,
@@ -227,6 +229,18 @@ class LocalDatabaseServices:
             status = store.status()
             status["exists"] = True
             return cast(Mapping[str, Any], status)
+
+    def health(self, database: Path) -> Mapping[str, Any]:
+        """Audit every local database component without mutating the file."""
+        return cast(Mapping[str, Any], database_health(database))
+
+    def check_upstream(self, database: Path) -> Mapping[str, Any]:
+        """Compare lightweight ArcGIS fingerprints; never download geometry."""
+        return asyncio.run(self._check_upstream(database))
+
+    async def _check_upstream(self, database: Path) -> Mapping[str, Any]:
+        async with self.client_factory() as client:
+            return cast(Mapping[str, Any], await check_database_upstream(client, database))
 
     def verify(self, database: Path) -> Mapping[str, Any]:
         if not database.is_file():
