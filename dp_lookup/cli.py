@@ -16,6 +16,7 @@ from dp_lookup.application.lookup_service import lookup_plot_pro
 from dp_lookup.authority import AuthorityStore, AuthorityStoreError
 from dp_lookup.cli_bootstrap import LookupRuntime, compose_lookup_runtime, local_snapshot_selection
 from dp_lookup.cli_command import execute_lookup
+from dp_lookup.cli_dispatch import dispatch_admin_command
 from dp_lookup.cli_parser import (
     DATABASE_HELP,
     DEFAULT_DATABASE_PATH,
@@ -139,30 +140,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         return EXIT_SUCCESS
 
     raw_args = _normalize_admin_args(raw_args)
-    if raw_args and raw_args[0] == "experimental":
-        from dp_lookup.experimental.assemblies_cli import main as experimental_main
-
-        return int(experimental_main(raw_args))
-    if raw_args and raw_args[0] == "intelligence":
-        from dp_lookup.intelligence_cli import main as intelligence_main
-
-        return int(intelligence_main(raw_args))
-    if raw_args and raw_args[0] == "sources":
-        from dp_lookup.authority_cli import main as authority_main
-
-        return int(authority_main(raw_args))
-    if raw_args and raw_args[0] == "database":
-        from dp_lookup.planning_snapshot_cli import COMMANDS as planning_commands
-
-        if len(raw_args) > 1 and raw_args[1] in planning_commands:
-            from dp_lookup.application.planning_database_services import LocalPlanningDatabaseServices
-            from dp_lookup.planning_snapshot_cli import main as planning_database_main
-
-            return int(planning_database_main(raw_args[1:], services=LocalPlanningDatabaseServices()))
-        from dp_lookup.application.database_services import LocalDatabaseServices
-        from dp_lookup.database_cli import main as database_main
-
-        return int(database_main(raw_args, services=LocalDatabaseServices()))
+    dispatched = dispatch_admin_command(raw_args)
+    if dispatched is not None:
+        return dispatched
 
     try:
         parsed = _parse_cli_args(raw_args)

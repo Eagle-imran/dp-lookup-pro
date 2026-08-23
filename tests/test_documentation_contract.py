@@ -11,6 +11,7 @@ PLANNING_EVIDENCE = (ROOT / "docs" / "guides" / "planning-evidence.md").read_tex
 PLOT_INTELLIGENCE = (ROOT / "docs" / "guides" / "plot-intelligence.md").read_text(encoding="utf-8")
 DOCS_INDEX = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
 ASSEMBLIES = (ROOT / "docs" / "guides" / "experimental-plot-assemblies.md").read_text(encoding="utf-8")
+PERFORMANCE = (ROOT / "docs" / "operations" / "performance-regression.md").read_text(encoding="utf-8")
 
 MARKDOWN_LINK = re.compile(r"(?<!!)\[[^]]+\]\(([^)]+)\)")
 
@@ -78,6 +79,15 @@ def test_experimental_assembly_docs_keep_the_feature_opt_in_and_honest():
     assert "PDF, HTML" in ASSEMBLIES and "not included" in ASSEMBLIES
     assert "promotion gates" in ASSEMBLIES.lower()
     assert "experimental-plot-assemblies.md" in DOCS_INDEX
+
+
+def test_performance_regression_docs_define_offline_limits_and_live_caveats():
+    assert "test_stage_latency_regression.py" in PERFORMANCE
+    assert "LookupDependencies" in PERFORMANCE
+    assert "15 ms" in PERFORMANCE
+    assert "1,000 ms" in PERFORMANCE
+    assert "not a live MCGM benchmark" in PERFORMANCE
+    assert "performance-regression.md" in DOCS_INDEX
 
 
 def test_local_markdown_links_resolve():

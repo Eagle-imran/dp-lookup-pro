@@ -137,8 +137,9 @@ class LocalRoadProvider:
         min_x, min_y, max_x, max_y = subject.bounds
         pad = self.search_distance_m
         candidates: List[_Candidate] = []
+        feature_reader = getattr(self.store, "compact_features_in_bbox", self.store.features_in_bbox)
         for layer_id in ROAD_LAYER_IDS:
-            rows = self.store.features_in_bbox(
+            rows = feature_reader(
                 layer_id,
                 min_x - pad,
                 max_x + pad,

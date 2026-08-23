@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 from dataclasses import dataclass
 from typing import Any, List
@@ -67,8 +68,23 @@ class MapImageArtifactExporter:
         fetched: MapFetchContext,
         warnings: List[str],
     ) -> RenderedMapAssets:
-        dp_image = self._render_dp_image(context, fetched, warnings)
-        satellite_image = self._render_satellite_image(context, fetched, warnings)
+        # The two renderers consume independent inputs and write nothing. Run
+        # their CPU/image work concurrently before the shared save boundary.
+        # Each worker owns its warning list; merge in output order so concurrent
+        # completion cannot make diagnostics nondeterministic.
+        dp_warnings: List[str] = []
+        satellite_warnings: List[str] = []
+        dp_image, satellite_image = await asyncio.gather(
+            asyncio.to_thread(self._render_dp_image, context, fetched, dp_warnings),
+            asyncio.to_thread(
+                self._render_satellite_image,
+                context,
+                fetched,
+                satellite_warnings,
+            ),
+        )
+        warnings.extend(dp_warnings)
+        warnings.extend(satellite_warnings)
         await self._save_images(context, dp_image, satellite_image, warnings)
         return RenderedMapAssets(
             dp_map_path=context.paths.dp_map,

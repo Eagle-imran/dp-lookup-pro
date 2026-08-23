@@ -11,4 +11,9 @@ These scripts are developer utilities, not public CLI commands:
   evidence and the complete output bundle. It requires an active local parcel
   and planning database plus network access to MCGM ArcGIS.
 
+The offline stage-latency regression is maintained as a test rather than a
+runtime tool. Run `uv run pytest -q tests/test_stage_latency_regression.py`;
+see [the performance regression runbook](../docs/operations/performance-regression.md)
+for its injected delays, thresholds and interpretation.
+
 Run them from the repository root with `uv run python tools/<script>.py ...`.

@@ -100,6 +100,7 @@ class LocalParcelFetcher:
         fallback: Optional[LiveParcelFetcher] = None,
         max_snapshot_age_days: float = DEFAULT_MAX_SNAPSHOT_AGE_DAYS,
         snapshot_id: Optional[int] = None,
+        store: Optional[SnapshotStore] = None,
     ) -> None:
         if max_snapshot_age_days <= 0:
             raise ValueError("max_snapshot_age_days must be positive")
@@ -107,6 +108,7 @@ class LocalParcelFetcher:
         self.fallback = fallback
         self.max_snapshot_age_days = max_snapshot_age_days
         self.snapshot_id = snapshot_id
+        self.store = store
 
     async def _fallback_feature(self, client: Any, village: str, cts_no: str, reason: str) -> Optional[Dict[str, Any]]:
         if self.fallback is None:
@@ -123,7 +125,8 @@ class LocalParcelFetcher:
         try:
             if not self.database.is_file():
                 raise LocalParcelError(f"local parcel database does not exist: {self.database}")
-            with SnapshotStore.open(self.database) as store:
+
+            def read(store: SnapshotStore) -> tuple[Optional[Dict[str, Any]], Any, float]:
                 active_snapshot_id = store.active_snapshot_id()
                 if active_snapshot_id is None:
                     raise LocalParcelError("local parcel database has no active snapshot")
@@ -133,6 +136,13 @@ class LocalParcelFetcher:
                 if snapshot.finalized_at is None:
                     raise LocalParcelError("active local parcel snapshot has no finalized timestamp")
                 snapshot_age_days = max(0.0, (time.time() - float(snapshot.finalized_at)) / 86_400.0)
+                return feature, snapshot, snapshot_age_days
+
+            if self.store is None:
+                with SnapshotStore.open(self.database) as store:
+                    feature, snapshot, snapshot_age_days = read(store)
+            else:
+                feature, snapshot, snapshot_age_days = read(self.store)
         except (OSError, sqlite3.DatabaseError, SpatialStoreError, LocalParcelError) as exc:
             if self.fallback is None:
                 if isinstance(exc, LocalParcelError):

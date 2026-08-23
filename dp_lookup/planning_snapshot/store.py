@@ -289,6 +289,12 @@ class PlanningSnapshotStore:
             for item in report["layers"]:
                 conn.execute("UPDATE planning_layers SET content_hash=?,complete=1,received_count=? WHERE snapshot_id=? AND canonical_layer_id=?", (item["content_hash"], item["count"], snapshot_id, item["layer_id"]))
             conn.execute("UPDATE planning_snapshots SET state='ready',content_hash=?,complete=1,validation_json=?,finalized_at=? WHERE snapshot_id=?", (digest, _json(report, "validation"), utc_now(), snapshot_id))
+        # Bulk planning ingestion materially changes index cardinalities.
+        # Persist derived planner statistics without changing archived source
+        # attributes or geometry so local spatial queries select their narrow
+        # indexes immediately after every refresh.
+        self.connection.execute("ANALYZE")
+        self.connection.commit()
         return self.snapshot(snapshot_id)
 
     finalize_snapshot = finalize
@@ -341,6 +347,18 @@ class PlanningSnapshotStore:
             max_y,
             snapshot_id=snapshot_id,
             include_archive_payload=True,
+        )
+
+    def compact_features_in_bbox(self, layer_id: int, min_x: float, max_x: float, min_y: float, max_y: float, *, snapshot_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Read attributes and geometry without decoding raw archive payloads."""
+        return self._features_in_bbox(
+            layer_id,
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+            snapshot_id=snapshot_id,
+            include_archive_payload=False,
         )
 
     parcels_in_bbox = features_in_bbox

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 
 from shapely.errors import GEOSException
+from shapely.geometry.base import BaseGeometry
 
 from dp_lookup.clients.responses import usable_json
 from dp_lookup.core.constants import SERVER_URL, SLIVER_AREA_THRESHOLD_SQM, SLIVER_PERCENT_THRESHOLD
@@ -152,7 +153,12 @@ def _parse_layer_features(
             malformed += 1
             continue
         try:
-            source_geometry = arcgis_rings_to_geometry(rings)
+            runtime_geometry = feature.get("_dp_runtime_geometry")
+            source_geometry = (
+                runtime_geometry
+                if isinstance(runtime_geometry, BaseGeometry)
+                else arcgis_rings_to_geometry(rings)
+            )
             intersection = parcel.intersection(source_geometry)
         except (GEOSException, IndexError, KeyError, TypeError, ValueError):
             malformed += 1

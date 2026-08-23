@@ -35,7 +35,8 @@ def _overlap(
     rings = geometry.get("rings")
     if not rings:
         return None, None
-    polygon = arcgis_rings_to_geometry(rings)
+    runtime_geometry = feature.get("_dp_runtime_geometry")
+    polygon = runtime_geometry if isinstance(runtime_geometry, BaseGeometry) else arcgis_rings_to_geometry(rings)
     if polygon.is_empty or not parcel.intersects(polygon):
         return None, polygon
     intersection = parcel.intersection(polygon)

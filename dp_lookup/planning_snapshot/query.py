@@ -9,6 +9,8 @@ from typing import Any, Callable, Dict, List, Mapping, Optional
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.planning_evidence.registry import canonical_layer_id
 
+_RUNTIME_GEOMETRY_KEY = "_dp_runtime_geometry"
+
 
 def feature_dict(row: sqlite3.Row) -> Dict[str, Any]:
     """Decode one archived feature row without losing the raw payload."""
@@ -103,6 +105,12 @@ class PlanningFeatureQuery:
                 continue
             polygon = arcgis_rings_to_geometry(rings)
             if not polygon.is_empty and parcel_geometry.intersects(polygon):
+                # This object is an in-process acceleration only. The exact
+                # source rings remain the archived geometry and are still
+                # returned unchanged; downstream local policies can reuse the
+                # already validated Shapely object instead of decoding very
+                # large CRZ/Metro geometries twice during one lookup.
+                candidate[_RUNTIME_GEOMETRY_KEY] = polygon
                 result.append(candidate)
         return result
 

@@ -36,6 +36,7 @@ caches and build artifacts are deliberately outside version control.
 CLI compatibility facade
         |
         +--> cli_parser + cli_bootstrap + cli_command + cli_presentation
+        +--> cli_dispatch (lazy admin/experimental namespaces)
         |
         v
 application.lookup_service (composition shell, <375 lines)
@@ -44,7 +45,7 @@ application.lookup_service (composition shell, <375 lines)
         |        |               |                 |
         |        +---------------+-----------------+--> core
         |
-        +--> reporting --> typed artifact registry --> exporters / renderers
+        +--> visual_fetch + reporting --> typed artifact registry --> exporters / renderers
         |
         +--> clients: live/local source adapters / transport / report cache
         |
@@ -99,8 +100,8 @@ application.lookup_service (composition shell, <375 lines)
   exporter registries; map-image construction has typed render requests. New
   formats register through `LookupDependencies`, so the coordinator does not
   need another format-specific branch.
-- `cli.py` is a compatibility facade and router. Parsing, source composition,
-  execution and presentation are independent modules; both explicit
+- `cli.py` is a compatibility facade. Parsing, lazy non-lookup dispatch, source
+  composition, execution and presentation are independent modules; both explicit
   `dp-lookup-pro lookup ...` and historical positional lookup remain valid.
 - `dp_lookup.core.orchestrator` is a compatibility import only. New code should
   use `dp_lookup.application.lookup_service` or the package-level API.
@@ -122,7 +123,9 @@ The boundary and compatibility facades are protected by
 | `application/result_factory.py` | Typed contracts to stable public dictionary serialization |
 | `application/exporting.py` | Typed artifact protocol, built-in adapters, and plug-in registry |
 | `application/reporting.py` | Small failure-isolated coordinator for bundle and report artifact registries |
+| `application/visual_fetch.py` | Concurrent DP-map/satellite acquisition and the typed render context |
 | `application/image_artifacts.py` | Typed DP-map/satellite render requests, image persistence and QR production |
+| `application/telemetry.py` | Sequential stage timings plus non-invasive nested adapter spans |
 | `application/dependencies.py` | Replaceable network, result-cache, export and rendering adapter composition |
 | `cli_parser.py` | Pure lookup parsing, aliases, help and stable exit-code contract |
 | `cli_bootstrap.py` | Owned local/live database and dependency composition lifecycle |

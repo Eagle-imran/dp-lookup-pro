@@ -7,14 +7,17 @@ here and therefore do not become accidentally cached with the parcel source.
 """
 
 import asyncio
+import sqlite3
 from pathlib import Path
 
 import pytest
 
 import dp_lookup.cli as cli
 from dp_lookup.application.ingestion import build_parcel_context
+from dp_lookup.cli_bootstrap import compose_lookup_runtime
 from dp_lookup.clients import local_parcels
 from dp_lookup.clients.local_parcels import LocalParcelError, LocalParcelFetcher
+from dp_lookup.planning_evidence.models import EvidenceMode
 from dp_lookup.spatial_store import SnapshotStore
 
 
@@ -202,3 +205,19 @@ def test_explicit_local_source_has_no_live_fallback(monkeypatch, tmp_path):
     assert isinstance(dependencies.parcel_fetcher, LocalParcelFetcher)
     assert dependencies.parcel_fetcher.fallback is None
     assert dependencies.neighbour_provider.database == database
+
+
+def test_composed_local_runtime_shares_and_closes_one_parcel_store(tmp_path):
+    database = tmp_path / "layer13.sqlite"
+    _active_database(database, [_parcel(1, "733")])
+
+    runtime = compose_lookup_runtime("local", str(database), EvidenceMode.BASIC)
+    parcel_store = runtime.parcel_store
+    assert parcel_store is not None
+    assert runtime.dependencies.parcel_fetcher.store is parcel_store
+    assert runtime.dependencies.neighbour_provider.store is parcel_store
+
+    runtime.close()
+    assert runtime.parcel_store is None
+    with pytest.raises(sqlite3.ProgrammingError):
+        parcel_store.connection.execute("SELECT 1")

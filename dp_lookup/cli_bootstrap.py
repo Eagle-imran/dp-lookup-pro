@@ -62,9 +62,13 @@ class LookupRuntime:
     dependencies: LookupDependencies
     planning_store: Optional[Any] = None
     authority_store: Optional[AuthorityStore] = None
+    parcel_store: Optional[SnapshotStore] = None
 
     def close(self) -> None:
         """Close stores opened while composing local adapters."""
+        if self.parcel_store is not None:
+            self.parcel_store.close()
+            self.parcel_store = None
         if self.planning_store is not None:
             self.planning_store.close()
             self.planning_store = None
@@ -90,6 +94,7 @@ def compose_lookup_runtime(
 ) -> LookupRuntime:
     """Build one lookup's dependency graph and retain owned store handles."""
     dependencies = replace(base_dependencies, planning_evidence_mode=evidence_mode)
+    parcel_store: Optional[SnapshotStore] = None
     planning_store: Optional[Any] = None
     authority_store: Optional[AuthorityStore] = None
     if source_mode != "live":
@@ -98,6 +103,10 @@ def compose_lookup_runtime(
         cache_namespace, selected_snapshot_id = snapshot_selector(source_mode, database_path)
         database = Path(database_path)
         if database.is_file():
+            try:
+                parcel_store = SnapshotStore.open(database)
+            except (OSError, sqlite3.DatabaseError, SpatialStoreError):
+                parcel_store = None
             try:
                 planning_store = PlanningSnapshotStore.open(database)
             except (OSError, sqlite3.DatabaseError):
@@ -109,8 +118,9 @@ def compose_lookup_runtime(
                 database,
                 fallback=parcel_fallback if source_mode == "auto" else None,
                 snapshot_id=selected_snapshot_id,
+                store=parcel_store,
             ),
-            neighbour_provider=LocalNeighbourProvider(database),
+            neighbour_provider=LocalNeighbourProvider(database, store=parcel_store),
             road_provider=LocalRoadProvider(planning_store),
             planning_identify_required=False,
             spatial_planning_query=LocalFirstPlanningQuery(
@@ -141,4 +151,9 @@ def compose_lookup_runtime(
                 parcel_cache_namespace=cache_namespace,
                 authority_resolver=AuthorityResolver(authority_store),
             )
-    return LookupRuntime(dependencies, planning_store, authority_store)
+    return LookupRuntime(
+        dependencies=dependencies,
+        planning_store=planning_store,
+        authority_store=authority_store,
+        parcel_store=parcel_store,
+    )

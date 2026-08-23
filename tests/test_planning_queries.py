@@ -4,6 +4,7 @@ import asyncio
 
 import httpx
 
+from dp_lookup.clients import planning_queries as planning_queries_module
 from dp_lookup.clients.planning_queries import build_spatial_planning_result, query_spatial_planning_layers
 from dp_lookup.core.constants import (
     CRZ_LAYER_IDS,
@@ -175,3 +176,19 @@ def test_planning_square_metres_use_the_supplied_ground_area_scale():
     assert result["crz_categories"][0]["overlap_sqm"] == 9.0
     assert result["encumbered_area_sqm"] == 45.0
     assert result["net_unencumbered_sqm"] == 45.0
+
+
+def test_local_runtime_geometry_is_reused_without_changing_source_rings(monkeypatch):
+    parcel_ring = _ring(0, 0, 10, 10)
+    parcel = arcgis_rings_to_geometry([parcel_ring])
+    feature = _feature(parcel_ring, ZONE_CODE2="R")
+    feature["_dp_runtime_geometry"] = arcgis_rings_to_geometry([parcel_ring])
+
+    def unexpected_decode(_rings):
+        raise AssertionError("cached local geometry should avoid a second topology decode")
+
+    monkeypatch.setattr(planning_queries_module, "arcgis_rings_to_geometry", unexpected_decode)
+    result = build_spatial_planning_result(parcel, {LAYER_ZONE: [feature]}, [])
+
+    assert result["primary_zone"] == "R"
+    assert feature["geometry"]["rings"] == [parcel_ring]

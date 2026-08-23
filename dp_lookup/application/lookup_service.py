@@ -6,7 +6,7 @@ import sys
 import time
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-from dp_lookup.application.contracts import ArtifactContext, MapFetchContext
+from dp_lookup.application.contracts import ArtifactContext
 from dp_lookup.application.dependencies import DEFAULT_DEPENDENCIES, LookupDependencies
 from dp_lookup.application.ingestion import ParcelIngestionError, build_parcel_context, not_found_result
 from dp_lookup.application.live_queries import build_live_probe_queries
@@ -30,9 +30,9 @@ from dp_lookup.application.planning_evidence import (
 from dp_lookup.application.reporting import export_vector_artifacts, render_report_artifacts
 from dp_lookup.application.result_factory import build_lookup_result
 from dp_lookup.application.telemetry import RunDiagnostics
+from dp_lookup.application.visual_fetch import start_visual_fetch
 from dp_lookup.clients.arcgis import (
     identify_payload,
-    map_export_params,
     planning_layers,
 )
 from dp_lookup.clients.local_parcels import LocalParcelError
@@ -44,7 +44,7 @@ from dp_lookup.core.constants import (
     DEFAULT_CACHE_TTL_SECONDS,
     SERVER_URL,
 )
-from dp_lookup.core.geometry import latlon_to_tile, nearest_road_geoms
+from dp_lookup.core.geometry import nearest_road_geoms
 from dp_lookup.core.villages import suggest_villages
 from dp_lookup.planning_evidence.models import EvidenceMode
 
@@ -90,7 +90,6 @@ async def lookup_plot_pro(
             "diagnostics": diagnostics.snapshot(),
         }
     diagnostics.mark("validation", outcome="accepted")
-
     village_upper = safe_village.upper()
     parcel_key = f"{village_upper}:{safe_cts}"
     if deps.parcel_cache_namespace != "live":
@@ -113,13 +112,17 @@ async def lookup_plot_pro(
     warnings, notes = [], []
     async with deps.client_factory(timeout_seconds, verify_tls=verify_tls) as client:
         try:
-            feature = await deps.parcel_fetcher(client, village_upper, safe_cts)
+            feature = await diagnostics.wait(
+                "parcel_fetch",
+                deps.parcel_fetcher(client, village_upper, safe_cts),
+            )
             if feature is None:
                 diagnostics.mark("parcel_ingestion", outcome="not_found")
                 result = not_found_result(village_upper, safe_cts)
                 result["diagnostics"] = diagnostics.snapshot()
                 return result
-            parcel, area_note = build_parcel_context(feature, safe_village, safe_cts)
+            with diagnostics.span("parcel_normalization"):
+                parcel, area_note = build_parcel_context(feature, safe_village, safe_cts)
         except (ParcelIngestionError, LocalParcelError) as exc:
             diagnostics.mark("parcel_ingestion", outcome="failed")
             return {"error": str(exc), "diagnostics": diagnostics.snapshot()}
@@ -139,15 +142,16 @@ async def lookup_plot_pro(
         if area_note:
             notes.append(area_note)
         notes.extend(parcel_source_notes(parcel))
-
         try:
-            local_neighbours = deps.neighbour_provider(parcel)
+            with diagnostics.span("neighbour_provider"):
+                local_neighbours = deps.neighbour_provider(parcel)
         except Exception as exc:
             local_neighbours = None
             notes.append(f"Local adjacency was unavailable; live neighbour probes were used ({exc}).")
 
         try:
-            local_road = deps.road_provider(parcel)
+            with diagnostics.span("road_provider"):
+                local_road = deps.road_provider(parcel)
         except Exception as exc:
             local_road = None
             notes.append(f"Local road analysis was unavailable; live road probes were used ({exc}).")
@@ -155,38 +159,27 @@ async def lookup_plot_pro(
         os.makedirs(paths.bundle_folder, exist_ok=True)
         crz_layers = list(CRZ_LAYER_IDS)
         identify_task = (
-            client.post(
-                f"{SERVER_URL}/identify",
-                data=identify_payload(
-                    parcel.cx,
-                    parcel.cy,
-                    planning_layers(crz_layers),
-                    parcel.mcx,
-                    parcel.mcy,
-                    parcel.window_radius,
-                    tolerance=30,
-                    return_geometry=False,
+            diagnostics.wait(
+                "planning_identify",
+                client.post(
+                    f"{SERVER_URL}/identify",
+                    data=identify_payload(
+                        parcel.cx,
+                        parcel.cy,
+                        planning_layers(crz_layers),
+                        parcel.mcx,
+                        parcel.mcy,
+                        parcel.window_radius,
+                        tolerance=30,
+                        return_geometry=False,
+                    ),
                 ),
             )
             if deps.planning_identify_required
             else asyncio.sleep(0, result=None)
         )
 
-        half = max(
-            70,
-            max(max(parcel.xs) - min(parcel.xs), max(parcel.ys) - min(parcel.ys)) * 0.9,
-        )
-        width, height = 1000, 1000
-        bbox = (
-            parcel.mcx - half,
-            parcel.mcy - half,
-            parcel.mcx + half,
-            parcel.mcy + half,
-        )
-        dp_map_task = client.get(
-            f"{SERVER_URL}/export",
-            params=map_export_params(*bbox, width, height),
-        )
+        visual_fetch = start_visual_fetch(client, parcel, deps, diagnostics)
 
         road_points, road_tasks, neighbour_points, neighbour_tasks = build_live_probe_queries(
             client,
@@ -195,32 +188,22 @@ async def lookup_plot_pro(
             has_local_neighbours=local_neighbours is not None,
         )
 
-        zoom, grid_dimension = 18, 3
-        tile_x, tile_y = latlon_to_tile(parcel.latitude, parcel.longitude, zoom)
-        half_grid = grid_dimension // 2
-        satellite_coordinates = []
-        satellite_tasks = []
-        for delta_y in range(-half_grid, half_grid + 1):
-            for delta_x in range(-half_grid, half_grid + 1):
-                x, y = tile_x + delta_x, tile_y + delta_y
-                satellite_tasks.append(deps.tile_fetcher(client, zoom, y, x))
-                satellite_coordinates.append((delta_x + half_grid, delta_y + half_grid))
-
-        slow_group = asyncio.gather(
-            dp_map_task,
-            asyncio.gather(*satellite_tasks, return_exceptions=True),
-            return_exceptions=True,
-        )
         evidence_task: Awaitable[Any]
         if evidence_mode is not EvidenceMode.BASIC:
-            evidence_task = deps.planning_evidence_analyzer(client, parcel.rings, village_upper, evidence_mode)
+            evidence_task = diagnostics.wait(
+                "planning_evidence_query",
+                deps.planning_evidence_analyzer(client, parcel.rings, village_upper, evidence_mode),
+            )
         else:
             evidence_task = asyncio.sleep(0)
         fast_results = await asyncio.gather(
             identify_task,
-            deps.spatial_planning_query(client, parcel.rings),
-            asyncio.gather(*road_tasks, return_exceptions=True),
-            asyncio.gather(*neighbour_tasks, return_exceptions=True),
+            diagnostics.wait("spatial_planning_query", deps.spatial_planning_query(client, parcel.rings)),
+            diagnostics.wait("road_queries", asyncio.gather(*road_tasks, return_exceptions=True)),
+            diagnostics.wait(
+                "neighbour_queries",
+                asyncio.gather(*neighbour_tasks, return_exceptions=True),
+            ),
             evidence_task,
             return_exceptions=True,
         )
@@ -245,7 +228,7 @@ async def lookup_plot_pro(
                 crz_layers,
             )
         except PlanningEvidenceError as exc:
-            await _cancel_and_drain(slow_group)
+            await _cancel_and_drain(visual_fetch.task)
             diagnostics.mark("normalization", outcome="failed_closed")
             return {
                 "error": (
@@ -283,7 +266,8 @@ async def lookup_plot_pro(
             export_data=export_data,
             nearest_roads=nearest_road_geoms(road.geometries, parcel.wgs_rings),
         )
-        export_vector_artifacts(artifact_context, deps, warnings)
+        with diagnostics.span("vector_exporters"):
+            export_vector_artifacts(artifact_context, deps, warnings)
         diagnostics.mark("vector_artifacts")
 
         if on_data is not None:
@@ -307,23 +291,14 @@ async def lookup_plot_pro(
             except Exception as exc:
                 print(f"[dp-lookup-pro] on_data callback raised: {exc}", file=sys.stderr)
 
-        slow_results = await slow_group
+        report_started = time.perf_counter()
         await render_report_artifacts(
             artifact_context,
-            MapFetchContext(
-                dp_response=slow_results[0],
-                satellite_tiles=slow_results[1],
-                satellite_coordinates=satellite_coordinates,
-                bbox=bbox,
-                size=(width, height),
-                tile_x=tile_x,
-                tile_y=tile_y,
-                zoom=zoom,
-                grid_dimension=grid_dimension,
-            ),
+            await visual_fetch.resolve(diagnostics),
             deps,
             warnings,
         )
+        diagnostics.record_span("report_rendering", report_started)
         diagnostics.mark("report_artifacts")
 
     diagnostics.mark("complete", outcome="partial" if warnings else "complete")

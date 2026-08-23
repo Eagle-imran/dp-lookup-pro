@@ -4,7 +4,25 @@ All notable changes to this project. Newest first.
 
 > **If something breaks after an update, see the [rollback guide](../operations/rollback.md).**
 
-## [Unreleased] — 2026-08-23
+## [Unreleased] — 2026-08-24
+
+### Performance and modularity
+
+* Refreshed SQLite planner statistics automatically after successful parcel
+  and planning snapshot builds. Exact indexed parcel reads no longer degrade
+  into citywide snapshot scans on a newly downloaded database.
+* Reused validated in-process planning geometries, added compact runtime road
+  reads and shared one parcel-store lifetime across local parcel/neighbour
+  adapters without changing archived attributes, coordinates or ingestion.
+* Added nested adapter timing spans plus a deterministic offline latency gate;
+  parallelised independent DP/satellite map rendering while retaining
+  deterministic report-writer order, typed failure isolation and the
+  seven-output contract.
+* Moved optional/admin CLI namespace routing behind a focused lazy dispatcher,
+  reducing normal lookup coupling without changing commands or exit codes.
+* The fixed five-CTS operational benchmark improved from 0.70 to 0.40 seconds
+  median answer latency and from 2.40 to 1.60 seconds for all seven files. See
+  the [performance audit](../audits/LOOKUP-PERFORMANCE-2026-08-24.md).
 
 ### Local-first operational acceptance
 

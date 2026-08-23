@@ -18,6 +18,7 @@ plain-English [quick start](../START-HERE.md) to run a lookup, or the main
 | [Experimental plot assemblies](guides/experimental-plot-assemblies.md) | Opt-in neighbouring-CTS union and amalgamation feasibility study |
 | [DXF guide](guides/dxf.md) | Reading and handing off the architectural CAD output |
 | [Rollback](operations/rollback.md) | Safe recovery when a release or snapshot causes a problem |
+| [Performance regression](operations/performance-regression.md) | Offline stage-latency gate and limits of live timing claims |
 
 ## Project record
 

@@ -340,6 +340,18 @@ class SnapshotStore:
             rtree_available=self.rtree_available,
         )
 
+    def optimize_for_reads(self) -> None:
+        """Refresh SQLite planner statistics after a bulk snapshot change.
+
+        Snapshot ingestion inserts a citywide data set in large batches.  On
+        a newly built database SQLite otherwise has no cardinality statistics
+        and can choose the snapshot-only primary key instead of the exact
+        village/CTS index.  ``ANALYZE`` changes no source rows or geometries;
+        it only persists derived query-planner statistics.
+        """
+        self.connection.execute("ANALYZE")
+        self.connection.commit()
+
     def finalize_snapshot(self, snapshot_id: int) -> Snapshot:
         self._building(snapshot_id)
         report = self.validate_snapshot(snapshot_id)
@@ -354,6 +366,7 @@ class SnapshotStore:
                 conn.execute("UPDATE ingestion_runs SET state='complete',finished_at=?,received_count=? WHERE snapshot_id=? AND state='running'", (now, report["count"], snapshot_id))
         if failed:
             raise SnapshotValidationError("snapshot validation failed: " + "; ".join(report["errors"]))
+        self.optimize_for_reads()
         return self.snapshot(snapshot_id)
 
     def snapshot(self, snapshot_id: int) -> Snapshot:

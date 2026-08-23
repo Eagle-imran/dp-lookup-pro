@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.planning_snapshot import (
     PlanningLayerInput,
     PlanningSnapshotStateError,
@@ -37,7 +38,22 @@ def test_ingestion_is_versioned_atomic_and_preserves_exact_source(tmp_path: Path
         row = store.features_in_bbox(61, -1, 1, -1, 1, snapshot_id=snapshot.snapshot_id)[0]
         assert row["attributes"] == {"OBJECTID": 1, "CATEGORY": "A"}
         assert row["geometry"]["rings"][0][1] == [1, 0]
+        compact = store.compact_features_in_bbox(
+            61, -1, 1, -1, 1, snapshot_id=snapshot.snapshot_id
+        )[0]
+        assert compact["attributes"] == row["attributes"]
+        assert "raw_feature" not in compact
         assert store.rtree_available
+        assert store.connection.execute(
+            "SELECT 1 FROM sqlite_stat1 WHERE idx='planning_features_bbox'"
+        ).fetchone()
+        selected = store.query_layer(
+            snapshot.snapshot_id,
+            61,
+            arcgis_rings_to_geometry([[[0, 0], [1, 0], [1, 1], [0, 0]]]),
+        )
+        assert selected[0]["_dp_runtime_geometry"].area > 0
+        assert selected[0]["geometry"]["rings"][0][1] == [1, 0]
 
 
 def test_alias_layer_is_canonically_deduplicated_and_conflicts_fail(tmp_path: Path):
