@@ -808,7 +808,7 @@ requires-dist = [
     { name = "ezdxf", specifier = ">=1.4.2" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.8.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13.0,<1.18.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13.0,<2.4.0" },
     { name = "openpyxl", specifier = ">=3.1.0" },
     { name = "pillow", specifier = ">=10.1.0" },
     { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.7.3" },
@@ -822,7 +822,7 @@ provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "mypy", specifier = ">=1.13.0,<1.18.0" },
+    { name = "mypy", specifier = ">=1.13.0,<2.4.0" },
     { name = "pip-audit", specifier = ">=2.7.3" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
     { name = "ruff", specifier = ">=0.16.0" },
