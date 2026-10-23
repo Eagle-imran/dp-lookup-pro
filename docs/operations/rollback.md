@@ -23,15 +23,16 @@ changes. Use the commit ID as well as the package version when reporting a fault
 | Reference | Commit | Purpose |
 | :--- | :--- | :--- |
 | `main` / `origin/main` | Current integration history | Current application; inspect its tip rather than assuming a fixed release commit |
-| `refs/heads/checkpoint-pre-2026-08-18` | `97b8e62` | Preserved pre-modularization checkpoint, also present as an origin branch |
+| `refs/tags/checkpoint-pre-2026-08-18` | `97b8e62` | Preserved pre-modularization checkpoint, synchronized to origin |
 | `refs/tags/v3.14.0` | `2ca85e9` | Original modular-package version; this tag is currently local to the maintainer checkout |
 | `refs/tags/v3.12.0` | `da6d215` | Published Git tag for the earlier DXF hardening release |
 
-A same-named local checkpoint tag also points to `97b8e62`. Use the full
-`refs/heads/...` or `refs/tags/...` spelling to avoid ambiguity. Branch and tag
-inventories vary between clones; confirm them with `git branch -a` and
-`git tag --list`. The former `dxf-text-metrics` and `v3.7.0-hardening` branches
-were merged and removed; their commits remain reachable from `main`.
+The redundant checkpoint branch has been removed; the tag preserves the same
+commit without a second branch to maintain. Use the full `refs/tags/...`
+spelling in older clones that still have a same-named branch. Confirm a clone's
+inventory with `git branch -a` and `git tag --list`. The former
+`dxf-text-metrics` and `v3.7.0-hardening` branches were merged and removed; their
+commits remain reachable from `main`.
 
 Pushing a `v*` tag starts the trusted publishing workflow. Do not publish a
 historical local tag merely to synchronize a clone; release publication is a
@@ -50,7 +51,7 @@ uv sync --frozen --all-extras --dev
 ```
 
 For the earlier checkpoint, substitute
-`refs/heads/checkpoint-pre-2026-08-18`. Older code may predate the local database
+`refs/tags/checkpoint-pre-2026-08-18`. Older code may predate the local database
 schemas. Use a separate, explicitly selected database copy for an old version;
 Git does not version or roll back SQLite contents.
 
