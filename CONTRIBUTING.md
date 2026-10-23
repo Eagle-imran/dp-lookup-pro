@@ -6,6 +6,9 @@
 uv sync --frozen --all-extras --dev
 ```
 
+The checkout pins Python 3.15.1 in `.python-version`; `uv` can install it on
+first sync. The package's minimum supported runtime remains Python 3.11.
+
 ## Before you push
 
 CI enforces the same gates locally and remotely:
@@ -13,6 +16,7 @@ CI enforces the same gates locally and remotely:
 ```bash
 uv lock --check
 uv run ruff check .
+uv run python tools/check_format.py
 uv run mypy
 uv run pytest -q --cov --cov-report=term-missing
 uv export --frozen --no-dev --no-emit-project --no-hashes \
@@ -21,6 +25,8 @@ uv run pip-audit -r /tmp/dp-lookup-runtime.txt
 ```
 
 The test suite never touches the MCGM servers, so it is safe to run repeatedly.
+Apply the same scoped formatting with `uv run python tools/check_format.py --fix`.
+The target list lives in that helper so local checks and CI cannot drift.
 
 ## What CI checks
 
@@ -38,8 +44,10 @@ PyPI trusted publishing with checksums and provenance attestations. The live
 smoke is intentionally not part of pull-request CI because upstream availability
 is outside this repository's control.
 
-Python 3.9 is in the matrix because `requires-python` claims support for it —
-verified, not assumed.
+Python 3.11 is the supported minimum because the patched Pillow 13 dependency
+requires it. CI exercises Python 3.11, 3.13, 3.14 and 3.15; strict mypy checks the
+3.11 language baseline. Python 3.9 and 3.10 require older Pillow releases with
+known advisories and are no longer supported.
 
 ## Lint rules
 

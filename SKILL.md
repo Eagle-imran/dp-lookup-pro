@@ -20,7 +20,7 @@ parameters:
       description: "Optional destination directory for export bundle subfolders and Excel logs (default: './output')"
     use_cache:
       type: boolean
-      description: "Set false (or pass --no-cache) to force a fresh network lookup. Cached reports expire after 30 days and report their age."
+      description: "Set false (or pass --no-cache) to recompute the lookup from the selected sources. Cached reports expire after 30 days and report their age."
   required: ["village", "cts_number"]
 ---
 
@@ -31,16 +31,16 @@ parameters:
 1. **🏷️ Planning Status Badges**: Classifies land parcels (`🟢 CLEAR`, `🟡 MODIFIED`, `🔴 RESERVED`).
 2. **🌊 Precise CRZ & Infrastructure Detection**: Queries CRZ **zone polygons** and reports the sub-tier (`YES (CRZ II)`), plus Layer 1550 Metro Rail Influence buffers.
 3. **📸 Dual High-Definition Visuals**: Generates Retina HD DP 2034 Map Overlay with North Arrow ($N \uparrow$) and scale legend, alongside Tile-Stitched Esri World Imagery Satellite Aerial Views.
-4. **🌐 Standalone Interactive HTML Map Dossier**: Generates an offline-capable interactive GIS Leaflet.js dossier (`plot_map_*.html`) with satellite/cadastral 2-way toggle, net developable envelope, and HUD metrics.
+4. **🌐 Standalone Interactive HTML Map Dossier**: Generates a single-file interactive GIS Leaflet.js dossier (`plot_map_*.html`) with satellite/cadastral 2-way toggle, net developable envelope, and HUD metrics. Leaflet, web fonts and basemap tiles need an internet connection when opened.
 5. **📐 Direct AutoCAD DXF & GeoJSON Exports**: Generates native AutoCAD `.dxf` drawing files (compatible with AutoCAD LT, Civil 3D, and standard CAD) and scale-accurate `.geojson` (QGIS/ArcGIS).
 6. **🌍 Google Earth 3D Exports**: Generates interactive 3D `.kml` files with metadata popups for Google Earth.
 7. **📄 Auto-Generated 2-Page PDF Docket**: Generates a strictly 2-page downloadable **DP Remark PDF Report** complete with formatted data tables, status banners, maps, adjoining parcel cluster tables, and a scannable interactive map **QR Code**.
 8. **📁 Dedicated Query Export Subfolders**: Isolates all 7 query assets inside clean bundle subfolders (`output/<village_name>_cts_<cts_no>/`).
-9. **⚡ Concurrency & Persistent Disk Cache**: Single-batch HTTP/2 pipelining with semaphore throttling (~5-13 s cold) with a 30-day disk cache for instant repeat lookups. Cache hits report their age, self-invalidate if the files are gone, and incomplete results are never cached.
+9. **⚡ Concurrency & Persistent Disk Cache**: Bounded concurrent HTTP requests with verified TLS, connection reuse and retry/backoff, plus a 30-day disk cache for repeat lookups. HTTP/2 is not required. Cache hits report their age, self-invalidate if the files are gone, and incomplete results are never cached.
 
 ## Tooling Standards
 
-* **Python Runtime & Package Management**: Use **`uv`** (`uv run`). Standard `pip` or system `python` calls can be used as fallback.
+* **Python Runtime & Package Management**: Python **3.11+**, managed with **`uv`** (`uv run`). Standard `pip` or system `python` calls can be used as fallback.
 * **JavaScript Runtime**: Use **`bun`** (`bun run`, `bun add`).
 
 ## Command-line options
@@ -70,5 +70,8 @@ After `uv pip install -e .` the command `dp-lookup-pro` also works from any fold
 
 Check `metadata.complete` before trusting a result. `false` means one or more
 lookups failed and `metadata.warnings` explains which; such runs are never cached.
-`plot_identity.area_source` says whether the area is MCGM-approved or derived
-from the plot boundary.
+`plot_identity.area_source` identifies the selected recorded or calculated area
+basis. Use `plot_identity.area_assessment` for both values, their difference,
+reliability and quality flags. An MCGM parcel record alone is not a certified
+survey. Only explicitly activated certified evidence can establish the
+corresponding source authority.

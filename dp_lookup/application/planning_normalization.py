@@ -82,9 +82,7 @@ def _fallback_item(
     return {
         "approval_no": str(attributes.get("APPROVAL_NO") or "DP Mod"),
         "details": str(attributes.get("LABEL") or attributes.get("LABEL to Display") or "Modified"),
-        "document_link": str(
-            attributes.get("APPROVAL_DOCUMENTS") or attributes.get("Approval Documents") or "None"
-        ),
+        "document_link": str(attributes.get("APPROVAL_DOCUMENTS") or attributes.get("Approval Documents") or "None"),
         "overlap_sqm": area_sqm,
         "overlap_percent": 100.0,
         "raw_attributes": copied_attributes,
@@ -164,15 +162,9 @@ def normalize_planning_evidence(
         zone_attributes = by_layer.get(0, {})
         zone = zone_attributes.get("Zone_Code2") or zone_attributes.get("ZONE_CODE2") or "Unknown"
         zones = [{"zone": zone, "overlap_sqm": area_sqm, "overlap_percent": 100.0}] if zone != "Unknown" else []
-        reservations = (
-            [_fallback_item(by_layer[46], area_sqm, wgs_rings, "reservation")] if 46 in by_layer else []
-        )
-        designations = (
-            [_fallback_item(by_layer[47], area_sqm, wgs_rings, "designation")] if 47 in by_layer else []
-        )
-        modifications = (
-            [_fallback_item(by_layer[192], area_sqm, wgs_rings, "modification")] if 192 in by_layer else []
-        )
+        reservations = [_fallback_item(by_layer[46], area_sqm, wgs_rings, "reservation")] if 46 in by_layer else []
+        designations = [_fallback_item(by_layer[47], area_sqm, wgs_rings, "designation")] if 47 in by_layer else []
+        modifications = [_fallback_item(by_layer[192], area_sqm, wgs_rings, "modification")] if 192 in by_layer else []
         metro = "YES (Metro Buffer Zone)" if 1550 in by_layer else "NO"
         crz_item = next(
             (

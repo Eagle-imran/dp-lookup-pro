@@ -75,18 +75,12 @@ def _geometry_rings(geometry: BaseGeometry) -> List[List[List[float]]]:
     rings: List[List[List[float]]] = []
     for polygon in polygons:
         rings.append([[float(x), float(y)] for x, y in polygon.exterior.coords])
-        rings.extend(
-            [[float(x), float(y)] for x, y in interior.coords]
-            for interior in polygon.interiors
-        )
+        rings.extend([[float(x), float(y)] for x, y in interior.coords] for interior in polygon.interiors)
     return rings
 
 
 def _wgs_rings(rings: Sequence[Sequence[Sequence[float]]]) -> List[List[List[float]]]:
-    return [
-        [mercator_to_wgs84(float(point[0]), float(point[1]), precision=10) for point in ring]
-        for ring in rings
-    ]
+    return [[mercator_to_wgs84(float(point[0]), float(point[1]), precision=10) for point in ring] for ring in rings]
 
 
 def _geometry_sha256(rings: Sequence[Sequence[Sequence[float]]]) -> str:
@@ -110,10 +104,7 @@ def _source_feature(
     rings_value = raw_geometry.get("rings") if isinstance(raw_geometry, Mapping) else None
     if not isinstance(rings_value, list) or not rings_value:
         raise ValueError(f"{village} CTS {cts_no} has no usable polygon rings")
-    rings = [
-        [[float(point[0]), float(point[1])] for point in ring]
-        for ring in rings_value
-    ]
+    rings = [[[float(point[0]), float(point[1])] for point in ring] for ring in rings_value]
     attrs_value = merged.get("attributes")
     attrs = dict(attrs_value) if isinstance(attrs_value, Mapping) else {}
     objectids_value = attrs.get("SOURCE_OBJECTIDS")
@@ -234,7 +225,7 @@ def _append_member_features(
     features = payload.get("features")
     if not isinstance(features, list):
         raise ValueError("assembly GeoJSON exporter returned no feature list")
-    for member, rings in zip(members, member_rings):
+    for member, rings in zip(members, member_rings, strict=False):
         geometry = mapping(arcgis_rings_to_geometry(_wgs_rings(rings)))
         features.append(
             {
@@ -287,7 +278,7 @@ def _write_outputs(
                 "cts_no": member.get("cts_no"),
                 "rings": _wgs_rings(rings),
             }
-            for member, rings in zip(result["members"], member_rings)
+            for member, rings in zip(result["members"], member_rings, strict=False)
         ],
         reservations=list(result["planning"].get("reservations", [])),
         designations=list(result["planning"].get("designations", [])),

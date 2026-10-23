@@ -29,7 +29,7 @@ parcel snapshot + planning snapshot
         ↓ deterministic spatial analysis + explicit active selections
 plot-intelligence build
         ↓ explicit verification + activation
-analyze / search / compare / normal lookup
+analyze / search / compare
 ```
 
 Source snapshots are never changed by intelligence generation. An intelligence
@@ -38,6 +38,13 @@ snapshot, the authority-registry revision, a source fingerprint and
 `plot-intelligence/1.3.0`. Re-running a
 matching interrupted build resumes completed identities. Publishing switches an
 active pointer; it never edits an earlier build.
+
+Normal plot lookup reads the source snapshots directly; it does not query this
+derived build or require intelligence activation. The retained validation build
+6 is a 25-identity sample using parcel snapshot 1, planning snapshot 2 and
+algorithm 1.1.0. It cannot be activated. The active source baseline is now parcel
+snapshot 2 and planning snapshot 3; a fresh full build with the current algorithm
+is required for citywide search.
 
 ## Stored facts
 
@@ -75,7 +82,12 @@ legal conclusions:
 | **Screening** | Suitable for early feasibility and site review, subject to the displayed source limits. |
 | **Verified source** | The source record, identity and archived payload passed the tool's deterministic completeness and provenance checks. This does not mean the boundary was legally surveyed. |
 | **Qualified with warnings** | The result is usable for review, but an area difference, geometry issue, duplicate record or identity ambiguity needs attention. |
-| **Certified** | Reserved for a future versioned source backed by supplied certified records or professional survey evidence. An ArcGIS parcel alone never receives this label. |
+| **Certified** | The shared area assessment can assign this only when area and geometry both have clean, explicitly activated certified evidence. An ArcGIS parcel alone never receives this label. |
+
+The intelligence search column uses `verified`, `qualified` and
+`review_required` confidence values. The richer area-reliability label is
+preserved separately in `evidence_summary.area_assessment`; it is not a legal
+conclusion or an additional search-confidence value.
 
 ## Commands
 
@@ -135,10 +147,11 @@ publication evidence.
 Single-record analysis and structured searches are fast once a build exists.
 The first full build performs exact intersections against the complete evidence
 registry and is deliberately resumable. A measured four-worker, 100-identity
-run took 98.59 seconds, giving a conservative 30–36 hour citywide estimate on
-the current workstation. It is an offline publication job, not a request-time
-operation. A set-based enrichment optimization should shorten that one-time job
-before the first full activation without changing the schema or public commands.
+run on 2026-08-21 took 98.59 seconds, giving a historical 30–36 hour citywide
+estimate. Later database and geometry optimizations have not been rebenchmarked
+for a full intelligence publication. Measure a fresh representative sample
+before scheduling the full job. It is an offline publication job, not a
+request-time operation.
 
 The real-data results are recorded in the
 [plot-intelligence validation audit](../audits/PLOT-INTELLIGENCE-VALIDATION-2026-08-21.md).

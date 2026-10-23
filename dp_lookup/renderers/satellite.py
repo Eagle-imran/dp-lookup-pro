@@ -23,7 +23,7 @@ def stitch_satellite(
     canvas_w = canvas_h = grid_dim * 256
     canvas = Image.new("RGBA", (canvas_w, canvas_h), (40, 40, 40, 255))
 
-    for (gx, gy), blob in zip(coords, tiles):
+    for (gx, gy), blob in zip(coords, tiles, strict=False):
         if not blob or isinstance(blob, Exception):
             continue
         try:

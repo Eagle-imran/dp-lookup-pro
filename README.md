@@ -24,7 +24,7 @@ It automatically generates a complete export bundle containing an **Interactive 
 ## ✨ Features & Capabilities
 
 * **🏷️ Automated Planning Status Badges**: Instantly classifies land parcels into `🟢 CLEAR (No Reservation)`, `🟡 MODIFIED (DP Order)`, or `🔴 RESERVED (DCPR Amenity)`.
-* **🌐 Standalone Interactive HTML Map Dossier**: Self-contained offline GIS web dossier with 1-click Satellite/Cadastral switcher, net developable envelope, and HUD dashboard.
+* **🌐 Standalone Interactive HTML Map Dossier**: Single-file GIS web dossier with 1-click Satellite/Cadastral switcher, net developable envelope, and HUD dashboard. Leaflet, web fonts and basemap tiles require an internet connection when opened.
 * **🌊 Precise CRZ & Infrastructure Detection**: Queries CRZ **zone polygons** (layers 14/1264/1548) and reports the sub-tier — `YES (CRZ II)`, not a bare yes — plus Layer 1550 Metro Rail Influence buffers.
 * **🗺️ Village name help**: `--list-villages` lists all 128 valid names, and a wrong name suggests the right one (`BANDRA` → `BANDRA-A`…). 
 * **📖 Readable output**: a plain summary by default; `--json` for the full response.
@@ -54,7 +54,8 @@ Before running `dp-lookup-pro`, ensure your environment meets the following requ
 
 ### 1. System Requirements
 * **Operating System**: macOS, Linux, or Windows (WSL / PowerShell)
-* **Python**: Python `3.9` up to `3.14+` *(Tested & verified on Python 3.14)*
+* **Python**: Python `3.11` or later. CI covers Python 3.11, 3.13, 3.14 and 3.15.
+  The supported baseline follows Pillow 13, which includes image-decoder security fixes.
 
 ### 2. Recommended Package Manager
 * [uv](https://github.com/astral-sh/uv) (Fastest Python package manager, recommended):
@@ -89,7 +90,7 @@ uv sync
 ```
 *(Alternatively, using standard Python `pip`):*
 ```bash
-pip install "httpx>=0.28.0" pillow openpyxl reportlab qrcode ezdxf shapely
+pip install "httpx>=0.28.0" "pillow>=13.0.0" "certifi>=2026.10.19" openpyxl reportlab qrcode ezdxf shapely
 ```
 
 ### Step 4: Execute a Plot Lookup Query
@@ -228,10 +229,13 @@ complete lifecycle.
 
 ### Build and query plot intelligence
 
-The derived intelligence layer contains one record for each of the 119,519
-queryable village/CTS identities in the active source snapshot. It is versioned
-independently and cannot be activated unless every selected identity was
-processed and its source versions match the active source snapshots.
+The derived intelligence layer can build one record for each of the 119,522
+queryable village/CTS identities in the active source snapshot. A full citywide
+build must be verified and explicitly activated before default search and
+comparison are available. Intelligence is versioned independently and cannot be
+activated unless the full build passes verification and its source versions
+match the active source snapshots. Normal lookup reads the source snapshots
+directly and does not require an active intelligence build.
 
 ```bash
 # Validate the pipeline with a non-publishable sample

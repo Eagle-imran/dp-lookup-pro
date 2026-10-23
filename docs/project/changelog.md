@@ -4,7 +4,23 @@ All notable changes to this project. Newest first.
 
 > **If something breaks after an update, see the [rollback guide](../operations/rollback.md).**
 
-## [Unreleased] — 2026-08-24
+## [Unreleased] — 2026-10-23
+
+### Dependency and maintenance update
+
+* Integrated the open dependency branches, then advanced to setup-uv 10.3.2,
+  uv 0.13.5, Ruff 0.17.2 and mypy 2.4.0. Refreshed all locked packages to
+  current compatible stable versions and updated the development-tool floors.
+* Pinned the development checkout to stable Python 3.15.1, with current patch
+  runtimes installed for the supported CI versions.
+* Required Python 3.11+, Pillow 13+ and the patched certifi trust store. This
+  prevents fresh package installs from resolving the older vulnerable image
+  decoder or CA bundle; the CI matrix now covers 3.11, 3.13, 3.14 and 3.15.
+* Applied the existing scoped formatter gate and shared its target list between
+  CI and the contributor commands through `tools/check_format.py`.
+* Updated rollback instructions for the modular package, corrected the active
+  plot count and intelligence publication status, and clarified the HTML
+  dossier's network dependencies, HTTP transport and area authority wording.
 
 ### Performance and modularity
 

@@ -155,9 +155,7 @@ def _parse_layer_features(
         try:
             runtime_geometry = feature.get("_dp_runtime_geometry")
             source_geometry = (
-                runtime_geometry
-                if isinstance(runtime_geometry, BaseGeometry)
-                else arcgis_rings_to_geometry(rings)
+                runtime_geometry if isinstance(runtime_geometry, BaseGeometry) else arcgis_rings_to_geometry(rings)
             )
             intersection = parcel.intersection(source_geometry)
         except (GEOSException, IndexError, KeyError, TypeError, ValueError):

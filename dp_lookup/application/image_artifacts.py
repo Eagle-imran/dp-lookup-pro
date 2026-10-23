@@ -134,7 +134,9 @@ class MapImageArtifactExporter:
     ) -> Image.Image:
         tiles = _normalised_tiles(fetched, warnings)
         half_dimension = fetched.grid_dimension // 2
-        top_lat, left_lon = tile_to_latlon(fetched.tile_x - half_dimension, fetched.tile_y - half_dimension, fetched.zoom)
+        top_lat, left_lon = tile_to_latlon(
+            fetched.tile_x - half_dimension, fetched.tile_y - half_dimension, fetched.zoom
+        )
         bottom_lat, right_lon = tile_to_latlon(
             fetched.tile_x + half_dimension + 1,
             fetched.tile_y + half_dimension + 1,

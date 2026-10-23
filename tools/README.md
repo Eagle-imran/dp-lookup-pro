@@ -2,6 +2,8 @@
 
 These scripts are developer utilities, not public CLI commands:
 
+- `check_format.py` checks the shared local/CI Ruff formatting scope. Pass
+  `--fix` to apply formatting to that same target list.
 - `audit_dxf.py` checks a generated DXF for layout, collision and disclosure
   faults and returns a non-zero exit code on failure.
 - `render_dxf.py` renders a DXF to PNG for visual inspection and requires the

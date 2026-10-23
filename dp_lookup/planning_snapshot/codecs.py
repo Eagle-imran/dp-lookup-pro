@@ -66,7 +66,7 @@ def bbox(geometry: Any) -> Optional[Tuple[float, float, float, float]]:
     walk(geometry)
     if not points:
         return None
-    xs, ys = zip(*points)
+    xs, ys = zip(*points, strict=False)
     return min(xs), max(xs), min(ys), max(ys)
 
 

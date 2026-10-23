@@ -59,7 +59,7 @@ async def _fetch_layers(
     )
     features_by_layer: Dict[int, List[Dict[str, Any]]] = {}
     warnings: List[str] = []
-    for layer_id, response in zip(layer_ids, responses):
+    for layer_id, response in zip(layer_ids, responses, strict=False):
         if isinstance(response, Exception):
             features_by_layer[layer_id] = []
             warnings.append(f"Layer {layer_id} query failed: {response}")
