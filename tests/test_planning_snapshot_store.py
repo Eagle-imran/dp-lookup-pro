@@ -19,7 +19,7 @@ from dp_lookup.planning_snapshot import store as store_module
 def _feature(object_id: int, x: float = 0.0):
     return {
         "attributes": {"OBJECTID": object_id, "CATEGORY": "A"},
-        "geometry": {"rings": [[[x, 0], [x + 1, 0], [x + 1, 1], [x, 0]]]}
+        "geometry": {"rings": [[[x, 0], [x + 1, 0], [x + 1, 1], [x, 0]]]},
     }
 
 
@@ -39,15 +39,11 @@ def test_ingestion_is_versioned_atomic_and_preserves_exact_source(tmp_path: Path
         row = store.features_in_bbox(61, -1, 1, -1, 1, snapshot_id=snapshot.snapshot_id)[0]
         assert row["attributes"] == {"OBJECTID": 1, "CATEGORY": "A"}
         assert row["geometry"]["rings"][0][1] == [1, 0]
-        compact = store.compact_features_in_bbox(
-            61, -1, 1, -1, 1, snapshot_id=snapshot.snapshot_id
-        )[0]
+        compact = store.compact_features_in_bbox(61, -1, 1, -1, 1, snapshot_id=snapshot.snapshot_id)[0]
         assert compact["attributes"] == row["attributes"]
         assert "raw_feature" not in compact
         assert store.rtree_available
-        assert store.connection.execute(
-            "SELECT 1 FROM sqlite_stat1 WHERE idx='planning_features_bbox'"
-        ).fetchone()
+        assert store.connection.execute("SELECT 1 FROM sqlite_stat1 WHERE idx='planning_features_bbox'").fetchone()
         selected = store.query_layer(
             snapshot.snapshot_id,
             61,
@@ -212,3 +208,47 @@ def test_bbox_fallback_and_serialization_guards(tmp_path: Path):
         store._rtree_available = False
         rows = store.features_in_bbox(0, -1, 2, -1, 2)
         assert [row["object_id"] for row in rows] == [1]
+
+
+def test_layer_copy_preserves_raw_payloads_null_geometry_and_spatial_indexes(tmp_path):
+    with PlanningSnapshotStore.open(tmp_path / "copy.sqlite") as store:
+        source = ingest_planning_snapshot(
+            store,
+            {
+                0: [_feature(1)],
+                47: [{"attributes": {"OBJECTID": 2, "UNKNOWN": "kept"}, "geometry": {"rings": []}}],
+            },
+        )
+        target = store.begin_snapshot()
+        assert store.copy_layers(source.snapshot_id, target, [0, 47]) == (0, 47)
+        assert store.copy_layers(source.snapshot_id, target, [0, 47]) == ()
+        completed = store.finalize(target)
+        assert completed.content_hash == source.content_hash
+        assert store.validate(target)["warnings"]
+        assert store.features_in_bbox(0, -1, 2, -1, 2, snapshot_id=target)[0]["raw_feature"] == _feature(1)
+        for layer in (0, 47):
+            old = store.connection.execute(
+                "SELECT raw_feature_json FROM planning_features WHERE snapshot_id=? AND canonical_layer_id=?",
+                (source.snapshot_id, layer),
+            ).fetchone()[0]
+            new = store.connection.execute(
+                "SELECT raw_feature_json FROM planning_features WHERE snapshot_id=? AND canonical_layer_id=?",
+                (target, layer),
+            ).fetchone()[0]
+            assert new == old
+
+
+def test_layer_copy_is_atomic_and_rejects_incomplete_or_modified_data(tmp_path):
+    with PlanningSnapshotStore.open(tmp_path / "copy-errors.sqlite") as store:
+        source = ingest_planning_snapshot(store, {0: [_feature(1)]})
+        target = store.begin_snapshot()
+        with pytest.raises(PlanningSnapshotStateError, match="absent or incomplete"):
+            store.copy_layers(source.snapshot_id, target, [0, 46])
+        assert not store.snapshot(target).layers
+        with pytest.raises(PlanningSnapshotStateError, match="finalized complete"):
+            store.copy_layers(target, target, [0])
+        store.copy_layers(source.snapshot_id, target, [0])
+        with store.transaction() as connection:
+            connection.execute("UPDATE planning_features SET attributes_json='{}' WHERE snapshot_id=?", (target,))
+        with pytest.raises(PlanningSnapshotStateError, match="differs from its source"):
+            store.copy_layers(source.snapshot_id, target, [0])

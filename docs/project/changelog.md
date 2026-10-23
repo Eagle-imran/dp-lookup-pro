@@ -6,6 +6,16 @@ All notable changes to this project. Newest first.
 
 ## [Unreleased] — 2026-10-23
 
+### Targeted source updates
+
+* Add `db planning build --layers ID,...` to download only selected planning
+  layers and copy unchanged archived layers locally into a complete new
+  snapshot. Preserve exact raw payloads, inventories, source provenance and
+  spatial indexes; keep activation and rollback explicit.
+* Require before/after upstream fingerprint checks, reject omitted changed
+  layers and source drift, and isolate incremental resume state from full
+  downloads and other source selections.
+
 ### Plot-intelligence publication fixes
 
 * Repair invalid overlapping multipart analysis geometry while preserving raw

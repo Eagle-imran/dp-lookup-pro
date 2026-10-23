@@ -34,6 +34,8 @@ See the [maintenance audit](../audits/REPOSITORY-MAINTENANCE-2026-10-23.md).
 - Remove quadratic inventory membership and duplicate checks from ingestion.
 - Retry malformed inventory and feature response shapes within the bounded
   request retry policy, preserving staged data for a later resume.
+- Add selected-layer planning refreshes with exact local copying, upstream
+  change/drift checks and independent incremental resume state.
 
 These changes use intelligence algorithm `plot-intelligence/1.4.0` and report
 cache schema 2. They are not yet part of the main baseline above.
@@ -50,30 +52,33 @@ A separate 1,000-identity full-evidence sample completed without errors in
 therefore the default. These are sample measurements, not a citywide timing
 guarantee or a completed publication.
 
-The current offline suite passes 551 tests with 84.19% coverage. Formatting,
-Ruff and strict typing pass. All four Python CI jobs, packaging, dependency
-auditing and CodeQL pass at `4e4f602`.
+The current offline suite passes 567 tests with 84.30% coverage. Formatting,
+Ruff and strict typing pass. CI results are available on
+[development PR #6](https://github.com/Eagle-imran/dp-lookup-pro/pull/6). The
+previous code baseline passed all four Python versions, packaging, dependency
+auditing and CodeQL.
 
-## Data state and remaining development
+## Active data and remaining development
 
-- Parcel snapshot 3 is ready: all 135,365 source records were verified. The
-  diff from snapshot 2 contains 23 added, 3 removed and 43 changed records;
-  all 66 added or changed records match live source attributes and coordinates.
-  Boundary-area calculation also succeeded for all 119,548 queryable identities.
-- The optional planning refresh was stopped with its durable progress retained:
-  snapshot 4 is incomplete, with 26,792 records saved across 12 registered layers.
-  The active snapshots remain parcel 2 and planning 3. No staged data was
-  activated. The upstream check found changed
-  layers 81, 85, 92, 192, 194 and 2400, plus a parcel inventory increase from
-  135,345 to 135,365 records.
-- A complete source refresh is not required for Git/tooling maintenance or
-  intelligence activation against the existing verified source snapshots.
-  Finish and verify the optional refresh only when a source-data update is
-  wanted; retain the current active snapshots until then.
+The targeted update activated parcel snapshot 3 (135,365 records; 119,548
+queryable identities) and planning snapshot 5 (65,624 records across 52 layers).
+Reused the previously staged parcel archive, rechecked all 66 added/edited
+payloads and confirmed 3 removals. Downloaded six planning layers and copied
+the remaining 46 locally; all 27 added/edited planning payloads match live data.
+Final upstream fingerprints report no changes or unknown layers. Database
+integrity passes with zero critical findings. See the
+[targeted update audit](../audits/TARGETED-SOURCE-UPDATE-2026-10-23.md).
+
+Former active snapshots are retained for rollback. The abandoned full planning
+snapshot 4 retains its partial data but is marked superseded/failed to prevent
+accidental resumption. No whole planning refresh was completed or restarted.
+
+Remaining plot-intelligence work:
+
 - Build every queryable village/CTS identity with full evidence and neighbours,
   resolve derivation errors, verify and activate the matching full build.
-- Exercise default analyze, search and comparison, source alignment and report
-  artifacts; record final source IDs, counts and publication evidence here.
+- Exercise default analyze, search and comparison and record publication
+  evidence. No full intelligence build was started during this source update.
 
 Operational databases, retained snapshots, report bundles and certified source
 files remain outside Git. Existing data and reports are preserved.

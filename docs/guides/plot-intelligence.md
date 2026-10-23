@@ -8,8 +8,8 @@ source.
 
 Plot intelligence turns the immutable parcel and planning archives into one
 query-ready record per unique `VILLAGE + CTS_CS_NO` identity. The active MCGM
-cadastral parcel archive currently contains 135,345 source features representing
-119,522 queryable village/CTS identities. Multipart source features are
+cadastral parcel archive currently contains 135,365 source features representing
+119,548 queryable village/CTS identities. Multipart source features are
 combined; they are not counted as separate plots. The technical ArcGIS
 provenance is retained as Development Plan Layer 13.
 
@@ -49,7 +49,7 @@ Normal plot lookup reads the source snapshots directly; it does not query this
 derived build or require intelligence activation. The retained validation build
 6 is a 25-identity sample using parcel snapshot 1, planning snapshot 2 and
 algorithm 1.1.0. It cannot be activated. The active source baseline is now parcel
-snapshot 2 and planning snapshot 3; a fresh full build with the current algorithm
+snapshot 3 and planning snapshot 5; a fresh full build with the current algorithm
 is required for citywide search.
 
 ## Stored facts

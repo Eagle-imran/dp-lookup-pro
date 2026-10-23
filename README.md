@@ -167,11 +167,11 @@ The original flat `database build` and `database build-planning` forms remain
 supported for existing scripts. The first live validation is preserved in the
 [database maintenance audit](docs/audits/DATABASE-MAINTENANCE-CHECK-2026-08-23.md).
 
-Complete parcel and planning snapshots were refreshed, verified, sampled
-against the live source, and activated on 2026-08-23. Active snapshot 2 contains
-135,345 parcel records and active planning snapshot 3 contains 65,598 records
-across 52 layers. The local file is currently about 2.10 GiB because it also
-preserves the former snapshots for rollback. It remains ignored by Git and is
+Verified parcel snapshot 3 and planning snapshot 5 were activated on 2026-10-23.
+They contain 135,365 parcel records and 65,624 planning records across 52 layers.
+The targeted planning update downloaded six changed layers and copied the other
+46 locally after checking their upstream fingerprints. Old snapshots remain
+available for rollback. The database remains ignored by Git and is
 not bundled with the package. Normal CLI lookup uses it automatically when
 available:
 
@@ -229,7 +229,7 @@ complete lifecycle.
 
 ### Build and query plot intelligence
 
-The derived intelligence layer can build one record for each of the 119,522
+The derived intelligence layer can build one record for each of the 119,548
 queryable village/CTS identities in the active source snapshot. A full citywide
 build must be verified and explicitly activated before default search and
 comparison are available. Intelligence is versioned independently and cannot be
