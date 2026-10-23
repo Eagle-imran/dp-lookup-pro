@@ -146,17 +146,12 @@ class IntelligenceStore:
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=FULL")
         connection.executescript(SCHEMA)
-        existing = connection.execute(
-            "SELECT value FROM intelligence_meta WHERE key='schema_version'"
-        ).fetchone()
+        existing = connection.execute("SELECT value FROM intelligence_meta WHERE key='schema_version'").fetchone()
         if existing is not None and int(existing[0]) != SCHEMA_VERSION:
             connection.close()
-            raise IntelligenceStateError(
-                f"unsupported intelligence schema {existing[0]}; expected {SCHEMA_VERSION}"
-            )
+            raise IntelligenceStateError(f"unsupported intelligence schema {existing[0]}; expected {SCHEMA_VERSION}")
         connection.execute(
-            "INSERT INTO intelligence_meta(key,value) VALUES('schema_version',?) "
-            "ON CONFLICT(key) DO NOTHING",
+            "INSERT INTO intelligence_meta(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO NOTHING",
             (str(SCHEMA_VERSION),),
         )
         connection.commit()
@@ -191,16 +186,18 @@ class IntelligenceStore:
         source_fingerprint: str,
         scope: str = "full",
         resume: bool = True,
+        parameters: Optional[Mapping[str, Any]] = None,
     ) -> int:
         if scope not in {"full", "sample"}:
             raise ValueError("scope must be full or sample")
         if expected_count < 1:
             raise ValueError("expected_count must be positive")
+        build_parameters = dict(parameters or {})
         if resume:
-            row = self.connection.execute(
-                "SELECT build_id FROM intelligence_builds WHERE state='building' AND scope=? "
+            rows = self.connection.execute(
+                "SELECT build_id,validation_json FROM intelligence_builds WHERE state='building' AND scope=? "
                 "AND parcel_snapshot_id=? AND planning_snapshot_id=? AND algorithm_version=? "
-                "AND expected_count=? AND source_fingerprint=? ORDER BY build_id DESC LIMIT 1",
+                "AND expected_count=? AND source_fingerprint=? ORDER BY build_id DESC",
                 (
                     scope,
                     parcel_snapshot_id,
@@ -209,13 +206,16 @@ class IntelligenceStore:
                     expected_count,
                     source_fingerprint,
                 ),
-            ).fetchone()
-            if row is not None:
-                return int(row[0])
+            )
+            for row in rows:
+                validation = _loads(row["validation_json"], {})
+                if validation.get("parameters", {}) == build_parameters:
+                    return int(row["build_id"])
         with self.transaction() as connection:
             cursor = connection.execute(
                 "INSERT INTO intelligence_builds(state,scope,parcel_snapshot_id,planning_snapshot_id,"
-                "algorithm_version,expected_count,source_fingerprint,created_at) VALUES('building',?,?,?,?,?,?,?)",
+                "algorithm_version,expected_count,source_fingerprint,created_at,validation_json) "
+                "VALUES('building',?,?,?,?,?,?,?,?)",
                 (
                     scope,
                     parcel_snapshot_id,
@@ -224,6 +224,7 @@ class IntelligenceStore:
                     expected_count,
                     source_fingerprint,
                     _now(),
+                    _json({"parameters": build_parameters}),
                 ),
             )
         if cursor.lastrowid is None:
@@ -231,9 +232,7 @@ class IntelligenceStore:
         return int(cursor.lastrowid)
 
     def _build_row(self, build_id: int) -> sqlite3.Row:
-        row = self.connection.execute(
-            "SELECT * FROM intelligence_builds WHERE build_id=?", (build_id,)
-        ).fetchone()
+        row = self.connection.execute("SELECT * FROM intelligence_builds WHERE build_id=?", (build_id,)).fetchone()
         if row is None:
             raise KeyError(f"unknown intelligence build {build_id}")
         return cast(sqlite3.Row, row)
@@ -287,16 +286,18 @@ class IntelligenceStore:
             _json(plot.evidence_summary),
             _json(plot.warnings),
             plot.confidence,
-            _json(
-                tuple(
-                    {key: value for key, value in ref.items() if key != "attributes"}
-                    for ref in plot.source_refs
-                )
-            ),
+            _json(tuple({key: value for key, value in ref.items() if key != "attributes"} for ref in plot.source_refs)),
             plot.facts_hash,
             plot.calculated_at,
         )
         with self.transaction() as connection:
+            existed = (
+                connection.execute(
+                    "SELECT 1 FROM plot_intelligence WHERE build_id=? AND village=? AND cts_no=?",
+                    (build_id, plot.village, plot.cts_no),
+                ).fetchone()
+                is not None
+            )
             connection.execute(
                 "INSERT OR REPLACE INTO plot_intelligence VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 values,
@@ -327,9 +328,8 @@ class IntelligenceStore:
                     ),
                 )
             connection.execute(
-                "UPDATE intelligence_builds SET record_count=(SELECT COUNT(*) FROM plot_intelligence "
-                "WHERE build_id=?) WHERE build_id=?",
-                (build_id, build_id),
+                "UPDATE intelligence_builds SET record_count=record_count+? WHERE build_id=?",
+                (int(not existed), build_id),
             )
             connection.execute(
                 "DELETE FROM intelligence_issues WHERE build_id=? AND village=? AND cts_no=?",
@@ -348,9 +348,9 @@ class IntelligenceStore:
     def verify(self, build_id: int) -> Dict[str, Any]:
         row = self._build_row(build_id)
         actual = int(
-            self.connection.execute(
-                "SELECT COUNT(*) FROM plot_intelligence WHERE build_id=?", (build_id,)
-            ).fetchone()[0]
+            self.connection.execute("SELECT COUNT(*) FROM plot_intelligence WHERE build_id=?", (build_id,)).fetchone()[
+                0
+            ]
         )
         bad_hashes = int(
             self.connection.execute(
@@ -381,6 +381,7 @@ class IntelligenceStore:
             errors.append(f"{issue_count} plots have unresolved derivation errors")
         return {
             "ok": not errors,
+            "parameters": _loads(row["validation_json"], {}).get("parameters", {}),
             "build_id": build_id,
             "scope": str(row["scope"]),
             "expected_count": int(row["expected_count"]),
@@ -508,9 +509,7 @@ class IntelligenceStore:
             result[key] = _loads(result.pop(f"{key}_json"), [] if key != "evidence_summary" else {})
         return result
 
-    def get(
-        self, village: str, cts_no: str, *, build_id: Optional[int] = None
-    ) -> Optional[Dict[str, Any]]:
+    def get(self, village: str, cts_no: str, *, build_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         selected = self._selected_build(build_id)
         row = self.connection.execute(
             "SELECT * FROM plot_intelligence WHERE build_id=? AND village=? AND cts_no=?",
@@ -576,15 +575,14 @@ class IntelligenceStore:
             params.append(f"%{escaped}%")
         params.extend([limit, offset])
         rows = self.connection.execute(
-            "SELECT * FROM plot_intelligence WHERE " + " AND ".join(clauses) +
-            " ORDER BY area_sqm DESC,village,cts_no LIMIT ? OFFSET ?",
+            "SELECT * FROM plot_intelligence WHERE "
+            + " AND ".join(clauses)
+            + " ORDER BY area_sqm DESC,village,cts_no LIMIT ? OFFSET ?",
             params,
         )
         return [self._plot(row) for row in rows]
 
-    def compare(
-        self, identities: Sequence[Tuple[str, str]], *, build_id: Optional[int] = None
-    ) -> Dict[str, Any]:
+    def compare(self, identities: Sequence[Tuple[str, str]], *, build_id: Optional[int] = None) -> Dict[str, Any]:
         if len(identities) < 2 or len(identities) > 20:
             raise ValueError("compare requires between 2 and 20 plots")
         selected = self._selected_build(build_id)

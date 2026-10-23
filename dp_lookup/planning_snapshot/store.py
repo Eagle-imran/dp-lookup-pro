@@ -12,11 +12,12 @@ import contextlib
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple, Union, cast
+from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Tuple, Union, cast
 
 from dp_lookup.planning_evidence.registry import canonical_layer_id
 from dp_lookup.planning_snapshot.codecs import bbox as _bbox
 from dp_lookup.planning_snapshot.codecs import json_value as _json
+from dp_lookup.planning_snapshot.copying import copy_layers as _copy_layers
 from dp_lookup.planning_snapshot.models import (
     PlanningFeature,
     PlanningLayerSnapshot,
@@ -36,6 +37,16 @@ class PlanningSnapshotStore:
         self.connection = connection
         self.path = Path(path)
         self._rtree_available = False
+        self._query_repository: Optional[PlanningFeatureQuery] = None
+
+    def _queries(self) -> PlanningFeatureQuery:
+        if self._query_repository is None:
+            self._query_repository = PlanningFeatureQuery(
+                self.connection,
+                rtree_available=self._rtree_available,
+                active_snapshot_id=self.active_snapshot_id,
+            )
+        return self._query_repository
 
     @classmethod
     def open(cls, path: Union[str, Path]) -> "PlanningSnapshotStore":
@@ -70,6 +81,8 @@ class PlanningSnapshotStore:
         return self._rtree_available
 
     def close(self) -> None:
+        if self._query_repository is not None:
+            self._query_repository.clear_runtime_cache()
         self.connection.close()
 
     def __enter__(self) -> "PlanningSnapshotStore":
@@ -112,7 +125,7 @@ class PlanningSnapshotStore:
             raise PlanningSnapshotStateError(f"snapshot {snapshot_id} is {row['state']}, not building")
         return row
 
-    def find_resumable_snapshot(self, registry_hash: str) -> Optional[int]:
+    def find_resumable_snapshot(self, registry_hash: str, *, base_snapshot_id: Optional[int] = None, refresh_layer_ids: Optional[Sequence[int]] = None) -> Optional[int]:
         """Return the newest building snapshot for one exact registry contract."""
         for row in self.connection.execute(
             "SELECT snapshot_id,source_metadata_json FROM planning_snapshots "
@@ -122,9 +135,33 @@ class PlanningSnapshotStore:
                 metadata = json.loads(row["source_metadata_json"] or "{}")
             except (TypeError, ValueError):
                 continue
-            if isinstance(metadata, Mapping) and metadata.get("registry_hash") == registry_hash:
-                return int(row["snapshot_id"])
+            if not isinstance(metadata, Mapping) or metadata.get("registry_hash") != registry_hash:
+                continue
+            if refresh_layer_ids is None:
+                if metadata.get("refresh_mode") == "incremental":
+                    continue
+            elif (
+                metadata.get("refresh_mode") != "incremental"
+                or metadata.get("base_snapshot_id") != base_snapshot_id
+                or metadata.get("refresh_layer_ids") != sorted(set(refresh_layer_ids))
+            ):
+                continue
+            return int(row["snapshot_id"])
         return None
+
+    def copy_layers(self, source_snapshot_id: int, target_snapshot_id: int, layer_ids: Iterable[int]) -> Tuple[int, ...]:
+        self._building(target_snapshot_id)
+        source = self.snapshot(source_snapshot_id)
+        if source.state not in {"ready", "active", "retired"} or not source.complete:
+            raise PlanningSnapshotStateError("copy source must be a finalized complete snapshot")
+        selected = tuple(sorted(set(layer_ids)))
+        with self.transaction() as conn:
+            copied = _copy_layers(conn, source_snapshot_id, target_snapshot_id, selected, rtree_available=self._rtree_available)
+            source_hashes = {layer.canonical_layer_id: layer.content_hash for layer in source.layers}
+            for layer_id in selected:
+                if self._layer_hash(target_snapshot_id, layer_id) != source_hashes[layer_id]:
+                    raise PlanningSnapshotStateError(f"copied layer {layer_id} differs from its source")
+        return copied
 
     def update_snapshot_metadata(self, snapshot_id: int, metadata: Mapping[str, Any]) -> None:
         self._building(snapshot_id)
@@ -324,11 +361,7 @@ class PlanningSnapshotStore:
         snapshot_id: Optional[int],
         include_archive_payload: bool,
     ) -> List[Dict[str, Any]]:
-        return PlanningFeatureQuery(
-            self.connection,
-            rtree_available=self._rtree_available,
-            active_snapshot_id=self.active_snapshot_id,
-        ).features_in_bbox(
+        return self._queries().features_in_bbox(
             layer_id,
             min_x,
             max_x,
@@ -364,11 +397,7 @@ class PlanningSnapshotStore:
     parcels_in_bbox = features_in_bbox
 
     def query_layer(self, snapshot_id: int, layer_id: int, parcel_geometry: Any) -> List[Dict[str, Any]]:
-        return PlanningFeatureQuery(
-            self.connection,
-            rtree_available=self._rtree_available,
-            active_snapshot_id=self.active_snapshot_id,
-        ).query_layer(snapshot_id, layer_id, parcel_geometry)
+        return self._queries().query_layer(snapshot_id, layer_id, parcel_geometry)
 
     records_intersecting = query_layer
 

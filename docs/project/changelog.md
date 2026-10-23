@@ -6,6 +6,32 @@ All notable changes to this project. Newest first.
 
 ## [Unreleased] — 2026-10-23
 
+### Targeted source updates
+
+* Add `db planning build --layers ID,...` to download only selected planning
+  layers and copy unchanged archived layers locally into a complete new
+  snapshot. Preserve exact raw payloads, inventories, source provenance and
+  spatial indexes; keep activation and rollback explicit.
+* Require before/after upstream fingerprint checks, reject omitted changed
+  layers and source drift, and isolate incremental resume state from full
+  downloads and other source selections.
+
+### Plot-intelligence publication fixes
+
+* Repair invalid overlapping multipart analysis geometry while preserving raw
+  coordinates and quality flags; require full ring containment before treating
+  a ring as a hole. Calculated neighbour areas use ground square metres.
+* Reuse bounded planning geometry caches and avoid unused road drawings during
+  derivation. One worker outperformed four in a 1,000-identity benchmark and is
+  now the default. Source inventories use set/counter membership checks.
+* Match build options and ranges before resuming, verify source/authority and
+  algorithm fingerprints before publishing or serving default intelligence
+  queries, and reject a build whose authority registry changed during work.
+* Keep historical builds queryable by explicit ID. Existing validation metadata
+  stores build parameters without a database schema migration. Intelligence
+  algorithm is now `plot-intelligence/1.4.0`; report cache schema 2 prevents
+  replay of results from the previous area/topology policy.
+
 ### Dependency and maintenance update
 
 * Integrated the open dependency branches, then advanced to setup-uv 10.3.2,

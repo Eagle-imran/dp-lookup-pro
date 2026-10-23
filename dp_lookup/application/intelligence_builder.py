@@ -11,6 +11,8 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from shapely.geometry.base import BaseGeometry
+
 from dp_lookup.application.authority_resolver import AuthorityResolver
 from dp_lookup.application.ingestion import build_parcel_context
 from dp_lookup.application.local_roads import LocalRoadProvider
@@ -31,6 +33,7 @@ from dp_lookup.core.constants import (
 )
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.intelligence.models import ALGORITHM_VERSION, PlotIntelligence
+from dp_lookup.intelligence.provenance import source_fingerprint
 from dp_lookup.intelligence.store import IntelligenceStore
 from dp_lookup.planning_evidence.models import EvidenceMode
 from dp_lookup.planning_evidence.registry import SERVER_URL, get_canonical_spec
@@ -56,17 +59,13 @@ def _source_fingerprint(
     planning_hash: str,
     authority_revision: Optional[int],
 ) -> str:
-    manifest = parcel_metadata.get("manifest_summary")
-    parcel_hash = manifest.get("content_hash") if isinstance(manifest, Mapping) else None
-    return sha256_json(
-        {
-            "parcel_snapshot_id": parcel_snapshot_id,
-            "parcel_content_hash": parcel_hash,
-            "planning_snapshot_id": planning_snapshot_id,
-            "planning_content_hash": planning_hash,
-            "authority_registry_revision": authority_revision,
-            "algorithm_version": ALGORITHM_VERSION,
-        }
+    return source_fingerprint(
+        parcel_snapshot_id,
+        parcel_metadata,
+        planning_snapshot_id,
+        planning_hash,
+        authority_revision,
+        algorithm_version=ALGORITHM_VERSION,
     )
 
 
@@ -126,7 +125,10 @@ def _core_refs(
             if not isinstance(rings, list) or not rings:
                 continue
             try:
-                intersection = parcel.intersection(arcgis_rings_to_geometry(rings))
+                source = record.get("_dp_runtime_geometry")
+                if not isinstance(source, BaseGeometry):
+                    source = arcgis_rings_to_geometry(rings)
+                intersection = parcel.intersection(source)
             except (IndexError, TypeError, ValueError):
                 continue
             if intersection.is_empty:
@@ -193,7 +195,7 @@ class PlotIntelligenceBuilder:
         progress: Optional[ProgressCallback] = None,
         parcel_snapshot_id: Optional[int] = None,
         planning_snapshot_id: Optional[int] = None,
-        workers: int = 4,
+        workers: int = 1,
     ) -> Mapping[str, Any]:
         if limit is not None and limit < 1:
             raise ValueError("limit must be positive or None")
@@ -255,6 +257,12 @@ class PlotIntelligenceBuilder:
                 expected_count=len(identities),
                 source_fingerprint=fingerprint,
                 scope=scope,
+                parameters={
+                    "limit": limit,
+                    "offset": offset,
+                    "evidence_mode": selected_mode.value,
+                    "include_neighbours": include_neighbours,
+                },
             )
             completed = set(intelligence.completed_keys(build_id))
             pending = [identity for identity in identities if identity not in completed]
@@ -274,7 +282,9 @@ class PlotIntelligenceBuilder:
                         PlanningSnapshotStore.open(self.database) as worker_planning,
                         IntelligenceStore.open(self.database) as worker_intelligence,
                     ):
-                        road_provider = LocalRoadProvider(worker_planning, snapshot_id=planning_snapshot_id)
+                        road_provider = LocalRoadProvider(
+                            worker_planning, snapshot_id=planning_snapshot_id, include_geometry=False
+                        )
                         neighbour_provider = LocalNeighbourProvider(self.database, store=worker_parcels)
                         evidence_analyzer = LocalFirstPlanningEvidenceAnalyzer(
                             worker_planning,
@@ -315,6 +325,11 @@ class PlotIntelligenceBuilder:
             with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="plot-intelligence") as pool:
                 failures = sum(pool.map(derive, shards))
 
+            if (_authority_registry_revision(self.database) or 0) != (authority_revision or 0):
+                intelligence.fail(build_id, "authority registry changed during intelligence derivation")
+                raise RuntimeError(
+                    "authority registry changed during intelligence derivation; rebuild with current sources"
+                )
             report = intelligence.verify(build_id)
             if report["ok"]:
                 build = intelligence.finalize(build_id)

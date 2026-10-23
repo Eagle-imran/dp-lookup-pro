@@ -9,7 +9,7 @@ from shapely.geometry import MultiPolygon, Polygon
 
 from dp_lookup.core.geometry import mercator_to_wgs84, wgs84_to_utm43n
 from dp_lookup.core.models import AreaAssessment, AreaQualityFlag, ReliabilityStatus
-from dp_lookup.core.topology import arcgis_rings_to_geometry
+from dp_lookup.core.topology import arcgis_rings_to_geometry, geometry_with_repair_status
 
 RECORDED_AREA_SOURCE = "MCGM cadastral parcel record"
 GEOMETRY_SOURCE = "MCGM cadastral parcel boundary"
@@ -146,7 +146,8 @@ def assess_plot_area(
     recorded = _recorded_area(attrs)
     raw_invalid = _raw_geometry_invalid(rings)
     try:
-        geometry = arcgis_rings_to_geometry(rings)
+        geometry, repaired = geometry_with_repair_status(rings)
+        raw_invalid = raw_invalid or repaired
     except (IndexError, TypeError, ValueError):
         geometry = Polygon()
     calculated = calculated_boundary_area_sqm(rings)

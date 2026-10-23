@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -352,6 +353,7 @@ async def _get_json(
     sleep: Callable[[float], Awaitable[Any]],
     *,
     post_form: bool = False,
+    required_list_field: Optional[str] = None,
 ) -> Mapping[str, Any]:
     last_error: Optional[BaseException] = None
     for attempt in range(1, config.max_attempts + 1):
@@ -363,7 +365,12 @@ async def _get_json(
                 response = await client.get(url, params=dict(params))
             status = int(getattr(response, "status_code", 200) or 0) if not isinstance(response, Mapping) else 200
             try:
-                return _response_payload(response)
+                payload = _response_payload(response)
+                if required_list_field is not None and not isinstance(payload.get(required_list_field), list):
+                    raise PlanningSnapshotError(
+                        f"planning layer response lacks required {required_list_field} list; keys={sorted(payload)}"
+                    )
+                return payload
             except PlanningSnapshotError as exc:
                 last_error = exc
                 if status not in (0, 200) and status not in RETRYABLE_STATUS_CODES:
@@ -519,13 +526,17 @@ async def ingest_planning_snapshot(
         resolved_geometry_type = spec.geometry_type
         raw_for_hash: List[Mapping[str, Any]] = []
         try:
-            inventory = await _get_json(client, f"{layer_url}/query", inventory_params, cfg, sleep)
+            inventory = await _get_json(
+                client, f"{layer_url}/query", inventory_params, cfg, sleep, required_list_field="objectIds"
+            )
             raw_ids = inventory.get("objectIds")
             if not isinstance(raw_ids, list):
                 raise PlanningSnapshotError("inventory did not contain an objectIds list")
             expected_ids = _sorted_ids(raw_ids)
+            expected_id_set = set(expected_ids)
             parsed_ids = [_int_id(item) for item in raw_ids]
-            duplicates.update(item for item in set(parsed_ids) if item is not None and parsed_ids.count(item) > 1)
+            inventory_counts = Counter(item for item in parsed_ids if item is not None)
+            duplicates.update(item for item, count in inventory_counts.items() if count > 1)
             source_metadata["inventory_spatial_reference"] = inventory.get("spatialReference")
             if cfg.fetch_layer_metadata:
                 metadata = await _get_json(client, layer_url, {"f": "json"}, cfg, sleep)
@@ -571,7 +582,7 @@ async def ingest_planning_snapshot(
                     raise PlanningSnapshotError(f"durable sink contains IDs outside layer {spec.layer_id} inventory")
                 completed.update(persisted_ids)
             elif previous is not None:
-                completed.update(item for item in previous.completed_ids if item in expected_ids)
+                completed.update(item for item in previous.completed_ids if item in expected_id_set)
             rejected.difference_update(completed)
         except PlanningSnapshotError as exc:
             if "resume checkpoint" in str(exc):
@@ -588,7 +599,15 @@ async def ingest_planning_snapshot(
                     "f": "json",
                 }
                 try:
-                    payload = await _get_json(client, f"{layer_url}/query", params, cfg, sleep, post_form=True)
+                    payload = await _get_json(
+                        client,
+                        f"{layer_url}/query",
+                        params,
+                        cfg,
+                        sleep,
+                        post_form=True,
+                        required_list_field="features",
+                    )
                 except PlanningSnapshotError as exc:
                     batch_errors.append(f"objectIds={','.join(map(str, batch))}: {exc}")
                     rejected.update(batch)
@@ -613,7 +632,7 @@ async def ingest_planning_snapshot(
                         non_spatial_count += 1
                     observed_fields.update(str(key) for key in parsed.attributes)
                     observed_geometry = resolved_geometry_type
-                    if parsed.object_id not in expected_ids:
+                    if parsed.object_id not in expected_id_set:
                         extras.add(parsed.object_id)
                         continue
                     if parsed.object_id in completed:

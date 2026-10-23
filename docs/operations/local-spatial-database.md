@@ -1,7 +1,7 @@
 # Local parcel and planning snapshot database
 
 **Status:** Implemented; refreshed snapshots verified and active
-**Updated:** 2026-08-23
+**Updated:** 2026-10-23
 **Scope:** MCGM Development Plan 2034 Layer 13 plus the audited planning registry
 
 ## Purpose
@@ -19,21 +19,21 @@ The database is deliberately not committed to Git. Generated files under
 
 ## Verified source facts
 
-The active local build and immediate live recheck (2026-08-23) measured:
+The active local build and targeted update verification (2026-10-23) measured:
 
 | Measure | Count |
 | :--- | ---: |
-| Feature records in the source inventory | **135,345** |
-| Records with a non-empty CTS/CS number | **123,391** |
-| Records without a CTS/CS number | **11,954** |
-| Duplicate village/CTS identity groups | **3,050** |
-| Extra feature records in those groups beyond one each | **3,869** |
+| Feature records in the source inventory | **135,365** |
+| Records with a non-empty CTS/CS number | **123,414** |
+| Records without a CTS/CS number | **11,951** |
+| Duplicate village/CTS identity groups | **3,047** |
+| Extra feature records in those groups beyond one each | **3,866** |
 | Canonical planning layers | **52** |
-| Planning-layer records | **65,598** |
+| Planning-layer records | **65,624** |
 | Planning validation errors | **0** |
 | Planning source-geometry warnings | **3** |
 
-These are feature-record counts, not a claim that there are 135,345 unique
+These are feature-record counts, not a claim that there are 135,365 unique
 legal plots. A village/CTS identity can contain multiple source features and
 multipart geometry. The importer preserves those parts and the local lookup
 combines all matching source features. Counts are re-measured on every build;
@@ -41,8 +41,8 @@ the figures above must not be treated as a permanent constant.
 
 The three planning warnings are official Designation records 1158, 1159 and
 4817 with empty source rings. They remain complete inventory records but cannot
-produce a spatial intersection. The local file is currently about 2.10 GiB
-because the former immutable snapshots are retained for rollback; active-record
+produce a spatial intersection. The local file retains former immutable
+snapshots for rollback; active-record
 counts above exclude the inactive copies.
 
 ## What is implemented
@@ -241,8 +241,8 @@ response.
 
 ## Storage and later work
 
-The combined database is about 2.10 GiB while both the 2026-08-21 rollback
-snapshots and the 2026-08-23 active snapshots are retained. It contains the
+The combined database retains earlier snapshots alongside the 2026-10-23
+active parcel snapshot 3 and planning snapshot 5. It contains the
 complete parcel and planning archives, canonical raw source features,
 query-ready attributes, exact geometry and spatial indexes. The application
 does not currently publish or host the database online. A future storage

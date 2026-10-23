@@ -20,6 +20,7 @@ from dp_lookup.application.planning_snapshot import (
     ingest_planning_snapshot,
     planning_registry_hash,
 )
+from dp_lookup.application.upstream_check import check_database_upstream
 from dp_lookup.clients.transport import ArcGISClient, RetryPolicy
 from dp_lookup.core.constants import SERVER_URL
 from dp_lookup.planning_evidence.models import LayerSpec
@@ -104,11 +105,16 @@ class LocalPlanningDatabaseServices:
 
     importer: PlanningImporter = ingest_planning_snapshot
     client_factory: Callable[[], AsyncClientContext] = _default_client_factory
+    upstream_checker: Callable[[Any, Path], Awaitable[Mapping[str, Any]]] = check_database_upstream
 
     def build_planning(self, database: Path, options: Mapping[str, Any]) -> Mapping[str, Any]:
         return asyncio.run(self._build(database, options))
 
     async def _build(self, database: Path, options: Mapping[str, Any]) -> Mapping[str, Any]:
+        if options.get("layer_ids") is not None:
+            from dp_lookup.application.incremental_planning import build_incremental_planning
+
+            return await build_incremental_planning(self, database, options)
         selected_specs = canonical_planning_specs()
         registry_hash = planning_registry_hash(selected_specs)
         configured = options.get("config")

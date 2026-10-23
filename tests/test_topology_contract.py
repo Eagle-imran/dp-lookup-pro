@@ -48,6 +48,26 @@ def test_arcgis_rings_reject_degenerate_input_without_crashing():
     assert geometry.is_empty
 
 
+def test_overlapping_parts_are_unioned_without_becoming_a_false_hole():
+    first = [[0, 0], [20, 0], [20, 10], [0, 10], [0, 0]]
+    second = [[10, 0], [25, 0], [25, 10], [10, 10], [10, 0]]
+
+    geometry = arcgis_rings_to_geometry([first, second])
+
+    assert geometry.is_valid
+    assert geometry.area == pytest.approx(250.0)
+    assert geometry.geom_type == "Polygon"
+    assert len(geometry.interiors) == 0
+
+
+def test_edge_sharing_parts_form_a_valid_union():
+    first = [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]
+    second = [[10, 0], [20, 0], [20, 10], [10, 10], [10, 0]]
+    geometry = arcgis_rings_to_geometry([first, second])
+    assert geometry.is_valid
+    assert geometry.area == pytest.approx(200.0)
+
+
 def test_geojson_preserves_multipart_geometry(tmp_path):
     first = [[72.8, 19.0], [72.81, 19.0], [72.81, 19.01], [72.8, 19.01], [72.8, 19.0]]
     second = [[72.82, 19.0], [72.83, 19.0], [72.83, 19.01], [72.82, 19.01], [72.82, 19.0]]

@@ -8,8 +8,8 @@ source.
 
 Plot intelligence turns the immutable parcel and planning archives into one
 query-ready record per unique `VILLAGE + CTS_CS_NO` identity. The active MCGM
-cadastral parcel archive currently contains 135,345 source features representing
-119,522 queryable village/CTS identities. Multipart source features are
+cadastral parcel archive currently contains 135,365 source features representing
+119,548 queryable village/CTS identities. Multipart source features are
 combined; they are not counted as separate plots. The technical ArcGIS
 provenance is retained as Development Plan Layer 13.
 
@@ -35,15 +35,21 @@ analyze / search / compare
 Source snapshots are never changed by intelligence generation. An intelligence
 build is tied to exactly one finalized parcel snapshot, one finalized planning
 snapshot, the authority-registry revision, a source fingerprint and
-`plot-intelligence/1.3.0`. Re-running a
+`plot-intelligence/1.4.0`. Re-running a
 matching interrupted build resumes completed identities. Publishing switches an
 active pointer; it never edits an earlier build.
+
+Resumption also requires the same selected range, evidence mode and neighbour
+option. Activation and default queries require current source, authority and
+algorithm fingerprints. Use an explicit `--build-id` to inspect a historical
+build without treating it as current. An authority change during derivation
+fails the build so mixed source selections cannot be published.
 
 Normal plot lookup reads the source snapshots directly; it does not query this
 derived build or require intelligence activation. The retained validation build
 6 is a 25-identity sample using parcel snapshot 1, planning snapshot 2 and
 algorithm 1.1.0. It cannot be activated. The active source baseline is now parcel
-snapshot 2 and planning snapshot 3; a fresh full build with the current algorithm
+snapshot 3 and planning snapshot 5; a fresh full build with the current algorithm
 is required for citywide search.
 
 ## Stored facts
@@ -143,6 +149,13 @@ check cannot provide that guarantee and is therefore not treated as sufficient
 publication evidence.
 
 ## Current performance note
+
+The 2026-10-23 development pass measured 1,000 full-evidence identities in
+32.107 seconds with one worker, versus 41.383 seconds with four. The default is
+now one worker; `--workers` remains available. A bounded, snapshot-scoped
+planning cache reuses source geometries without changing archived records.
+See [development status](../project/development-status.md) for the measured
+scope and publication progress.
 
 Single-record analysis and structured searches are fast once a build exists.
 The first full build performs exact intersections against the complete evidence

@@ -24,6 +24,8 @@ plain-English [quick start](../START-HERE.md) to run a lookup, or the main
 
 - [Changelog](project/changelog.md) records shipped and unreleased changes.
 - [Roadmap](project/roadmap.md) separates future work from current capability.
+- [Development status](project/development-status.md) tracks the current branch,
+  validation and remaining plot-intelligence activation work.
 - [Engineering history](project/engineering-history.md) retains older technical
   context; current contracts live in the architecture and operations sections.
 - [Decisions](decisions/README.md) contains dated design proposals and decisions.
