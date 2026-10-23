@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Mapping, Optional, Tuple
 
-ALGORITHM_VERSION = "plot-intelligence/1.3.0"
+ALGORITHM_VERSION = "plot-intelligence/1.4.0"
 
 
 @dataclass(frozen=True)

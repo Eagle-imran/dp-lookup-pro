@@ -35,7 +35,7 @@ def test_cache_path_canonicalizes_aliases(tmp_path):
     assert cache.cache_path_for(str(output)) == cache.cache_path_for(str(alias))
 
 
-def test_new_writes_include_metadata_and_legacy_timestamped_entries_remain_readable(tmp_path):
+def test_new_writes_include_metadata_and_old_analysis_entries_are_not_replayed(tmp_path):
     cache._STORES.clear()
     output = str(tmp_path)
     cache.write_cache_entry(output, "NEW", _result(tmp_path, "new.pdf"))
@@ -54,7 +54,14 @@ def test_new_writes_include_metadata_and_legacy_timestamped_entries_remain_reada
     with open(cache.cache_path_for(output), "w", encoding="utf-8") as handle:
         json.dump(payload, handle)
     cache._STORES.clear()
-    assert cache.read_cache_entry(output, "OLD", ttl_seconds=-1) is not None
+    assert cache.read_cache_entry(output, "OLD", ttl_seconds=-1) is None
+    assert (tmp_path / "legacy.pdf").is_file()
+
+    payload["OLD"]["cache_schema_version"] = 1
+    with open(cache.cache_path_for(output), "w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+    cache._STORES.clear()
+    assert cache.read_cache_entry(output, "OLD", ttl_seconds=-1) is None
 
 
 def test_known_incompatible_entry_schema_is_not_served(tmp_path):

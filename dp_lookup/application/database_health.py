@@ -12,6 +12,7 @@ from urllib.parse import unquote, urlparse
 
 from dp_lookup.application.planning_snapshot import canonical_planning_specs, planning_registry_hash
 from dp_lookup.intelligence.models import ALGORITHM_VERSION
+from dp_lookup.intelligence.provenance import source_fingerprint
 from dp_lookup.intelligence.store import SCHEMA_VERSION as INTELLIGENCE_SCHEMA_VERSION
 from dp_lookup.planning_snapshot.store import SCHEMA_VERSION as PLANNING_SCHEMA_VERSION
 from dp_lookup.spatial_store.store import SCHEMA_VERSION as PARCEL_SCHEMA_VERSION
@@ -451,6 +452,31 @@ def _intelligence_health(
     complete = record_count == int(active["expected_count"]) and record_count == int(active["record_count"])
     full_build = str(active["scope"]) == "full"
     current_algorithm = str(active["algorithm_version"]) == ALGORITHM_VERSION
+    fingerprint_current = False
+    if parcel_snapshot_id is not None and planning_snapshot_id is not None:
+        parcel_row = connection.execute(
+            "SELECT metadata_json FROM snapshots WHERE snapshot_id=?", (parcel_snapshot_id,)
+        ).fetchone()
+        planning_row = connection.execute(
+            "SELECT content_hash FROM planning_snapshots WHERE snapshot_id=?", (planning_snapshot_id,)
+        ).fetchone()
+        authority_revision = None
+        if {"authority_events", "authority_selections"}.issubset(tables):
+            authority_revision = int(
+                connection.execute(
+                    "SELECT MAX(revision) FROM (SELECT COALESCE(MAX(event_id),0) revision FROM authority_events "
+                    "UNION ALL SELECT COALESCE(MAX(selection_id),0) FROM authority_selections)"
+                ).fetchone()[0]
+                or 0
+            )
+        if parcel_row is not None and planning_row is not None:
+            fingerprint_current = str(active["source_fingerprint"]) == source_fingerprint(
+                parcel_snapshot_id,
+                _loads(parcel_row[0], {}),
+                planning_snapshot_id,
+                str(planning_row[0]),
+                authority_revision,
+            )
     if not aligned:
         _finding(
             findings,
@@ -472,6 +498,13 @@ def _intelligence_health(
             "attention",
             "intelligence_algorithm_stale",
             f"Plot intelligence uses {active['algorithm_version']}; current is {ALGORITHM_VERSION}",
+        )
+    if not fingerprint_current:
+        _finding(
+            findings,
+            "attention",
+            "intelligence_fingerprint_stale",
+            "Active plot intelligence has an outdated source, authority or algorithm fingerprint",
         )
 
     discrepancy = {"comparable_count": 0, "over_2_percent": 0, "over_5_percent": 0, "over_10_percent": 0}
@@ -497,7 +530,11 @@ def _intelligence_health(
     return _section(
         "critical"
         if not complete or schema_version != INTELLIGENCE_SCHEMA_VERSION
-        else ("attention" if not aligned or not full_build or not current_algorithm else "healthy"),
+        else (
+            "attention"
+            if not aligned or not full_build or not current_algorithm or not fingerprint_current
+            else "healthy"
+        ),
         configured=True,
         schema_version=schema_version,
         active_build_id=build_id,
@@ -508,7 +545,8 @@ def _intelligence_health(
         expected_record_count=int(active["expected_count"]),
         parcel_snapshot_id=int(active["parcel_snapshot_id"]),
         planning_snapshot_id=int(active["planning_snapshot_id"]),
-        source_alignment=aligned,
+        source_alignment=aligned and current_algorithm and fingerprint_current,
+        fingerprint_current=fingerprint_current,
         area_discrepancy=discrepancy,
     )
 

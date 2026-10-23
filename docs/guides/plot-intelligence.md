@@ -35,9 +35,15 @@ analyze / search / compare
 Source snapshots are never changed by intelligence generation. An intelligence
 build is tied to exactly one finalized parcel snapshot, one finalized planning
 snapshot, the authority-registry revision, a source fingerprint and
-`plot-intelligence/1.3.0`. Re-running a
+`plot-intelligence/1.4.0`. Re-running a
 matching interrupted build resumes completed identities. Publishing switches an
 active pointer; it never edits an earlier build.
+
+Resumption also requires the same selected range, evidence mode and neighbour
+option. Activation and default queries require current source, authority and
+algorithm fingerprints. Use an explicit `--build-id` to inspect a historical
+build without treating it as current. An authority change during derivation
+fails the build so mixed source selections cannot be published.
 
 Normal plot lookup reads the source snapshots directly; it does not query this
 derived build or require intelligence activation. The retained validation build
@@ -143,6 +149,13 @@ check cannot provide that guarantee and is therefore not treated as sufficient
 publication evidence.
 
 ## Current performance note
+
+The 2026-10-23 development pass measured 1,000 full-evidence identities in
+32.107 seconds with one worker, versus 41.383 seconds with four. The default is
+now one worker; `--workers` remains available. A bounded, snapshot-scoped
+planning cache reuses source geometries without changing archived records.
+See [development status](../project/development-status.md) for the measured
+scope and publication progress.
 
 Single-record analysis and structured searches are fast once a build exists.
 The first full build performs exact intersections against the complete evidence

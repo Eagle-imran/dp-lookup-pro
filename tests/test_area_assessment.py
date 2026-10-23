@@ -139,6 +139,20 @@ def test_disconnected_multipart_boundary_is_flagged_as_fragmented() -> None:
     assert assessment.reliability_status is ReliabilityStatus.QUALIFIED_WITH_WARNINGS
 
 
+def test_overlapping_source_parts_keep_coordinates_and_report_repaired_ground_area() -> None:
+    rings = _square()
+    rings.extend(_square(x=8_106_505.0))
+    original = deepcopy(rings)
+
+    assessment = assess_plot_area(_attrs(150.0), rings)
+
+    assert rings == original
+    assert assessment.calculated_boundary_area_sqm is not None
+    assert "source_geometry_invalid" in _flag_codes(assessment)
+    assert "boundary_area_unavailable" not in _flag_codes(assessment)
+    assert "topology repaired for analysis only" in assessment.calculation_method
+
+
 def test_conflicting_recorded_areas_are_not_silently_selected() -> None:
     assessment = assess_plot_area(
         _attrs(100.0, _DP_AREA_CONFLICT_VALUES=[100.0, 200.0]),

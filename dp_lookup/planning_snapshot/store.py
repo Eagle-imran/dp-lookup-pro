@@ -36,6 +36,16 @@ class PlanningSnapshotStore:
         self.connection = connection
         self.path = Path(path)
         self._rtree_available = False
+        self._query_repository: Optional[PlanningFeatureQuery] = None
+
+    def _queries(self) -> PlanningFeatureQuery:
+        if self._query_repository is None:
+            self._query_repository = PlanningFeatureQuery(
+                self.connection,
+                rtree_available=self._rtree_available,
+                active_snapshot_id=self.active_snapshot_id,
+            )
+        return self._query_repository
 
     @classmethod
     def open(cls, path: Union[str, Path]) -> "PlanningSnapshotStore":
@@ -70,6 +80,8 @@ class PlanningSnapshotStore:
         return self._rtree_available
 
     def close(self) -> None:
+        if self._query_repository is not None:
+            self._query_repository.clear_runtime_cache()
         self.connection.close()
 
     def __enter__(self) -> "PlanningSnapshotStore":
@@ -324,11 +336,7 @@ class PlanningSnapshotStore:
         snapshot_id: Optional[int],
         include_archive_payload: bool,
     ) -> List[Dict[str, Any]]:
-        return PlanningFeatureQuery(
-            self.connection,
-            rtree_available=self._rtree_available,
-            active_snapshot_id=self.active_snapshot_id,
-        ).features_in_bbox(
+        return self._queries().features_in_bbox(
             layer_id,
             min_x,
             max_x,
@@ -364,11 +372,7 @@ class PlanningSnapshotStore:
     parcels_in_bbox = features_in_bbox
 
     def query_layer(self, snapshot_id: int, layer_id: int, parcel_geometry: Any) -> List[Dict[str, Any]]:
-        return PlanningFeatureQuery(
-            self.connection,
-            rtree_available=self._rtree_available,
-            active_snapshot_id=self.active_snapshot_id,
-        ).query_layer(snapshot_id, layer_id, parcel_geometry)
+        return self._queries().query_layer(snapshot_id, layer_id, parcel_geometry)
 
     records_intersecting = query_layer
 

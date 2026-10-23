@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, List, Mapping, Optional, Sequence, Tuple
 
 from shapely.geometry import LineString, MultiLineString
+from shapely.geometry.base import BaseGeometry
 
 from dp_lookup.application.contracts import ParcelContext, RoadContext
 from dp_lookup.core.constants import GENERIC_ROAD_NAMES
@@ -113,12 +114,14 @@ class LocalRoadProvider:
         *,
         search_distance_m: float = 30.0,
         snapshot_id: Optional[int] = None,
+        include_geometry: bool = True,
     ) -> None:
         if search_distance_m <= 0:
             raise ValueError("search_distance_m must be positive")
         self.store = store
         self.search_distance_m = float(search_distance_m)
         self.snapshot_id = snapshot_id
+        self.include_geometry = include_geometry
 
     def __call__(self, parcel: ParcelContext) -> Optional[RoadContext]:
         if parcel.attrs.get("_DP_PARCEL_SOURCE") != "local_snapshot":
@@ -148,7 +151,9 @@ class LocalRoadProvider:
                 snapshot_id=snapshot_id,
             )
             for row in rows:
-                source = _source_geometry(row.get("geometry"))
+                source = row.get("_dp_runtime_geometry")
+                if not isinstance(source, BaseGeometry):
+                    source = _source_geometry(row.get("geometry"))
                 if source is None or source.is_empty:
                     continue
                 distance = float(subject.distance(source))
@@ -165,7 +170,7 @@ class LocalRoadProvider:
                         distance_m=distance,
                         name=name,
                         width=width,
-                        geometries=_wgs_parts(row.get("geometry")),
+                        geometries=_wgs_parts(row.get("geometry")) if self.include_geometry else [],
                     )
                 )
         if not candidates:

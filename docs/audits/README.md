@@ -9,5 +9,6 @@ Use `dp-lookup-pro db health` for current local database health and
 
 Current acceptance record:
 
+- [Repository and toolchain maintenance — 2026-10-23](REPOSITORY-MAINTENANCE-2026-10-23.md)
 - [Local-first acceptance and source baseline — 2026-08-23](LOCAL-FIRST-ACCEPTANCE-2026-08-23.md)
 - [Lookup performance and modularity pass — 2026-08-24](LOOKUP-PERFORMANCE-2026-08-24.md)

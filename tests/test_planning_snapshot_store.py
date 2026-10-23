@@ -12,6 +12,7 @@ from dp_lookup.planning_snapshot import (
     PlanningSnapshotValidationError,
     ingest_planning_snapshot,
 )
+from dp_lookup.planning_snapshot import query as query_module
 from dp_lookup.planning_snapshot import store as store_module
 
 
@@ -65,6 +66,33 @@ def test_alias_layer_is_canonically_deduplicated_and_conflicts_fail(tmp_path: Pa
         assert store.validate(sid)["layers"][0]["count"] == 1
         with pytest.raises(ValueError, match="conflicting duplicate"):
             store.insert_batch(sid, 61, [_feature(1, 9)])
+
+
+def test_runtime_geometry_is_reused_and_isolated_by_snapshot(tmp_path: Path, monkeypatch):
+    subject = arcgis_rings_to_geometry([[[-1, -1], [4, -1], [4, 4], [-1, 4], [-1, -1]]])
+    original = query_module.arcgis_rings_to_geometry
+    conversions = []
+
+    def counted(rings):
+        conversions.append(rings)
+        return original(rings)
+
+    with PlanningSnapshotStore.open(tmp_path / "cached.sqlite") as store:
+        first = ingest_planning_snapshot(store, {0: [_feature(1)]})
+        second = ingest_planning_snapshot(store, {0: [_feature(1, 2)]})
+        monkeypatch.setattr(query_module, "arcgis_rings_to_geometry", counted)
+        before = store.query_layer(first.snapshot_id, 0, subject)[0]
+        before["attributes"]["CATEGORY"] = "caller-local change"
+        again = store.query_layer(first.snapshot_id, 0, subject)[0]
+        after = store.query_layer(second.snapshot_id, 0, subject)[0]
+
+        assert len(conversions) == 2
+        assert again["attributes"]["CATEGORY"] == "A"
+        assert before["_dp_runtime_geometry"] is again["_dp_runtime_geometry"]
+        assert after["_dp_runtime_geometry"].bounds != before["_dp_runtime_geometry"].bounds
+        archived = store.features_in_bbox(0, -1, 4, -1, 4, snapshot_id=first.snapshot_id)[0]
+        assert archived["geometry"] == _feature(1)["geometry"]
+        assert archived["raw_feature"]["attributes"]["CATEGORY"] == "A"
 
 
 def test_incomplete_snapshot_cannot_finalize_or_activate(tmp_path: Path):

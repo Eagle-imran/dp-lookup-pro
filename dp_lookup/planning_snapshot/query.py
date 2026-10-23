@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from collections import OrderedDict
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
+
+from shapely.geometry import LineString, MultiLineString
+from shapely.geometry.base import BaseGeometry
 
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.planning_evidence.registry import canonical_layer_id
@@ -30,10 +34,53 @@ class PlanningFeatureQuery:
         *,
         rtree_available: bool,
         active_snapshot_id: Callable[[], Optional[int]],
+        runtime_cache_size: int = 512,
     ) -> None:
+        if runtime_cache_size < 0:
+            raise ValueError("runtime_cache_size must be non-negative")
         self.connection = connection
         self.rtree_available = rtree_available
         self.active_snapshot_id = active_snapshot_id
+        self.runtime_cache_size = runtime_cache_size
+        self._runtime_cache: OrderedDict[Tuple[int, int, int], Dict[str, Any]] = OrderedDict()
+
+    def clear_runtime_cache(self) -> None:
+        self._runtime_cache.clear()
+
+    def _runtime_feature(self, snapshot_id: int, layer_id: int, object_id: int) -> Dict[str, Any]:
+        key = (snapshot_id, layer_id, object_id)
+        if key not in self._runtime_cache:
+            row = self.connection.execute(
+                "SELECT object_id,attributes_json,geometry_json FROM planning_features "
+                "WHERE snapshot_id=? AND canonical_layer_id=? AND object_id=?",
+                key,
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"missing planning feature {key}")
+            geometry = None if row["geometry_json"] is None else json.loads(row["geometry_json"])
+            runtime: Optional[BaseGeometry] = None
+            if isinstance(geometry, Mapping):
+                rings = geometry.get("rings")
+                paths = geometry.get("paths")
+                if isinstance(rings, list) and rings:
+                    runtime = arcgis_rings_to_geometry(rings)
+                elif isinstance(paths, list) and paths:
+                    valid_paths = [path for path in paths if isinstance(path, list) and len(path) >= 2]
+                    if valid_paths:
+                        lines = [LineString(path) for path in valid_paths]
+                        runtime = lines[0] if len(lines) == 1 else MultiLineString(lines)
+            self._runtime_cache[key] = {
+                "object_id": object_id,
+                "attributes": json.loads(row["attributes_json"]),
+                "geometry": geometry,
+                _RUNTIME_GEOMETRY_KEY: runtime,
+            }
+        self._runtime_cache.move_to_end(key)
+        cached = self._runtime_cache[key]
+        result = {**cached, "attributes": dict(cached["attributes"])}
+        while len(self._runtime_cache) > self.runtime_cache_size:
+            self._runtime_cache.popitem(last=False)
+        return result
 
     def features_in_bbox(
         self,
@@ -50,7 +97,7 @@ class PlanningFeatureQuery:
         if sid is None:
             return []
         canonical_id = canonical_layer_id(layer_id)
-        selection = "f.*" if include_archive_payload else "f.object_id,f.attributes_json,f.geometry_json"
+        selection = "f.*" if include_archive_payload else "f.object_id"
         if self.rtree_available:
             rows = self.connection.execute(
                 f"SELECT {selection} FROM planning_feature_rtree r "
@@ -74,14 +121,7 @@ class PlanningFeatureQuery:
             )
         if include_archive_payload:
             return [feature_dict(row) for row in rows]
-        return [
-            {
-                "object_id": int(row["object_id"]),
-                "attributes": json.loads(row["attributes_json"]),
-                "geometry": None if row["geometry_json"] is None else json.loads(row["geometry_json"]),
-            }
-            for row in rows
-        ]
+        return [self._runtime_feature(sid, canonical_id, int(row["object_id"])) for row in rows]
 
     def query_layer(self, snapshot_id: int, layer_id: int, parcel_geometry: Any) -> List[Dict[str, Any]]:
         """Return exact intersections after an indexed bounding-box query."""
@@ -103,7 +143,9 @@ class PlanningFeatureQuery:
             rings = geometry.get("rings") if isinstance(geometry, Mapping) else None
             if not rings:
                 continue
-            polygon = arcgis_rings_to_geometry(rings)
+            polygon = candidate.get(_RUNTIME_GEOMETRY_KEY)
+            if not isinstance(polygon, BaseGeometry):
+                polygon = arcgis_rings_to_geometry(rings)
             if not polygon.is_empty and parcel_geometry.intersects(polygon):
                 # This object is an in-process acceleration only. The exact
                 # source rings remain the archived geometry and are still
