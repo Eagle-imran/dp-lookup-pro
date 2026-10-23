@@ -120,9 +120,7 @@ async def fetch_parcel_feature(client: Any, village: str, cts_no: str) -> Option
     return None
 
 
-def build_parcel_context(
-    feature: Dict[str, Any], village: str, cts_no: str
-) -> Tuple[ParcelContext, Optional[str]]:
+def build_parcel_context(feature: Dict[str, Any], village: str, cts_no: str) -> Tuple[ParcelContext, Optional[str]]:
     """Validate and normalize one Layer 13 feature into the stage contract."""
     try:
         attrs = dict(feature["attributes"])

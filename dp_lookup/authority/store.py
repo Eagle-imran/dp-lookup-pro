@@ -480,7 +480,7 @@ class AuthorityStore:
         records = tuple(self._record_from_row(cast(sqlite3.Row, row)) for row in rows)
         if purpose_value is not None:
             return records
-        return {str(row["purpose"]): record for row, record in zip(rows, records)}
+        return {str(row["purpose"]): record for row, record in zip(rows, records, strict=False)}
 
     def revision(self, village: Optional[str] = None, cts_no: Optional[str] = None) -> int:
         """Return a plot revision, or a monotonic global registry revision."""

@@ -196,9 +196,7 @@ def update_excel_register(
         )
         raw_active_record_ids = authority.get("active_record_ids")
         active_record_ids = (
-            "; ".join(str(value) for value in raw_active_record_ids)
-            if isinstance(raw_active_record_ids, list)
-            else ""
+            "; ".join(str(value) for value in raw_active_record_ids) if isinstance(raw_active_record_ids, list) else ""
         )
 
         excel_res_code = "; ".join(r["code"] for r in reservations) if reservations else res_code

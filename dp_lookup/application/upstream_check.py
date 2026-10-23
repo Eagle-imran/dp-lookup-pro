@@ -70,11 +70,7 @@ def metadata_contract(metadata: Mapping[str, Any]) -> Mapping[str, Any]:
         "geometry_type": metadata.get("geometryType"),
         "object_id_field": resolve_object_id_field(metadata),
         "source_spatial_reference": metadata.get("sourceSpatialReference") or metadata.get("spatialReference"),
-        "fields": [
-            _field_contract(item)
-            for item in fields
-            if isinstance(item, Mapping)
-        ]
+        "fields": [_field_contract(item) for item in fields if isinstance(item, Mapping)]
         if isinstance(fields, list)
         else [],
     }
@@ -211,8 +207,7 @@ def _local_edit_max(
         ).fetchone()
     else:
         row = connection.execute(
-            f"SELECT MAX(json_extract({json_column},?)) FROM {table} "
-            "WHERE snapshot_id=? AND canonical_layer_id=?",
+            f"SELECT MAX(json_extract({json_column},?)) FROM {table} WHERE snapshot_id=? AND canonical_layer_id=?",
             (path, snapshot_id, layer_id),
         ).fetchone()
     return _normalized_signal(row[0]) if row and row[0] is not None else None
@@ -220,8 +215,7 @@ def _local_edit_max(
 
 def _local_parcel_baseline(connection: sqlite3.Connection) -> Optional[Dict[str, Any]]:
     row = connection.execute(
-        "SELECT snapshot_id,source,metadata_json FROM snapshots WHERE state='active' "
-        "ORDER BY snapshot_id DESC LIMIT 1"
+        "SELECT snapshot_id,source,metadata_json FROM snapshots WHERE state='active' ORDER BY snapshot_id DESC LIMIT 1"
     ).fetchone()
     if row is None:
         return None
@@ -363,7 +357,9 @@ async def check_database_upstream(client: Any, database: Path) -> Dict[str, Any]
         parcel_local = _local_parcel_baseline(connection)
         planning_local = (
             _local_planning_baselines(connection)
-            if {"planning_snapshots", "planning_layers", "planning_layer_inventory", "planning_features"}.issubset(tables)
+            if {"planning_snapshots", "planning_layers", "planning_layer_inventory", "planning_features"}.issubset(
+                tables
+            )
             else ()
         )
     finally:

@@ -31,10 +31,7 @@ def _connect_read_only(path: Path) -> sqlite3.Connection:
 
 
 def _tables(connection: sqlite3.Connection) -> set[str]:
-    return {
-        str(row[0])
-        for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    }
+    return {str(row[0]) for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
 
 
 def _loads(value: Any, default: Any) -> Any:
@@ -112,7 +109,12 @@ def _parcel_health(
     active_pointer_row = connection.execute("SELECT value FROM meta WHERE key='active_snapshot_id'").fetchone()
     active_pointer = int(active_pointer_row[0]) if active_pointer_row else None
     if schema_version != PARCEL_SCHEMA_VERSION:
-        _finding(findings, "critical", "parcel_schema_version", f"Parcel schema is {schema_version}; expected {PARCEL_SCHEMA_VERSION}")
+        _finding(
+            findings,
+            "critical",
+            "parcel_schema_version",
+            f"Parcel schema is {schema_version}; expected {PARCEL_SCHEMA_VERSION}",
+        )
     if active_row is None:
         _finding(findings, "critical", "parcel_snapshot_inactive", "No active parcel snapshot is available")
         return _section(
@@ -124,13 +126,9 @@ def _parcel_health(
 
     snapshot_id = int(active_row["snapshot_id"])
     expected = active_row["expected_count"]
-    received = int(
-        connection.execute("SELECT COUNT(*) FROM parcels WHERE snapshot_id=?", (snapshot_id,)).fetchone()[0]
-    )
+    received = int(connection.execute("SELECT COUNT(*) FROM parcels WHERE snapshot_id=?", (snapshot_id,)).fetchone()[0])
     inventory = int(
-        connection.execute(
-            "SELECT COUNT(*) FROM snapshot_inventory WHERE snapshot_id=?", (snapshot_id,)
-        ).fetchone()[0]
+        connection.execute("SELECT COUNT(*) FROM snapshot_inventory WHERE snapshot_id=?", (snapshot_id,)).fetchone()[0]
     )
     missing_inventory = int(
         connection.execute(
@@ -160,8 +158,7 @@ def _parcel_health(
     )
     missing_recorded_area = int(
         connection.execute(
-            "SELECT COUNT(*) FROM parcels WHERE snapshot_id=? AND "
-            "(area_app_sqm IS NULL OR area_app_sqm<=0)",
+            "SELECT COUNT(*) FROM parcels WHERE snapshot_id=? AND (area_app_sqm IS NULL OR area_app_sqm<=0)",
             (snapshot_id,),
         ).fetchone()[0]
     )
@@ -193,17 +190,47 @@ def _parcel_health(
     )
     attention = bool(missing_identity or duplicate_identity_groups or (age is not None and age >= 183.0))
     if critical:
-        _finding(findings, "critical", "parcel_snapshot_invalid", "The active parcel snapshot failed completeness or geometry checks")
+        _finding(
+            findings,
+            "critical",
+            "parcel_snapshot_invalid",
+            "The active parcel snapshot failed completeness or geometry checks",
+        )
     if not pointer_valid:
-        _finding(findings, "critical", "parcel_active_pointer_invalid", "The parcel active-snapshot pointer does not match the active row")
+        _finding(
+            findings,
+            "critical",
+            "parcel_active_pointer_invalid",
+            "The parcel active-snapshot pointer does not match the active row",
+        )
     if active_count != 1:
-        _finding(findings, "critical", "parcel_active_count_invalid", f"Expected one active parcel snapshot; found {active_count}")
+        _finding(
+            findings,
+            "critical",
+            "parcel_active_count_invalid",
+            f"Expected one active parcel snapshot; found {active_count}",
+        )
     if missing_identity:
-        _finding(findings, "attention", "parcel_identity_missing", f"{missing_identity} parcel feature(s) have no complete village/CTS identity")
+        _finding(
+            findings,
+            "attention",
+            "parcel_identity_missing",
+            f"{missing_identity} parcel feature(s) have no complete village/CTS identity",
+        )
     if duplicate_identity_groups:
-        _finding(findings, "attention", "parcel_identity_multiple", f"{duplicate_identity_groups} village/CTS identities contain multiple source features; these may be valid parcel parts and require review")
+        _finding(
+            findings,
+            "attention",
+            "parcel_identity_multiple",
+            f"{duplicate_identity_groups} village/CTS identities contain multiple source features; these may be valid parcel parts and require review",
+        )
     if age is not None and age >= 183.0:
-        _finding(findings, "attention", "parcel_snapshot_due", f"The parcel snapshot is {age:.1f} days old and is due for an upstream check")
+        _finding(
+            findings,
+            "attention",
+            "parcel_snapshot_due",
+            f"The parcel snapshot is {age:.1f} days old and is due for an upstream check",
+        )
     status = "critical" if critical else ("attention" if attention else "healthy")
     return _section(
         status,
@@ -237,15 +264,19 @@ def _planning_health(
     checked_at: datetime,
     findings: list[Dict[str, str]],
 ) -> Dict[str, Any]:
-    required = {"planning_meta", "planning_snapshots", "planning_layers", "planning_features", "planning_layer_inventory"}
+    required = {
+        "planning_meta",
+        "planning_snapshots",
+        "planning_layers",
+        "planning_features",
+        "planning_layer_inventory",
+    }
     if not required.issubset(tables):
         _finding(findings, "attention", "planning_schema_missing", "Planning snapshot tables are not configured")
         return _section("attention", configured=False, active_snapshot_id=None)
     schema_row = connection.execute("SELECT value FROM planning_meta WHERE key='schema_version'").fetchone()
     schema_version = int(schema_row[0]) if schema_row and str(schema_row[0]).isdigit() else None
-    active_count = int(
-        connection.execute("SELECT COUNT(*) FROM planning_snapshots WHERE state='active'").fetchone()[0]
-    )
+    active_count = int(connection.execute("SELECT COUNT(*) FROM planning_snapshots WHERE state='active'").fetchone()[0])
     active = connection.execute(
         "SELECT * FROM planning_snapshots WHERE state='active' ORDER BY version DESC LIMIT 1"
     ).fetchone()
@@ -282,9 +313,7 @@ def _planning_health(
         ).fetchone()[0]
     )
     feature_count = int(
-        connection.execute(
-            "SELECT COUNT(*) FROM planning_features WHERE snapshot_id=?", (snapshot_id,)
-        ).fetchone()[0]
+        connection.execute("SELECT COUNT(*) FROM planning_features WHERE snapshot_id=?", (snapshot_id,)).fetchone()[0]
     )
     missing_inventory = int(
         connection.execute(
@@ -322,17 +351,47 @@ def _planning_health(
     if critical:
         _finding(findings, "critical", "planning_snapshot_invalid", "The active planning snapshot is incomplete")
     if active_count != 1:
-        _finding(findings, "critical", "planning_active_count_invalid", f"Expected one active planning snapshot; found {active_count}")
+        _finding(
+            findings,
+            "critical",
+            "planning_active_count_invalid",
+            f"Expected one active planning snapshot; found {active_count}",
+        )
     if missing_geometry:
-        _finding(findings, "attention", "planning_geometry_missing", f"{missing_geometry} planning feature(s) have no source geometry")
+        _finding(
+            findings,
+            "attention",
+            "planning_geometry_missing",
+            f"{missing_geometry} planning feature(s) have no source geometry",
+        )
     if missing_layer_ids:
-        _finding(findings, "critical", "planning_layers_missing", f"Required planning layers are missing: {missing_layer_ids}")
+        _finding(
+            findings,
+            "critical",
+            "planning_layers_missing",
+            f"Required planning layers are missing: {missing_layer_ids}",
+        )
     if stored_registry_hash != expected_registry_hash:
-        _finding(findings, "critical", "planning_registry_changed", "The active planning snapshot does not match the current canonical layer registry")
+        _finding(
+            findings,
+            "critical",
+            "planning_registry_changed",
+            "The active planning snapshot does not match the current canonical layer registry",
+        )
     if validation_warnings:
-        _finding(findings, "attention", "planning_validation_warning", f"The active planning snapshot retains {len(validation_warnings)} source geometry warning(s)")
+        _finding(
+            findings,
+            "attention",
+            "planning_validation_warning",
+            f"The active planning snapshot retains {len(validation_warnings)} source geometry warning(s)",
+        )
     if age is not None and age >= 183.0:
-        _finding(findings, "attention", "planning_snapshot_due", f"The planning snapshot is {age:.1f} days old and is due for an upstream check")
+        _finding(
+            findings,
+            "attention",
+            "planning_snapshot_due",
+            f"The planning snapshot is {age:.1f} days old and is due for an upstream check",
+        )
     return _section(
         "critical" if critical else ("attention" if attention else "healthy"),
         configured=True,
@@ -393,13 +452,27 @@ def _intelligence_health(
     full_build = str(active["scope"]) == "full"
     current_algorithm = str(active["algorithm_version"]) == ALGORITHM_VERSION
     if not aligned:
-        _finding(findings, "attention", "intelligence_stale", "Active plot intelligence does not match the active source snapshots")
+        _finding(
+            findings,
+            "attention",
+            "intelligence_stale",
+            "Active plot intelligence does not match the active source snapshots",
+        )
     if not complete:
-        _finding(findings, "critical", "intelligence_incomplete", "Active plot intelligence has an incomplete record set")
+        _finding(
+            findings, "critical", "intelligence_incomplete", "Active plot intelligence has an incomplete record set"
+        )
     if not full_build:
-        _finding(findings, "attention", "intelligence_sample_only", "The active plot-intelligence build covers only a sample")
+        _finding(
+            findings, "attention", "intelligence_sample_only", "The active plot-intelligence build covers only a sample"
+        )
     if not current_algorithm:
-        _finding(findings, "attention", "intelligence_algorithm_stale", f"Plot intelligence uses {active['algorithm_version']}; current is {ALGORITHM_VERSION}")
+        _finding(
+            findings,
+            "attention",
+            "intelligence_algorithm_stale",
+            f"Plot intelligence uses {active['algorithm_version']}; current is {ALGORITHM_VERSION}",
+        )
 
     discrepancy = {"comparable_count": 0, "over_2_percent": 0, "over_5_percent": 0, "over_10_percent": 0}
     try:
@@ -462,9 +535,7 @@ def _enrichment_health(
         for row in connection.execute("SELECT status,COUNT(*) FROM authority_records GROUP BY status")
     }
     record_count = sum(status_counts.values())
-    active_count = int(
-        connection.execute("SELECT COUNT(*) FROM authority_selections WHERE active=1").fetchone()[0]
-    )
+    active_count = int(connection.execute("SELECT COUNT(*) FROM authority_selections WHERE active=1").fetchone()[0])
     invalid_checksums = int(
         connection.execute(
             "SELECT COUNT(*) FROM authority_records WHERE length(source_sha256)!=64 OR length(record_checksum)!=64"
@@ -483,11 +554,23 @@ def _enrichment_health(
             missing_files += 1
     bad = bool(invalid_checksums or invalid_active or missing_files)
     if invalid_checksums:
-        _finding(findings, "critical", "enrichment_checksum_invalid", f"{invalid_checksums} enrichment record(s) have malformed checksums")
+        _finding(
+            findings,
+            "critical",
+            "enrichment_checksum_invalid",
+            f"{invalid_checksums} enrichment record(s) have malformed checksums",
+        )
     if invalid_active:
-        _finding(findings, "critical", "enrichment_selection_invalid", f"{invalid_active} active enrichment selection(s) are invalid")
+        _finding(
+            findings,
+            "critical",
+            "enrichment_selection_invalid",
+            f"{invalid_active} active enrichment selection(s) are invalid",
+        )
     if missing_files:
-        _finding(findings, "attention", "enrichment_file_missing", f"{missing_files} local enrichment file(s) are missing")
+        _finding(
+            findings, "attention", "enrichment_file_missing", f"{missing_files} local enrichment file(s) are missing"
+        )
     return _section(
         "critical" if invalid_checksums or invalid_active else ("attention" if missing_files else "healthy"),
         configured=True,
@@ -542,9 +625,7 @@ def database_health(database: Path, *, checked_at: Optional[datetime] = None) ->
             "database_size_bytes": path.stat().st_size,
             "summary": {"critical": 1, "attention": 0, "healthy": 0, "not_configured": 0},
             "checks": {},
-            "findings": [
-                {"severity": "critical", "code": "database_unreadable", "message": str(exc)}
-            ],
+            "findings": [{"severity": "critical", "code": "database_unreadable", "message": str(exc)}],
         }
     checks = {
         "sqlite": sqlite_health,
@@ -561,7 +642,9 @@ def database_health(database: Path, *, checked_at: Optional[datetime] = None) ->
         "checked_at": timestamp.isoformat(),
         "database": str(path),
         "database_size_bytes": path.stat().st_size,
-        "wal_size_bytes": path.with_name(path.name + "-wal").stat().st_size if path.with_name(path.name + "-wal").is_file() else 0,
+        "wal_size_bytes": path.with_name(path.name + "-wal").stat().st_size
+        if path.with_name(path.name + "-wal").is_file()
+        else 0,
         "summary": summary,
         "checks": checks,
         "findings": findings,

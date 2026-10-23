@@ -208,7 +208,7 @@ def export_dxf(
     setback_status = {}
     setback_layers = ("C-SETBACK-3M", "C-SETBACK-6M")
     for spec_layer, spec_dist, marker_offset in zip(
-        setback_layers, layout_policy.setback_distances, layout_policy.setback_marker_offsets
+        setback_layers, layout_policy.setback_distances, layout_policy.setback_marker_offsets, strict=False
     ):
         drawn = 0
         for loc_ring in local_rings:

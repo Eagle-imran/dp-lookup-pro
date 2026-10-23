@@ -3,13 +3,14 @@ name = "dp-lookup-pro"
 version = "3.14.0"
 description = "MCGM SDP 2014-34 DP Lookup Tool with PDF Reports, HD Maps, Satellite Aerial Views, GIS CAD Exports, and High-Speed Async Batching"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = { file = "LICENSE" }
 dependencies = [
     "httpx>=0.28.0",
-    # ImageDraw.text(font_size=...) is used for the map legend and north arrow.
-    # That keyword arrived in Pillow 10.1.0, so 10.0.x would crash at render time.
-    "pillow>=10.1.0",
+    # Pillow 13 fixes the image-decoder advisories affecting older releases.
+    "pillow>=13.0.0",
+    # Keep the TLS trust-store fix even when installing without uv.lock.
+    "certifi>=2026.10.19",
     "openpyxl>=3.1.0",
     "reportlab>=4.0.0",
     "qrcode>=7.4.0",
@@ -19,18 +20,18 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0.0",
-    "matplotlib>=3.8.0",  # matplotlib powers tools/render_dxf.py
-    "mypy>=1.13.0,<1.18.0",
-    "pip-audit>=2.7.3",
-    "pytest-cov>=6.0.0",
+    "pytest>=9.1.1",
+    "matplotlib>=3.11.2",  # matplotlib powers tools/render_dxf.py
+    "mypy>=2.4.0,<3",
+    "pip-audit>=2.10.1",
+    "pytest-cov>=7.1.0",
 ]
 
 [project.scripts]
 dp-lookup-pro = "dp_lookup.cli:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.32.4"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
@@ -53,14 +54,14 @@ include = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py39"
+target-version = "py311"
 exclude = [".venv", "output", "docs"]
 
 [tool.ruff.lint]
 # Chosen for defects, not style. Deliberately excluded:
 #   UP/FA  - Dict->dict modernisation and __future__ annotations. Pure churn
 #            across 17 sites with no behaviour change, and the project still
-#            declares support back to 3.9.
+#            uses explicit compatibility-facing annotations.
 #   DTZ    - naive datetimes. These are local report timestamps shown to a
 #            human in one city; timezone-aware would add noise, not safety.
 #   S110   - try/except/pass. Several are deliberate (optional ezdxf linetypes);
@@ -72,9 +73,8 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# ezdxf 1.4.2 is the last Python 3.9-compatible release and still calls
-# pyparsing's compatibility aliases. Keep project/runtime warnings visible
-# while suppressing only that upstream deprecation class on the oldest matrix.
+# Keep project/runtime warnings visible while suppressing ezdxf's upstream
+# pyparsing compatibility-alias deprecations.
 filterwarnings = ["ignore::pyparsing.exceptions.PyparsingDeprecationWarning"]
 
 [tool.coverage.run]
@@ -89,10 +89,10 @@ skip_covered = true
 [tool.mypy]
 # Strict checking covers the complete production package. Third-party modules
 # without inline typing are ignored explicitly below; project code is not.
-python_version = "3.9"
+python_version = "3.11"
 strict = true
-# The selected modules are checked strictly; avoid recursively turning the
-# package's legacy facade and third-party rendering stack into this boundary.
+# Named third-party rendering packages below remain outside the strict
+# checking boundary; project code is not excluded.
 follow_imports = "skip"
 files = ["dp_lookup"]
 
@@ -108,8 +108,8 @@ ignore_missing_imports = true
 
 [dependency-groups]
 dev = [
-    "ruff>=0.16.0",
-    "mypy>=1.13.0,<1.18.0",
-    "pip-audit>=2.7.3",
-    "pytest-cov>=6.0.0",
+    "ruff>=0.17.2",
+    "mypy>=2.4.0,<3",
+    "pip-audit>=2.10.1",
+    "pytest-cov>=7.1.0",
 ]

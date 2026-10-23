@@ -1,181 +1,114 @@
-# ⏪ Rollback — How to recover if something breaks
+# Rollback and recovery
 
-> **Short version:** 
-> - **Pre-2026-08-18 Checkpoint:** Tag & Branch **`checkpoint-pre-2026-08-18`** (Commit `97b8e62`).
-> - To jump back to the exact code before today's changes: **`git checkout checkpoint-pre-2026-08-18`**.
-> - To return to current: **`git checkout main`**.
+Recover code, source snapshots and derived intelligence independently. Inspect
+local changes before switching versions, and keep the current operational data
+and report folders when diagnosing a code regression.
 
----
+## Identify the running code
 
-## 🗂️ The references you have
+```bash
+git status --short --branch
+git log -1 --oneline
+git describe --tags --always
+uv run dp-lookup-pro --version
+git branch -avv
+git worktree list
+```
 
-| Reference | Commit | What it is |
+The package still reports `3.14.0` while `main` contains subsequent unreleased
+changes. Use the commit ID as well as the package version when reporting a fault.
+
+## Recovery references
+
+| Reference | Commit | Purpose |
 | :--- | :--- | :--- |
-| **`main`** | `HEAD` | **Current v3.14.0** — Modular `dp_lookup/` package, Interactive HTML Map Dossier, Spatial Encumbrance Engine. |
-| **`checkpoint-pre-2026-08-18`** | `97b8e62` | **Pre-change Checkpoint** — The exact repository state before today's changes (v3.12.0 monolithic architecture). |
-| **tag `v3.12.0`** | `da6d215` | The earlier DXF sheet hardening release. |
+| `main` / `origin/main` | Current integration history | Current application; inspect its tip rather than assuming a fixed release commit |
+| `refs/heads/checkpoint-pre-2026-08-18` | `97b8e62` | Preserved pre-modularization checkpoint, also present as an origin branch |
+| `refs/tags/v3.14.0` | `2ca85e9` | Original modular-package version; this tag is currently local to the maintainer checkout |
+| `refs/tags/v3.12.0` | `da6d215` | Published Git tag for the earlier DXF hardening release |
 
-There is now a **single branch** (`main`) plus that tag. The `dxf-text-metrics`
-and `v3.7.0-hardening` branches were deleted after merging — every commit they
-held is reachable from `main`, so nothing was lost. Old versions are all still in
-git history and can be restored.
+A same-named local checkpoint tag also points to `97b8e62`. Use the full
+`refs/heads/...` or `refs/tags/...` spelling to avoid ambiguity. Branch and tag
+inventories vary between clones; confirm them with `git branch -a` and
+`git tag --list`. The former `dxf-text-metrics` and `v3.7.0-hardening` branches
+were merged and removed; their commits remain reachable from `main`.
 
----
+Pushing a `v*` tag starts the trusted publishing workflow. Do not publish a
+historical local tag merely to synchronize a clone; release publication is a
+separate operation.
 
-## ✅ Scenario 1 — "The new version misbehaves, put it back"
+## Inspect an old version safely
 
-The whole DXF update went in as one merge, so one command undoes all of it:
-
-```bash
-cd ~/Developer/dp-lookup-pro-IP
-git revert -m 1 da6d215
-rm -f output/.cache_store.json
-```
-
-This creates a NEW commit that undoes the update. Nothing is erased and the
-history stays honest — the right choice now that `main` is on GitHub.
-
-If you also want GitHub back to the old behaviour:
+Start from a clean checkout or commit your work on its existing branch. Then
+inspect a specific reference without changing the branch pointer:
 
 ```bash
-git push origin main
+git switch --detach refs/tags/v3.14.0
+# Inspect the code and run its own documented checks.
+git switch main
+uv sync --frozen --all-extras --dev
 ```
 
-To look at the old version without changing anything:
+For the earlier checkpoint, substitute
+`refs/heads/checkpoint-pre-2026-08-18`. Older code may predate the local database
+schemas. Use a separate, explicitly selected database copy for an old version;
+Git does not version or roll back SQLite contents.
+
+## Revert a code regression
+
+Find the specific change with `git log` and review it with `git show`. Create a
+repair branch from current `main`, then use `git revert COMMIT_ID` for an
+ordinary commit. For a merge commit, review both parents before choosing a
+mainline; `git revert -m 1 MERGE_COMMIT_ID` keeps the first parent's history.
+
+Run the checks in [CONTRIBUTING.md](../../CONTRIBUTING.md) and review the diff
+before merging the repair. Reverting the historical DXF merge is not a general
+rollback for newer changes to the modular application. Avoid rewriting shared
+history to recover an ordinary regression.
+
+Current implementation boundaries are listed in the
+[architecture guide](../architecture/overview.md). The public
+`cts_dp_lookup_pro.py` file is a compatibility facade; new fixes belong in the
+owning module under `dp_lookup/`.
+
+## Roll back source snapshots
+
+Use the supported lifecycle commands, never manual edits to SQLite:
 
 ```bash
-git checkout 7e6b3a1      # detached view of the pre-update code
-git checkout main         # back to current
+dp-lookup-pro db health
+dp-lookup-pro db parcels status
+dp-lookup-pro db planning status
+dp-lookup-pro db parcels rollback
+dp-lookup-pro db planning rollback
+dp-lookup-pro db health
+dp-lookup-pro plots check
 ```
 
-> ⚠️ **Expect the first lookup after switching to be slow** (5–13 seconds
-> instead of instant). Each version ignores the other's cache, so it refetches.
-> That is normal, not a fault.
+Each rollback is independent and activates the previous finalized version in
+that dataset's lifecycle. Roll back only the affected source. If intelligence
+was active, activate a verified full build matching the newly active source
+IDs, or rebuild it. See [planning snapshots](planning-snapshots.md) and
+[plot intelligence](../guides/plot-intelligence.md).
 
----
+## Diagnose before rebuilding
 
-## ✅ Scenario 2 — "I want it gone from history entirely"
-
-```bash
-git reset --hard 7e6b3a1
-git push --force origin main
-```
-
-> ⚠️ **This is the destructive option.** `reset --hard` discards the work, and
-> the force-push rewrites GitHub's history. The update is already published, so
-> prefer Scenario 1's revert unless you are certain nobody has pulled it.
-> The `v3.12.0` tag would still hold the work either way — that is what the tag
-> is for, now that the safety-net branches are gone.
-
----
-
-## ✅ Scenario 3 — "Only one part is wrong, keep the rest"
-
-The riskiest changes are isolated, so they can be reverted individually. Open
-`cts_dp_lookup_pro.py` and change **only** the relevant block:
-
-**CRZ detection** — find `crz_restriction_layer_ids` and restore the old list:
-```python
-crz_restriction_layer_ids = [31, 1118, 2212, 2213, 2214, 2240, 2241, 2242, 2243]
-```
-⚠️ This reinstates a known bug: CRZ will report `NO` for every plot in Mumbai.
-
-**Dropping a crowded dimension label** — in `export_dxf`, the dimension loop
-removes a label it cannot place clear of its neighbours. To keep every label even
-when they overlap, delete the `msp.delete_entity(txt_elem)` branch.
-⚠️ Overlapping numbers on the sheet can be misread, which is why they are dropped.
-Across 27 plots this affects 1 label in 388.
-
-**Abutting road selection** — `nearest_road_geoms(road_geoms, wgs_rings)` ranks
-roads by distance to the plot. Replacing it with `road_geoms[:6]` restores the old
-behaviour.
-⚠️ That reinstates a known bug: the real frontage is pushed out by distant road
-polygon rings, so `C-ROAD-ALIGN` ends up empty or wrong.
-
-**Cache expiry** — find `DEFAULT_CACHE_TTL_SECONDS`:
-```python
-DEFAULT_CACHE_TTL_SECONDS = 24 * 60 * 60   # back to 24 hours
-```
-
-**Request timeout** — in `lookup_plot_pro`, change `timeout_seconds: float = 20.0`
-back to `10.0`.
-
-After any manual edit, run the tests:
-```bash
-uv run pytest -q
-```
-
----
-
-## 🔍 How to tell which version is running
-
-```bash
-git describe --tags        # v3.12.0 (plus a commit count if you are ahead of it)
-grep '^version' pyproject.toml
-```
-
-Or run a lookup on a coastal plot — this is the clearest behavioural tell:
-
-```bash
-uv run python dp-lookup-pro WORLI 947
-```
-
-| Output | Version |
+| Symptom | First check |
 | :--- | :--- |
-| `CRZ  YES (CRZ II)` | **v3.7.0 or later** — correct |
-| `CRZ  NO (Outside CRZ Buffer)` | **older** — this answer is wrong for a coastal plot |
+| Timeout or unavailable map imagery | Space live requests and retry; the report exposes warnings and completeness |
+| Plot not found | Use an exact revenue village name from `--list-villages` and verify the CTS number |
+| Recorded and calculated areas differ | Review `plot_identity.area_assessment`, source documents and quality flags |
+| No active intelligence build | Build, verify and activate a full build; ordinary lookup does not require one |
+| A cache hit appears stale | Pass `--no-cache` to recompute using the selected sources |
+| Source snapshots appear stale | Run `db health` and the read-only `db check-upstream` before a staged refresh |
 
-To confirm you are on **v3.12.0** specifically, audit a generated drawing:
+`--no-cache` does not refresh source snapshots. Parcel/planning source selection
+is controlled by `--source`, `--database` and active snapshot pointers.
 
-```bash
-uv run python tools/audit_dxf.py output/worli_cts_733/plot_G-S_733_worli.dxf
-```
+## Preserve operational files
 
-On v3.12.0 this prints `CLEAN`, the PLOT DATA panel carries a `MEASURED (BDY)`
-row beside `GROSS PLOT AREA`, and `C-ROAD-ALIGN` holds road geometry. On earlier
-versions it reports faults, prints one area only, and may draw no road at all.
-
----
-
-## 🧯 Things that are *not* a fault
-
-Before rolling back, check whether it is one of these:
-
-| Symptom | Cause | What to do |
-| :--- | :--- | :--- |
-| `Could not reach the MCGM map server (ReadTimeout)` | MCGM rate-limits bursts of lookups | Wait ~30 s and retry. Space bulk lookups ~12 s apart. |
-| A lookup takes 13 s, another takes 5 s | MCGM is slow *and variable* across every endpoint | Nothing to fix. The `/export` map image is the slowest single call (5.6–5.9 s) but identify calls range 414 ms–4,470 ms, so no one request dominates reliably. |
-| `Plot not found` | Village name must be one of 128 exact names | `BANDRA` is invalid — use `BANDRA-A`…`BANDRA-I`. See `START-HERE.md`. |
-| A plot reports `CRZ: YES (CRZ II)` where it used to say `NO` | **The fix working.** The old answer was wrong. | Verify against the generated map image — CRZ II is printed on it. |
-| The DXF prints two different plot areas | **Intended.** MCGM's record and MCGM's own digitised polygon disagree — by 6.10% on AMBIVALI 807. | Reconcile both, and the Property Card, before any FSI calculation. |
-| A boundary segment has no dimension label | Sub-metre sliver, or a label that could not be placed without overlapping | Expected. Measure the segment in CAD. |
-| Area shows as *calculated* | The MCGM cadastral parcel record has no recorded plot area for that parcel | Expected. Check `plot_identity.area_source`. |
-| First lookup after switching versions is slow | Cache formats differ between versions | Normal. |
-
----
-
-## 🩺 Health check
-
-To confirm an install is working:
-
-```bash
-uv run pytest -q                              # v3.12.0: expect 147 passed
-uv run ruff check .                           # expect "All checks passed!"
-uv run python dp-lookup-pro BYCULLA 1605      # inland plot, should say CRZ: NO
-uv run python dp-lookup-pro WORLI 947         # coastal plot, should say CRZ: YES (CRZ II)
-```
-
-If the tests pass and both plots return sensible answers, the install is fine.
-
----
-
-## 💾 Your data is safe either way
-
-Rolling back **does not touch**:
-
-- `output/` — every report bundle you have generated
-- `output/dp-lookups.xlsx` — your master register
-
-Those are excluded from version control, so they survive any branch switch,
-revert or reset. The only thing worth deleting is `output/.cache_store.json`,
-and only so the version you switch to refetches cleanly.
+`data/`, `output/` and `.venv/` are ignored by Git. A normal branch switch or
+revert does not remove them, but Git also cannot restore them after deletion.
+Preserve SQLite databases, retained snapshots, certified-source documents,
+report bundles and `output/dp-lookups.xlsx` independently. Do not use
+`git clean -fdx` on an operational checkout.

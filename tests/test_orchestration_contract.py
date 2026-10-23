@@ -328,7 +328,9 @@ def test_typed_report_writers_replace_legacy_call_shape_without_changing_manifes
         pdf_report_writer=PdfWriter(),
         excel_register_writer=ExcelWriter(),
     )
-    result = asyncio.run(orchestrator.lookup_plot_pro("WORLI", "733", str(tmp_path), use_cache=False, dependencies=dependencies))
+    result = asyncio.run(
+        orchestrator.lookup_plot_pro("WORLI", "733", str(tmp_path), use_cache=False, dependencies=dependencies)
+    )
 
     assert [type(request) for request in requests] == [PdfReportRequest, ExcelRegisterRequest]
     assert all(request.context.artifact.parcel.cts_no == "733" for request in requests)
