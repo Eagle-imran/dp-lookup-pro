@@ -60,8 +60,11 @@ Audit" repository was not modified.
 
 The read-only upstream check downloaded no geometry and found a parcel count
 increase of 20 plus changes in six planning layers. A staged source refresh
-was started without replacing the active snapshots; publication is tracked in
-the development status document.
+was started without replacing the active snapshots. The optional planning
+download was then stopped with its saved progress retained. Active parcel 2
+and planning 3 remain unchanged; a whole source refresh is not a prerequisite
+for repository/tooling cleanup or intelligence activation using those verified
+snapshots. Remaining development is tracked in the development status document.
 
 GitHub's dependency SBOM reports the new patched versions, including Pillow
 13.0.0, urllib3 2.8.0, pytest 9.1.1 and filelock 4.2.4. At the post-merge check,

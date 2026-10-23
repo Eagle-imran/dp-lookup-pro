@@ -51,18 +51,25 @@ therefore the default. These are sample measurements, not a citywide timing
 guarantee or a completed publication.
 
 The current offline suite passes 551 tests with 84.19% coverage. Formatting,
-Ruff and strict typing pass. CI passed for the earlier development commit;
-the additional response-retry regression tests are awaiting their CI run.
+Ruff and strict typing pass. All four Python CI jobs, packaging, dependency
+auditing and CodeQL pass at `4e4f602`.
 
-## Remaining operational work
+## Data state and remaining development
 
 - Parcel snapshot 3 is ready: all 135,365 source records were verified. The
   diff from snapshot 2 contains 23 added, 3 removed and 43 changed records;
   all 66 added or changed records match live source attributes and coordinates.
-- Refresh and verify the 52 planning layers. The upstream check found changed
+  Boundary-area calculation also succeeded for all 119,548 queryable identities.
+- The optional planning refresh was stopped with its durable progress retained:
+  snapshot 4 is incomplete, with 26,792 records saved across 12 registered layers.
+  The active snapshots remain parcel 2 and planning 3. No staged data was
+  activated. The upstream check found changed
   layers 81, 85, 92, 192, 194 and 2400, plus a parcel inventory increase from
   135,345 to 135,365 records.
-- Review source parity and activate the verified refreshed source snapshots.
+- A complete source refresh is not required for Git/tooling maintenance or
+  intelligence activation against the existing verified source snapshots.
+  Finish and verify the optional refresh only when a source-data update is
+  wanted; retain the current active snapshots until then.
 - Build every queryable village/CTS identity with full evidence and neighbours,
   resolve derivation errors, verify and activate the matching full build.
 - Exercise default analyze, search and comparison, source alignment and report
