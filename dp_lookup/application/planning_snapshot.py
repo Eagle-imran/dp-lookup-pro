@@ -353,6 +353,7 @@ async def _get_json(
     sleep: Callable[[float], Awaitable[Any]],
     *,
     post_form: bool = False,
+    required_list_field: Optional[str] = None,
 ) -> Mapping[str, Any]:
     last_error: Optional[BaseException] = None
     for attempt in range(1, config.max_attempts + 1):
@@ -364,7 +365,12 @@ async def _get_json(
                 response = await client.get(url, params=dict(params))
             status = int(getattr(response, "status_code", 200) or 0) if not isinstance(response, Mapping) else 200
             try:
-                return _response_payload(response)
+                payload = _response_payload(response)
+                if required_list_field is not None and not isinstance(payload.get(required_list_field), list):
+                    raise PlanningSnapshotError(
+                        f"planning layer response lacks required {required_list_field} list; keys={sorted(payload)}"
+                    )
+                return payload
             except PlanningSnapshotError as exc:
                 last_error = exc
                 if status not in (0, 200) and status not in RETRYABLE_STATUS_CODES:
@@ -520,7 +526,9 @@ async def ingest_planning_snapshot(
         resolved_geometry_type = spec.geometry_type
         raw_for_hash: List[Mapping[str, Any]] = []
         try:
-            inventory = await _get_json(client, f"{layer_url}/query", inventory_params, cfg, sleep)
+            inventory = await _get_json(
+                client, f"{layer_url}/query", inventory_params, cfg, sleep, required_list_field="objectIds"
+            )
             raw_ids = inventory.get("objectIds")
             if not isinstance(raw_ids, list):
                 raise PlanningSnapshotError("inventory did not contain an objectIds list")
@@ -591,7 +599,15 @@ async def ingest_planning_snapshot(
                     "f": "json",
                 }
                 try:
-                    payload = await _get_json(client, f"{layer_url}/query", params, cfg, sleep, post_form=True)
+                    payload = await _get_json(
+                        client,
+                        f"{layer_url}/query",
+                        params,
+                        cfg,
+                        sleep,
+                        post_form=True,
+                        required_list_field="features",
+                    )
                 except PlanningSnapshotError as exc:
                     batch_errors.append(f"objectIds={','.join(map(str, batch))}: {exc}")
                     rejected.update(batch)

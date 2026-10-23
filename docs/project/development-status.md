@@ -32,6 +32,8 @@ See the [maintenance audit](../audits/REPOSITORY-MAINTENANCE-2026-10-23.md).
 - Use calculated ground square metres for neighbours lacking a consistent
   recorded area. Invalidate report cache entries from the older analysis policy.
 - Remove quadratic inventory membership and duplicate checks from ingestion.
+- Retry malformed inventory and feature response shapes within the bounded
+  request retry policy, preserving staged data for a later resume.
 
 These changes use intelligence algorithm `plot-intelligence/1.4.0` and report
 cache schema 2. They are not yet part of the main baseline above.
@@ -48,9 +50,15 @@ A separate 1,000-identity full-evidence sample completed without errors in
 therefore the default. These are sample measurements, not a citywide timing
 guarantee or a completed publication.
 
+The current offline suite passes 551 tests with 84.19% coverage. Formatting,
+Ruff and strict typing pass. CI passed for the earlier development commit;
+the additional response-retry regression tests are awaiting their CI run.
+
 ## Remaining operational work
 
-- Finish the staged parcel refresh and verify inventories, content and diffs.
+- Parcel snapshot 3 is ready: all 135,365 source records were verified. The
+  diff from snapshot 2 contains 23 added, 3 removed and 43 changed records;
+  all 66 added or changed records match live source attributes and coordinates.
 - Refresh and verify the 52 planning layers. The upstream check found changed
   layers 81, 85, 92, 192, 194 and 2400, plus a parcel inventory increase from
   135,345 to 135,365 records.

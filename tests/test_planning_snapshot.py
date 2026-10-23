@@ -123,6 +123,43 @@ def test_partial_response_is_incomplete_and_checkpoint_resumes_only_missing_ids(
     assert second.calls[1][1]["objectIds"] == "2"
 
 
+def test_wrong_json_shapes_are_retried_before_abandoning_inventory_or_batch():
+    client = FakeClient([
+        Response({"status": "temporarily unavailable"}),
+        Response({"objectIds": [1]}),
+        Response({"status": "temporarily unavailable"}),
+        Response({"features": [feature(1)]}),
+    ])
+    sleeps = []
+
+    async def sleep(delay):
+        sleeps.append(delay)
+
+    result = run(
+        client, specs=(spec(40),), sleep=sleep,
+        config=PlanningIngestionConfig(fetch_layer_metadata=False, max_attempts=2),
+    )
+    assert result.complete
+    assert result.manifest.layers[0].received_ids == (1,)
+    assert [method for method, _ in client.calls] == ["GET", "GET", "POST", "POST"]
+    assert len(sleeps) == 2
+
+
+def test_repeated_wrong_inventory_shape_remains_incomplete():
+    client = FakeClient([Response({}), Response({})])
+
+    async def sleep(_delay):
+        pass
+
+    result = run(
+        client, specs=(spec(40),), sleep=sleep,
+        config=PlanningIngestionConfig(fetch_layer_metadata=False, max_attempts=2),
+    )
+    assert not result.complete
+    assert "objectIds" in result.manifest.layers[0].inventory_error
+    assert len(client.calls) == 2
+
+
 def test_retry_and_batch_error_are_bounded_and_reported():
     sleeps: List[float] = []
     client = FakeClient(
@@ -354,7 +391,7 @@ def test_ingestion_manifests_malformed_inventory_batch_and_features():
     inventory_failure = run(
         FakeClient([Response({"features": []})]),
         specs=(spec(40),),
-        config=PlanningIngestionConfig(fetch_layer_metadata=False),
+        config=PlanningIngestionConfig(fetch_layer_metadata=False, max_attempts=1),
     )
     assert not inventory_failure.complete
     assert "objectIds" in str(inventory_failure.manifest.layers[0].inventory_error)
@@ -362,10 +399,10 @@ def test_ingestion_manifests_malformed_inventory_batch_and_features():
     missing_features = run(
         FakeClient([Response({"objectIds": [1]}), Response({"unexpected": []})]),
         specs=(spec(40),),
-        config=PlanningIngestionConfig(fetch_layer_metadata=False),
+        config=PlanningIngestionConfig(fetch_layer_metadata=False, max_attempts=1),
     )
     assert missing_features.manifest.layers[0].rejected_ids == (1,)
-    assert "missing features list" in missing_features.manifest.layers[0].batch_errors[0]
+    assert "features list" in missing_features.manifest.layers[0].batch_errors[0]
 
     malformed = run(
         FakeClient(
