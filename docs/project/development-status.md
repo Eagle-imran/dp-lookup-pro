@@ -1,6 +1,6 @@
 # Development status
 
-Updated 2026-10-23. Current scope is plot-intelligence activation and existing
+Updated 2026-11-05. Current scope is plot-intelligence activation and existing
 defects. FSI calculations and a web application remain separate roadmap work.
 
 ## Main baseline
@@ -37,7 +37,7 @@ See the [maintenance audit](../audits/REPOSITORY-MAINTENANCE-2026-10-23.md).
 - Add selected-layer planning refreshes with exact local copying, upstream
   change/drift checks and independent incremental resume state.
 
-These changes use intelligence algorithm `plot-intelligence/1.4.0` and report
+These changes use intelligence algorithm `plot-intelligence/1.4.1` and report
 cache schema 2. They are not yet part of the main baseline above.
 
 ## Measured validation

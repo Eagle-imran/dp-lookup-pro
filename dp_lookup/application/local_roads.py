@@ -201,6 +201,8 @@ class LocalRoadProvider:
             source_object_ids=sorted({item.object_id for item in nearby}),
             distance_m=round(selected.distance_m, 3),
             snapshot_id=snapshot_id,
+            selected_source_layer_id=selected.layer_id,
+            selected_source_object_id=selected.object_id,
         )
 
 

@@ -142,6 +142,8 @@ def test_local_road_provider_uses_pinned_snapshot_and_source_ids(tmp_path: Path)
     assert road.distance_m == 0.0
     assert road.source_layer_ids == [193]
     assert road.source_object_ids == [30]
+    assert road.selected_source_layer_id == 193
+    assert road.selected_source_object_id == 30
 
 
 def test_neighbour_missing_recorded_area_uses_ground_square_metres(tmp_path: Path):
@@ -186,6 +188,10 @@ def test_citywide_build_analyze_search_compare_and_update_check(tmp_path: Path):
     assert dossier["planning"]["net_unencumbered_sqm"] == 50.0
     assert dossier["access"]["road_name"] == "Test Road"
     assert dossier["provenance"]["source_refs"]
+    road_refs = [ref for ref in dossier["provenance"]["source_refs"] if ref["evidence_type"] == "road_access"]
+    assert [(ref["layer_id"], ref["object_id"]) for ref in road_refs] == [(193, 30)]
+    assert road_refs[0]["attributes"]["road_name"] == dossier["access"]["road_name"]
+    assert road_refs[0]["attributes"]["road_width"] == dossier["access"]["road_width"]
 
     search = services.search(database, min_area_sqm=90, zone="R", reservations=True)
     assert [item["cts_no"] for item in search["results"]] == ["100"]
@@ -582,3 +588,73 @@ def test_services_report_absent_sources_and_builds_cleanly(tmp_path: Path):
         services.verify(database)
     with pytest.raises(IntelligenceStateError, match="no ready"):
         services.activate(database)
+
+
+def test_interrupted_build_keeps_completed_records_and_resumes_without_restarting(tmp_path):
+    database = _database(tmp_path)
+
+    def interrupt_after_record(*_args):
+        raise KeyboardInterrupt()
+
+    with pytest.raises(KeyboardInterrupt):
+        PlotIntelligenceBuilder(database).build(progress=interrupt_after_record)
+    with IntelligenceStore.open(database) as store:
+        interrupted = store.status()["builds"][-1]
+        assert interrupted["state"] == "building"
+        assert interrupted["record_count"] == 1
+        assert store.active_build_id() is None
+    resumed = PlotIntelligenceBuilder(database).build()
+    assert resumed["build_id"] == interrupted["build_id"]
+    assert resumed["resumed_records"] == 1
+    assert resumed["validation"]["record_count"] == 2
+    assert resumed["validation"]["issue_count"] == 0
+
+
+def test_source_reference_roundtrip_preserves_policy_metadata_and_order(tmp_path):
+    references = (
+        {
+            "evidence_type": "due_diligence",
+            "layer_id": 46,
+            "object_id": 20,
+            "role": "reservation screening",
+            "evidence_class": "regulatory",
+            "warnings": ["verify source document"],
+            "attributes": {"REFERENCE": "source-20"},
+        },
+        {
+            "evidence_type": "road_access",
+            "layer_id": 193,
+            "object_id": 30,
+            "role": "nearest mapped road",
+            "attributes": {"road_name": "Test Road"},
+        },
+    )
+    with IntelligenceStore.open(tmp_path / "source-roundtrip.sqlite") as store:
+        build_id = store.begin_build(
+            parcel_snapshot_id=1,
+            planning_snapshot_id=1,
+            algorithm_version="fixture",
+            expected_count=1,
+            source_fingerprint="fixture",
+        )
+        store.upsert(
+            build_id,
+            PlotIntelligence(
+                "WORLI",
+                "100",
+                "G/S",
+                (1,),
+                1,
+                100.0,
+                "recorded",
+                100.0,
+                5.0,
+                5.0,
+                "R",
+                source_refs=references,
+                facts_hash="fixture",
+            ),
+        )
+        store.finalize(build_id)
+        record = store.get("WORLI", "100", build_id=build_id)
+        assert record["source_refs"] == list(references)

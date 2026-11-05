@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Lock
+from threading import Event, Lock
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from shapely.geometry.base import BaseGeometry
@@ -270,6 +270,7 @@ class PlotIntelligenceBuilder:
             shards = [pending[index::worker_count] for index in range(worker_count)]
             progress_lock = Lock()
             progress_count = [len(completed)]
+            cancelled = Event()
 
             def derive(shard: Sequence[Tuple[str, str]]) -> int:
                 shard_failures = 0
@@ -294,6 +295,8 @@ class PlotIntelligenceBuilder:
                         )
                         authority_resolver = AuthorityResolver(worker_authority) if worker_authority else None
                         for village, cts_no in shard:
+                            if cancelled.is_set():
+                                break
                             try:
                                 plot = self._analyze(
                                     worker_parcels,
@@ -323,7 +326,11 @@ class PlotIntelligenceBuilder:
                 return shard_failures
 
             with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="plot-intelligence") as pool:
-                failures = sum(pool.map(derive, shards))
+                try:
+                    failures = sum(pool.map(derive, shards))
+                except BaseException:
+                    cancelled.set()
+                    raise
 
             if (_authority_registry_revision(self.database) or 0) != (authority_revision or 0):
                 intelligence.fail(build_id, "authority registry changed during intelligence derivation")
@@ -414,6 +421,24 @@ class PlotIntelligenceBuilder:
         ]
         source_refs.extend(_core_refs(geometry, by_layer, area_scale))
         source_refs.extend(_evidence_refs(report, area_scale))
+        if road.selected_source_layer_id is not None and road.selected_source_object_id is not None:
+            source_refs.append(
+                {
+                    "evidence_type": "road_access",
+                    "layer_id": road.selected_source_layer_id,
+                    "object_id": road.selected_source_object_id,
+                    "role": "nearest mapped road",
+                    "overlap_sqm": None,
+                    "overlap_percent": None,
+                    "source_url": f"{SERVER_URL}/{road.selected_source_layer_id}",
+                    "attributes": {
+                        "road_name": road.name,
+                        "road_width": road.width,
+                        "distance_m": road.distance_m,
+                        "method": road.method,
+                    },
+                }
+            )
         source_refs.sort(key=lambda item: (int(item.get("layer_id", -1)), int(item.get("object_id", -1))))
         warnings = list(planning_result.get("warnings") or [])
         warnings.extend(road.warnings)

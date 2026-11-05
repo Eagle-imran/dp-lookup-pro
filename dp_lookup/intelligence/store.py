@@ -518,7 +518,7 @@ class IntelligenceStore:
         if row is None:
             return None
         result = self._plot(row)
-        result["source_refs"] = [
+        normalized_refs = [
             {
                 **{key: value for key, value in dict(ref).items() if key != "attributes_json"},
                 "attributes": _loads(ref["attributes_json"], {}),
@@ -529,6 +529,20 @@ class IntelligenceStore:
                 "WHERE build_id=? AND village=? AND cts_no=? ORDER BY layer_id,object_id",
                 (selected, village.strip().upper(), cts_no.strip().upper()),
             )
+        ]
+        attributes = {
+            (ref["evidence_type"], ref["layer_id"], ref["object_id"]): ref["attributes"] for ref in normalized_refs
+        }
+        # Keep policy/quality metadata and the deterministic reference order
+        # archived with the plot; the normalized index owns only attributes.
+        result["source_refs"] = [
+            {
+                **ref,
+                "attributes": attributes.get(
+                    (str(ref.get("evidence_type") or "planning"), ref.get("layer_id"), ref.get("object_id")), {}
+                ),
+            }
+            for ref in result["source_refs"]
         ]
         return result
 

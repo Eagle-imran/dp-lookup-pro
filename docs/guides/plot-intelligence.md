@@ -35,7 +35,7 @@ analyze / search / compare
 Source snapshots are never changed by intelligence generation. An intelligence
 build is tied to exactly one finalized parcel snapshot, one finalized planning
 snapshot, the authority-registry revision, a source fingerprint and
-`plot-intelligence/1.4.0`. Re-running a
+`plot-intelligence/1.4.1`. Re-running a
 matching interrupted build resumes completed identities. Publishing switches an
 active pointer; it never edits an earlier build.
 
@@ -44,6 +44,10 @@ option. Activation and default queries require current source, authority and
 algorithm fingerprints. Use an explicit `--build-id` to inspect a historical
 build without treating it as current. An authority change during derivation
 fails the build so mixed source selections cannot be published.
+
+Road-access provenance retains the selected road layer and ObjectID; reference
+reads preserve policy and warning metadata alongside normalized attributes.
+An interrupted build stops its workers and keeps completed records resumable.
 
 Normal plot lookup reads the source snapshots directly; it does not query this
 derived build or require intelligence activation. The retained validation build

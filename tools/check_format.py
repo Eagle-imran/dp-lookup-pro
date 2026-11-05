@@ -17,6 +17,7 @@ TARGETS = (
     "dp_lookup/core/models.py",
     "dp_lookup/core/topology.py",
     "dp_lookup/core/villages.py",
+    "dp_lookup/intelligence",
     "dp_lookup/planning_snapshot/copying.py",
     "dp_lookup/planning_snapshot_cli.py",
     "dp_lookup/exporters/contracts.py",
@@ -48,6 +49,7 @@ TARGETS = (
     "tests/test_transport_resilience.py",
     "tests/test_typing_contract.py",
     "tools/check_format.py",
+    "tools/intelligence_acceptance.py",
 )
 
 
