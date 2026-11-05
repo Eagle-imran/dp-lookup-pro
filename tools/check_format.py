@@ -17,6 +17,10 @@ TARGETS = (
     "dp_lookup/core/models.py",
     "dp_lookup/core/topology.py",
     "dp_lookup/core/villages.py",
+    "dp_lookup/intelligence",
+    "dp_lookup/intelligence_cli.py",
+    "dp_lookup/planning_snapshot/copying.py",
+    "dp_lookup/planning_snapshot_cli.py",
     "dp_lookup/exporters/contracts.py",
     "dp_lookup/exporters/dxf.py",
     "dp_lookup/exporters/excel.py",
@@ -37,12 +41,16 @@ TARGETS = (
     "tests/test_models_contract.py",
     "tests/test_orchestration_contract.py",
     "tests/test_planning_queries.py",
+    "tests/test_planning_database_services.py",
+    "tests/test_planning_snapshot_store.py",
+    "tests/test_planning_snapshot_cli_extended.py",
     "tests/test_telemetry.py",
     "tests/test_tile_cache.py",
     "tests/test_topology_contract.py",
     "tests/test_transport_resilience.py",
     "tests/test_typing_contract.py",
     "tools/check_format.py",
+    "tools/intelligence_acceptance.py",
 )
 
 

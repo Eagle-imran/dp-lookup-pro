@@ -70,11 +70,11 @@ This roadmap outlines planned enterprise upgrades for **`dp-lookup-pro`** design
 * **Delivered source database**: one ignored SQLite file now holds independent,
   immutable parcel and planning snapshots with inventory proof, resumable
   ingestion, verification, activation, rollback and provenance.
-* **Measured source size**: active parcel snapshot 2 contains **135,345 feature
-  records**, not a claim of 135,345 unique legal plots. Active planning snapshot
-  3 contains **65,598 records across 52 canonical layers**. The local file is
-  about **2.10 GiB** while the previous immutable snapshots are retained for
-  rollback, including full official attributes, exact geometry and audit
+* **Measured source size**: active parcel snapshot 3 contains **135,365 feature
+  records**, representing 119,548 queryable village/CTS identities. Active planning
+  snapshot 5 contains **65,624 records across 52 canonical layers**. Previous
+  immutable snapshots remain available for rollback, including full official
+  attributes, exact geometry and audit
   payloads rather than only a minimal lookup index.
 * **Governing rule**: verified active snapshots are local-first, their ID/date is
   always shown, and `auto` falls back visibly to live MCGM when local data is

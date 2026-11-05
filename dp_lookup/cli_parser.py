@@ -53,6 +53,7 @@ DATABASE_HELP = """Database administration:
 Convenient action-first forms:
   dp-lookup-pro db refresh parcels
   dp-lookup-pro db refresh planning
+  dp-lookup-pro db planning build --layers 81,85,92,192,194,2400
   dp-lookup-pro db status parcels
   dp-lookup-pro db status planning
 

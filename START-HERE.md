@@ -292,11 +292,13 @@ uv run dp-lookup-pro db planning activate
 Each build downloads a complete official inventory in atomic batches and leaves
 a new snapshot ready for review. If interrupted, rerun the same command to skip
 already committed ObjectIDs; it resumes only when the source inventory still
-matches. It refuses to publish an incomplete download. Complete parcel and
-planning snapshots were refreshed, live-compared, and activated on 2026-08-23.
-The active data contains 135,345 parcel records and 65,598 planning records
-across 52 layers. The database currently occupies about 2.10 GiB because it
-also keeps the prior snapshots as a safe rollback point. Ordinary CLI lookups
+matches. It refuses to publish an incomplete download. The active data was
+verified and updated on 2026-10-23: parcel snapshot 3 contains 135,365 records
+and planning snapshot 5 contains 65,624 records across 52 layers. The planning
+update downloaded six changed layers and copied 46 unchanged layers locally.
+Use `db planning build --layers 81,85,92,192,194,2400` for that targeted path;
+it checks all layer fingerprints and rejects omitted changes. The database
+also keeps prior snapshots as rollback points. Ordinary CLI lookups
 use the active snapshots first and show when live MCGM was used instead.
 
 For routine maintenance, check before downloading:

@@ -7,10 +7,13 @@ from pathlib import Path
 
 import pytest
 
+from dp_lookup.application import intelligence_builder as builder_module
+from dp_lookup.application.database_health import database_health
 from dp_lookup.application.ingestion import build_parcel_context
 from dp_lookup.application.intelligence_builder import PlotIntelligenceBuilder
 from dp_lookup.application.intelligence_services import PlotIntelligenceServices
 from dp_lookup.application.local_roads import LocalRoadProvider
+from dp_lookup.application.local_spatial import LocalNeighbourProvider
 from dp_lookup.application.planning_snapshot import canonical_planning_specs
 from dp_lookup.authority import AuthorityManifest, AuthorityStore, SelectionPurpose, SourceType
 from dp_lookup.clients.local_parcels import merge_local_features
@@ -139,6 +142,33 @@ def test_local_road_provider_uses_pinned_snapshot_and_source_ids(tmp_path: Path)
     assert road.distance_m == 0.0
     assert road.source_layer_ids == [193]
     assert road.source_object_ids == [30]
+    assert road.selected_source_layer_id == 193
+    assert road.selected_source_object_id == 30
+
+
+def test_neighbour_missing_recorded_area_uses_ground_square_metres(tmp_path: Path):
+    database = tmp_path / "neighbour-area.sqlite"
+    features = [_parcel(1, "100", 0), _parcel(2, "101", 10)]
+    features[1]["attributes"]["AREA_APP_SQ_MTRS"] = None
+    for feature in features:
+        for ring in feature["geometry"]["rings"]:
+            for point in ring:
+                point[0] += 8_106_500
+                point[1] += 2_151_700
+    with SnapshotStore.open(database) as store:
+        sid = store.begin_snapshot(expected_count=2)
+        store.set_inventory(sid, [1, 2])
+        store.insert_batch(sid, features)
+        store.finalize_snapshot(sid)
+        store.activate(sid)
+        feature = merge_local_features(store.lookup("WORLI", "100"))
+        feature["attributes"]["_DP_SNAPSHOT_ID"] = sid
+        parcel, _ = build_parcel_context(feature, "WORLI", "100")
+    neighbours = LocalNeighbourProvider(database)(parcel)
+    assert len(neighbours.plots) == 1
+    neighbour = neighbours.plots[0]
+    assert neighbour["area_source"] == "Calculated boundary area"
+    assert 80 < float(neighbour["area_sqm"]) < 95  # Native Mercator area is 100.
 
 
 def test_citywide_build_analyze_search_compare_and_update_check(tmp_path: Path):
@@ -158,6 +188,10 @@ def test_citywide_build_analyze_search_compare_and_update_check(tmp_path: Path):
     assert dossier["planning"]["net_unencumbered_sqm"] == 50.0
     assert dossier["access"]["road_name"] == "Test Road"
     assert dossier["provenance"]["source_refs"]
+    road_refs = [ref for ref in dossier["provenance"]["source_refs"] if ref["evidence_type"] == "road_access"]
+    assert [(ref["layer_id"], ref["object_id"]) for ref in road_refs] == [(193, 30)]
+    assert road_refs[0]["attributes"]["road_name"] == dossier["access"]["road_name"]
+    assert road_refs[0]["attributes"]["road_width"] == dossier["access"]["road_width"]
 
     search = services.search(database, min_area_sqm=90, zone="R", reservations=True)
     assert [item["cts_no"] for item in search["results"]] == ["100"]
@@ -177,6 +211,122 @@ def test_sample_build_is_queryable_but_cannot_be_activated(tmp_path: Path):
         assert store.get("WORLI", "100", build_id=outcome["build_id"]) is not None
         with pytest.raises(IntelligenceStateError, match="sample"):
             store.activate(outcome["build_id"])
+
+
+def test_resume_requires_the_same_selected_range_and_analysis_options(tmp_path: Path):
+    with IntelligenceStore.open(tmp_path / "resume.sqlite") as store:
+        common = dict(
+            parcel_snapshot_id=1,
+            planning_snapshot_id=2,
+            algorithm_version="fixture",
+            expected_count=2,
+            source_fingerprint="same-source",
+            scope="sample",
+        )
+        first = store.begin_build(**common, parameters={"offset": 0, "include_neighbours": True})
+        second = store.begin_build(**common, parameters={"offset": 2, "include_neighbours": True})
+        third = store.begin_build(**common, parameters={"offset": 0, "include_neighbours": False})
+        assert len({first, second, third}) == 3
+        assert store.begin_build(**common, parameters={"offset": 0, "include_neighbours": True}) == first
+        plot = PlotIntelligence("WORLI", "1", None, (1,), 1, 100.0, "recorded", 100.0, 0.0, 0.0, "R", facts_hash="one")
+        store.upsert(first, plot)
+        store.upsert(first, plot)
+        assert store.build(first).record_count == 1
+        assert store.verify(first)["parameters"]["offset"] == 0
+
+
+def _activate_area_evidence(database: Path, document: Path):
+    document.write_bytes(b"property card evidence")
+    with AuthorityStore.open(database) as authority:
+        record = authority.register(
+            AuthorityManifest(
+                village="WORLI",
+                cts_no="100",
+                source_type=SourceType.PROPERTY_CARD,
+                source_uri=str(document),
+                source_sha256=hashlib.sha256(document.read_bytes()).hexdigest(),
+                issuer="City Survey Office",
+                recorded_area_sqm=140.0,
+            )
+        )
+        authority.verify(record.record_id, actor="reviewer")
+        authority.activate(record.record_id, SelectionPurpose.AREA, actor="reviewer", reason="accepted")
+
+
+def test_authority_change_blocks_stale_activation_and_default_queries(tmp_path: Path):
+    database = _database(tmp_path)
+    outcome = PlotIntelligenceBuilder(database).build(workers=1)
+    services = PlotIntelligenceServices()
+    services.activate(database, build_id=outcome["build_id"])
+    _activate_area_evidence(database, tmp_path / "card.pdf")
+
+    check = services.check(database)
+    assert check["snapshot_alignment"] is True
+    assert check["fingerprint_alignment"] is False
+    assert check["ready_for_operational_use"] is False
+    health = database_health(database)
+    assert health["checks"]["intelligence"]["fingerprint_current"] is False
+    assert "intelligence_fingerprint_stale" in {finding["code"] for finding in health["findings"]}
+    with pytest.raises(IntelligenceStateError, match="stale"):
+        services.activate(database, build_id=outcome["build_id"])
+    for query in (
+        lambda: services.analyze(database, "WORLI", "100"),
+        lambda: services.search(database, zone="R"),
+        lambda: services.compare(database, [("WORLI", "100"), ("WORLI", "101")]),
+    ):
+        with pytest.raises(IntelligenceStateError, match="stale"):
+            query()
+    historic = services.analyze(database, "WORLI", "100", build_id=outcome["build_id"])
+    assert historic["plot_identity"]["area_sqm"] == 100.0
+
+
+def test_authority_change_during_derivation_cannot_publish_mixed_facts(tmp_path: Path, monkeypatch):
+    database = _database(tmp_path)
+    builder = PlotIntelligenceBuilder(database)
+    original = builder._analyze
+    changed = False
+
+    def change_after_first(*args, **kwargs):
+        nonlocal changed
+        result = original(*args, **kwargs)
+        if not changed:
+            changed = True
+            _activate_area_evidence(database, tmp_path / "changed-card.pdf")
+        return result
+
+    monkeypatch.setattr(builder, "_analyze", change_after_first)
+    with pytest.raises(RuntimeError, match="authority registry changed"):
+        builder.build(workers=1)
+    with IntelligenceStore.open(database) as store:
+        assert store.status()["builds"][-1]["state"] == "failed"
+        assert store.active_build_id() is None
+
+
+def test_historical_algorithm_is_not_publishable_or_reported_current(tmp_path: Path, monkeypatch):
+    database = _database(tmp_path)
+    with monkeypatch.context() as patch:
+        patch.setattr(builder_module, "ALGORITHM_VERSION", "historical")
+        outcome = PlotIntelligenceBuilder(database).build(workers=1)
+    services = PlotIntelligenceServices()
+    with pytest.raises(IntelligenceStateError, match="stale algorithm"):
+        services.activate(database, build_id=outcome["build_id"])
+    with IntelligenceStore.open(database) as store:
+        store.activate(outcome["build_id"])
+    check = services.check(database)
+    assert check["snapshot_alignment"] is True
+    assert check["algorithm_alignment"] is False
+    assert check["ready_for_operational_use"] is False
+
+
+def test_opening_an_empty_authority_registry_does_not_stale_intelligence(tmp_path: Path):
+    database = _database(tmp_path)
+    outcome = PlotIntelligenceBuilder(database).build(workers=1)
+    services = PlotIntelligenceServices()
+    services.activate(database, build_id=outcome["build_id"])
+    with AuthorityStore.open(database):
+        pass
+    assert services.check(database)["ready_for_operational_use"] is True
+    assert services.search(database)["count"] == 2
 
 
 def test_intelligence_uses_only_active_authority_and_fingerprint_tracks_registry(tmp_path: Path):
@@ -438,3 +588,94 @@ def test_services_report_absent_sources_and_builds_cleanly(tmp_path: Path):
         services.verify(database)
     with pytest.raises(IntelligenceStateError, match="no ready"):
         services.activate(database)
+
+
+def test_interrupted_build_keeps_completed_records_and_resumes_without_restarting(tmp_path):
+    database = _database(tmp_path)
+
+    def interrupt_after_record(*_args):
+        raise KeyboardInterrupt()
+
+    with pytest.raises(KeyboardInterrupt):
+        PlotIntelligenceBuilder(database).build(progress=interrupt_after_record)
+    with IntelligenceStore.open(database) as store:
+        interrupted = store.status()["builds"][-1]
+        assert interrupted["state"] == "building"
+        assert interrupted["record_count"] == 1
+        assert store.active_build_id() is None
+    resumed = PlotIntelligenceBuilder(database).build()
+    assert resumed["build_id"] == interrupted["build_id"]
+    assert resumed["resumed_records"] == 1
+    assert resumed["validation"]["record_count"] == 2
+    assert resumed["validation"]["issue_count"] == 0
+
+
+def test_source_reference_roundtrip_preserves_policy_metadata_and_order(tmp_path):
+    references = (
+        {
+            "evidence_type": "due_diligence",
+            "layer_id": 46,
+            "object_id": 20,
+            "role": "reservation screening",
+            "evidence_class": "regulatory",
+            "warnings": ["verify source document"],
+            "attributes": {"REFERENCE": "source-20"},
+        },
+        {
+            "evidence_type": "road_access",
+            "layer_id": 193,
+            "object_id": 30,
+            "role": "nearest mapped road",
+            "attributes": {"road_name": "Test Road"},
+        },
+    )
+    with IntelligenceStore.open(tmp_path / "source-roundtrip.sqlite") as store:
+        build_id = store.begin_build(
+            parcel_snapshot_id=1,
+            planning_snapshot_id=1,
+            algorithm_version="fixture",
+            expected_count=1,
+            source_fingerprint="fixture",
+        )
+        store.upsert(
+            build_id,
+            PlotIntelligence(
+                "WORLI",
+                "100",
+                "G/S",
+                (1,),
+                1,
+                100.0,
+                "recorded",
+                100.0,
+                5.0,
+                5.0,
+                "R",
+                source_refs=references,
+                facts_hash="fixture",
+            ),
+        )
+        store.finalize(build_id)
+        record = store.get("WORLI", "100", build_id=build_id)
+        assert record["source_refs"] == list(references)
+
+
+@pytest.mark.parametrize(
+    "arguments,message",
+    [
+        (["analyze", "WORLI", "missing"], "not present"),
+        (["search", "--limit", "0"], "limit"),
+        (["search", "--limit", "bad"], "integer"),
+        (["compare", "WORLI:100"], "2-20"),
+    ],
+)
+def test_json_cli_errors_are_machine_readable_for_usage_and_query_failures(tmp_path, capsys, arguments, message):
+    import json
+
+    database = _database(tmp_path)
+    PlotIntelligenceServices().build(database)
+    PlotIntelligenceServices().activate(database)
+    status = intelligence_main(["intelligence", *arguments, "--database", str(database), "--json"])
+    assert status != 0
+    output = json.loads(capsys.readouterr().out)
+    assert message in output["error"]

@@ -1,7 +1,7 @@
 # Local planning-layer snapshot contract
 
 **Status:** Implemented; refreshed planning snapshot verified and active
-**Updated:** 2026-08-23
+**Updated:** 2026-10-23
 
 ## Purpose and boundary
 
@@ -35,6 +35,29 @@ an annual full rebuild remains the final verification backstop.
 `build-planning` creates or resumes a `building` snapshot and leaves a complete
 result `ready`. Verification is explicit; activation is a separate atomic
 pointer switch. A failed or incomplete build can never become active.
+
+To refresh only changed layers, supply their canonical IDs:
+
+```bash
+dp-lookup-pro db planning build --layers 81,85,92,192,194,2400
+dp-lookup-pro db planning verify
+dp-lookup-pro db planning activate
+```
+
+This creates a new complete snapshot. It copies other layers byte-for-byte
+from the active snapshot locally, including their inventories and source
+metadata, and downloads geometry only for the selected layers. Copied layers
+record their originating snapshot. The active snapshot stays unchanged until
+explicit activation; its old records remain available for rollback.
+
+Before and after the targeted download, lightweight checks compare inventories,
+schemas and available edit signals for every layer. An omitted changed or
+unknown layer prevents publication. Source drift invalidates a staged build;
+resumption requires the same base snapshot, selected layers and fingerprints.
+Incremental builds cannot resume an unrelated full build or external checkpoint.
+Matching signals cannot prove every coordinate under an existing ObjectID is
+unchanged, so retain the annual full-verification backstop. Copied payloads
+retain their original source provenance rather than claiming a new download.
 
 ## Ingestion contract
 
@@ -77,9 +100,9 @@ snapshot ID, timestamp, age and source under `metadata.evidence`.
   warning so an offline lookup remains possible.
 - `live`: bypass the planning snapshot.
 
-Road edge/name/width probes, rendered DP maps and satellite imagery remain live.
-They use separate road and rendering services and are not supplied by this
-planning snapshot.
+Road names, recorded widths and proximity are calculated from local planning
+road layers when available; live probes remain the fallback. Rendered DP map
+backgrounds and satellite imagery use online services.
 
 ## First complete snapshot record
 
@@ -112,9 +135,11 @@ validation record](../audits/PLANNING-SNAPSHOT-VALIDATION-2026-08-21.md).
 
 ## Current active snapshot
 
-The checked 2026-08-23 refresh activated planning snapshot 3 with 52/52
-canonical layers and 65,598/65,598 records. Its content hash is
-`10217c44677a33a304be5d9ff59985f2db51d623ab713fb3132c3d8095e734a9`.
-The record-count change is isolated to upstream layer 85; all current layer
-inventories and metadata fingerprints match live MCGM. See the
-[local-first acceptance record](../audits/LOCAL-FIRST-ACCEPTANCE-2026-08-23.md).
+The targeted 2026-10-23 update activated planning snapshot 5 with 52/52
+canonical layers and 65,624/65,624 records. Its content hash is
+`641a46b40eff199280d8f2c8e00a28bb40f9ed9d6fe0a89b81e555fce8e1bcd2`.
+Layers 81, 85, 92, 192, 194 and 2400 were downloaded; the remaining 46 were
+copied from snapshot 3 with identical content hashes. The six layers contain
+26 added records and one edited existing record. All 27 added/edited payloads
+match the live service exactly. See the
+[targeted update record](../audits/TARGETED-SOURCE-UPDATE-2026-10-23.md).

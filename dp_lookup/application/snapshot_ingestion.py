@@ -200,6 +200,7 @@ async def ingest_layer13_snapshot(
     inventory_counts = Counter(value for value in parsed_inventory_ids if value is not None)
     inventory_duplicates = {value for value, count in inventory_counts.items() if count > 1}
     expected_ids = _sorted_ids(raw_ids)
+    expected_id_set = set(expected_ids)
     if not expected_ids:
         raise SnapshotIngestionError("Layer 13 inventory was empty; refusing to publish an empty snapshot.")
 
@@ -231,9 +232,9 @@ async def ingest_layer13_snapshot(
             raise SnapshotIngestionError("Durable snapshot sink contains IDs outside the current inventory.")
         completed.update(persisted_ids)
 
-    received_ids_set = set(completed) | {oid for oid in prior if oid in expected_ids}
+    received_ids_set = set(completed) | {oid for oid in prior if oid in expected_id_set}
     received: Dict[int, SnapshotFeature] = (
-        {oid: feature for oid, feature in prior.items() if oid in expected_ids} if retain_features else {}
+        {oid: feature for oid, feature in prior.items() if oid in expected_id_set} if retain_features else {}
     )
     duplicates: set[int] = set()
     extra: set[int] = set()
@@ -291,7 +292,7 @@ async def ingest_layer13_snapshot(
             if oid is None:
                 invalid_count += 1
                 continue
-            if oid not in expected_ids:
+            if oid not in expected_id_set:
                 extra.add(oid)
                 continue
             if oid in received_ids_set:

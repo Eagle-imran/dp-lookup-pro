@@ -1,15 +1,14 @@
 # Plot intelligence database
 
-**Status:** Implemented; representative builds verified. A full citywide build
-must be verified and explicitly activated before it becomes the default search
-source.
+**Status:** Verified and active locally as of 2026-11-05. Build 14 contains all
+119,548 queryable identities, with full evidence and neighbour analysis.
 
 ## Purpose and authority boundary
 
 Plot intelligence turns the immutable parcel and planning archives into one
 query-ready record per unique `VILLAGE + CTS_CS_NO` identity. The active MCGM
-cadastral parcel archive currently contains 135,345 source features representing
-119,522 queryable village/CTS identities. Multipart source features are
+cadastral parcel archive currently contains 135,365 source features representing
+119,548 queryable village/CTS identities. Multipart source features are
 combined; they are not counted as separate plots. The technical ArcGIS
 provenance is retained as Development Plan Layer 13.
 
@@ -35,16 +34,27 @@ analyze / search / compare
 Source snapshots are never changed by intelligence generation. An intelligence
 build is tied to exactly one finalized parcel snapshot, one finalized planning
 snapshot, the authority-registry revision, a source fingerprint and
-`plot-intelligence/1.3.0`. Re-running a
+`plot-intelligence/1.4.1`. Re-running a
 matching interrupted build resumes completed identities. Publishing switches an
 active pointer; it never edits an earlier build.
+
+Resumption also requires the same selected range, evidence mode and neighbour
+option. Activation and default queries require current source, authority and
+algorithm fingerprints. Use an explicit `--build-id` to inspect a historical
+build without treating it as current. An authority change during derivation
+fails the build so mixed source selections cannot be published.
+
+Road-access provenance retains the selected road layer and ObjectID; reference
+reads preserve policy and warning metadata alongside normalized attributes.
+An interrupted build stops its workers and keeps completed records resumable.
 
 Normal plot lookup reads the source snapshots directly; it does not query this
 derived build or require intelligence activation. The retained validation build
 6 is a 25-identity sample using parcel snapshot 1, planning snapshot 2 and
 algorithm 1.1.0. It cannot be activated. The active source baseline is now parcel
-snapshot 2 and planning snapshot 3; a fresh full build with the current algorithm
-is required for citywide search.
+snapshot 3 and planning snapshot 5. Full build 14, using algorithm 1.4.1, has
+been verified and activated for default analysis, citywide search and comparison.
+See the [activation audit](../audits/PLOT-INTELLIGENCE-ACTIVATION-2026-11-05.md).
 
 ## Stored facts
 
@@ -144,14 +154,23 @@ publication evidence.
 
 ## Current performance note
 
-Single-record analysis and structured searches are fast once a build exists.
-The first full build performs exact intersections against the complete evidence
-registry and is deliberately resumable. A measured four-worker, 100-identity
-run on 2026-08-21 took 98.59 seconds, giving a historical 30–36 hour citywide
-estimate. Later database and geometry optimizations have not been rebenchmarked
-for a full intelligence publication. Measure a fresh representative sample
-before scheduling the full job. It is an offline publication job, not a
-request-time operation.
+The 2026-10-23 development pass measured 1,000 full-evidence identities in
+32.107 seconds with one worker, versus 41.383 seconds with four. The default is
+now one worker; `--workers` remains available. A bounded, snapshot-scoped
+planning cache reuses source geometries without changing archived records.
+See [development status](../project/development-status.md) for the measured
+scope and publication progress.
+
+The full 2026-11-05 build processed 119,548 identities with one worker in
+3,470.868 seconds (57 minutes 51 seconds), with no derivation errors and 626,130
+source references. All fact hashes were independently recomputed, and 36
+stratified/control plots matched normal local lookup. Source-quality flags
+remain visible; successful publication does not certify an official boundary.
+
+Single-record analysis and structured searches read the published records.
+The full build performs exact intersections against the complete evidence
+registry and is resumable. It is an offline publication job, separate from a
+user's individual query. Validate a sample before scheduling a later rebuild.
 
 The real-data results are recorded in the
 [plot-intelligence validation audit](../audits/PLOT-INTELLIGENCE-VALIDATION-2026-08-21.md).

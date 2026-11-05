@@ -237,7 +237,9 @@ These are reproducible engineering observations from the external service on the
 ## Planning snapshot archival validation — 21 August 2026
 
 The later local-source phase archived all 52 canonical registry layers and
-65,598/65,598 official inventory records in active snapshot 3. This changes source availability, not
+65,598/65,598 official inventory records in the former snapshot 3. The
+2026-10-23 targeted update activated snapshot 5 with 65,624 records; see the
+[update record](../audits/TARGETED-SOURCE-UPDATE-2026-10-23.md). This changes source availability, not
 the authority rules above: only curated/conditional layers enter runtime
 findings, and spatial overlap remains screening evidence.
 

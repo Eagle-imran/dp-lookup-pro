@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from dp_lookup.application.contracts import NeighbourContext, ParcelContext
+from dp_lookup.core.area_assessment import calculated_boundary_area_sqm
 from dp_lookup.core.geometry import mercator_to_wgs84
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.spatial_store import SnapshotStore
@@ -93,17 +94,24 @@ class LocalNeighbourProvider:
                 # Point-only contact and overlapping source errors are not
                 # silently promoted to an adjoining cadastral boundary.
                 continue
-            approved = {
+            recorded = {
                 float(part["area_app_sqm"])
                 for part in parts
                 if part.get("area_app_sqm") is not None and float(part["area_app_sqm"]) > 0
             }
-            area: Any = next(iter(approved)) if len(approved) == 1 else round(float(geometry.area), 2)
+            if len(recorded) == 1:
+                area: Any = next(iter(recorded))
+                area_source = "Recorded plot area"
+            else:
+                calculated = calculated_boundary_area_sqm(rings)
+                area = round(calculated, 2) if calculated is not None else "N/A"
+                area_source = "Calculated boundary area" if calculated is not None else "Unavailable"
             neighbours.append(
                 {
                     "cts_no": cts_no,
                     "village": village,
                     "area_sqm": str(area),
+                    "area_source": area_source,
                     "rings": [[mercator_to_wgs84(point[0], point[1]) for point in ring] for ring in rings],
                     "source_objectids": sorted(int(part["objectid"]) for part in parts),
                     "adjacency_relation": relation,
@@ -140,7 +148,7 @@ def parcel_source_notes(parcel: ParcelContext) -> List[str]:
     area_conflicts = parcel.attrs.get("_DP_AREA_CONFLICT_VALUES")
     if isinstance(area_conflicts, list) and area_conflicts:
         notes.append(
-            "The source parts contain conflicting approved-area values; "
+            "The source parts contain conflicting recorded-area values; "
             "the reported area is derived from the combined boundary."
         )
     return notes

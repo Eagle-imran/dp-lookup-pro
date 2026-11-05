@@ -44,6 +44,8 @@ class RoadContext:
     source_object_ids: List[int] = field(default_factory=list)
     distance_m: Optional[float] = None
     snapshot_id: Optional[int] = None
+    selected_source_layer_id: Optional[int] = None
+    selected_source_object_id: Optional[int] = None
 
 
 @dataclass

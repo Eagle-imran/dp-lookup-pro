@@ -9,5 +9,8 @@ Use `dp-lookup-pro db health` for current local database health and
 
 Current acceptance record:
 
+- [Plot-intelligence activation — 2026-11-05](PLOT-INTELLIGENCE-ACTIVATION-2026-11-05.md)
+- [Targeted parcel and planning update — 2026-10-23](TARGETED-SOURCE-UPDATE-2026-10-23.md)
+- [Repository and toolchain maintenance — 2026-10-23](REPOSITORY-MAINTENANCE-2026-10-23.md)
 - [Local-first acceptance and source baseline — 2026-08-23](LOCAL-FIRST-ACCEPTANCE-2026-08-23.md)
 - [Lookup performance and modularity pass — 2026-08-24](LOOKUP-PERFORMANCE-2026-08-24.md)

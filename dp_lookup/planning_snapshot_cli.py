@@ -60,6 +60,7 @@ def parse_planning_snapshot_args(argv: Sequence[str]) -> Dict[str, Any]:
     database: Optional[Path] = None
     manifest: Optional[Path] = None
     resume: Optional[Path] = None
+    layer_ids: Optional[tuple[int, ...]] = None
     as_json = False
     batch_size = PlanningIngestionConfig().batch_size
     max_attempts = PlanningIngestionConfig().max_attempts
@@ -68,6 +69,20 @@ def parse_planning_snapshot_args(argv: Sequence[str]) -> Dict[str, Any]:
         token = tokens[index]
         if token == "--json":
             as_json = True
+        elif token == "--layers" or token.startswith("--layers="):
+            if token == "--layers":
+                index += 1
+                if index >= len(tokens):
+                    raise ValueError("--layers requires comma-separated layer IDs")
+                value = tokens[index]
+            else:
+                value = token.split("=", 1)[1]
+            try:
+                layer_ids = tuple(sorted({int(part.strip()) for part in value.split(",")}))
+            except ValueError as exc:
+                raise ValueError("--layers requires comma-separated layer IDs") from exc
+            if not layer_ids or any(value < 0 for value in layer_ids):
+                raise ValueError("--layers requires non-negative layer IDs")
         elif token == "--database":
             index += 1
             if index >= len(tokens) or not tokens[index] or tokens[index].startswith("-"):
@@ -123,12 +138,17 @@ def parse_planning_snapshot_args(argv: Sequence[str]) -> Dict[str, Any]:
         index += 1
     if database is None:
         raise ValueError("--database PATH is required")
+    if layer_ids is not None and command != "build-planning":
+        raise ValueError("--layers is only supported by build-planning")
+    if layer_ids is not None and resume is not None:
+        raise ValueError("incremental refresh uses SQLite resume state; omit --checkpoint")
     config = PlanningIngestionConfig(batch_size=batch_size, max_attempts=max_attempts)
     return {
         "command": command,
         "database": database,
         "manifest": manifest,
         "resume": resume,
+        "layer_ids": layer_ids,
         "json": as_json,
         "config": config,
     }
@@ -164,12 +184,25 @@ def main(
         result = getattr(service, service_method)(parsed["database"], parsed)
     except Exception as exc:
         if parsed["json"]:
-            print(json.dumps({"command": parsed["command"], "database": str(parsed["database"]), "error": str(exc)}, sort_keys=True), file=output)
+            print(
+                json.dumps(
+                    {"command": parsed["command"], "database": str(parsed["database"]), "error": str(exc)},
+                    sort_keys=True,
+                ),
+                file=output,
+            )
         else:
             print(f"Error: {parsed['command']} failed: {exc}", file=output)
         return EXIT_ERROR
     if parsed["json"]:
-        print(json.dumps({"command": parsed["command"], "database": str(parsed["database"]), "result": _json_safe(result)}, sort_keys=True, default=str), file=output)
+        print(
+            json.dumps(
+                {"command": parsed["command"], "database": str(parsed["database"]), "result": _json_safe(result)},
+                sort_keys=True,
+                default=str,
+            ),
+            file=output,
+        )
     else:
         print(f"{parsed['command']}: OK", file=output)
         if isinstance(result, Mapping):
@@ -180,4 +213,12 @@ def main(
     return EXIT_SUCCESS
 
 
-__all__ = ["COMMANDS", "EXIT_ERROR", "EXIT_SUCCESS", "EXIT_USAGE", "PlanningSnapshotServices", "main", "parse_planning_snapshot_args"]
+__all__ = [
+    "COMMANDS",
+    "EXIT_ERROR",
+    "EXIT_SUCCESS",
+    "EXIT_USAGE",
+    "PlanningSnapshotServices",
+    "main",
+    "parse_planning_snapshot_args",
+]

@@ -68,3 +68,22 @@ def test_frontend_reports_usage_and_service_errors_in_both_formats():
     output = io.StringIO()
     assert main(["status-planning", "--database", "x"], out=output) == EXIT_ERROR
     assert "failed" in output.getvalue()
+
+
+@pytest.mark.parametrize("option", [["--layers", "81,85,92"], ["--layers=92,81,85,81"]])
+def test_incremental_layer_selection(option):
+    parsed = parse_planning_snapshot_args(["build-planning", "--database=x", *option])
+    assert parsed["layer_ids"] == (81, 85, 92)
+
+
+@pytest.mark.parametrize("option", [["--layers"], ["--layers="], ["--layers=bad"], ["--layers=-1"]])
+def test_incremental_layer_selection_rejects_invalid_ids(option):
+    with pytest.raises(ValueError, match="--layers requires"):
+        parse_planning_snapshot_args(["build-planning", "--database=x", *option])
+
+
+def test_incremental_selection_cannot_be_ignored_or_resume_an_unrelated_checkpoint():
+    with pytest.raises(ValueError, match="only supported"):
+        parse_planning_snapshot_args(["status-planning", "--database=x", "--layers=81"])
+    with pytest.raises(ValueError, match="SQLite resume state"):
+        parse_planning_snapshot_args(["build-planning", "--database=x", "--layers=81", "--checkpoint=x"])

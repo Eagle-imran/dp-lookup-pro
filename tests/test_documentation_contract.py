@@ -54,7 +54,9 @@ def test_planning_evidence_docs_preserve_audit_and_runtime_contracts():
 
 
 def test_plot_intelligence_docs_preserve_authority_and_refresh_boundaries():
-    assert "119,522" in PLOT_INTELLIGENCE
+    counts = [re.search(r"([\d,]+)\s+queryable village/CTS identities", text) for text in (README, PLOT_INTELLIGENCE)]
+    assert all(count is not None for count in counts)
+    assert len({count.group(1) for count in counts if count is not None}) == 1
     assert "internal operational system of record" in PLOT_INTELLIGENCE
     assert "not a statutory declaration" in PLOT_INTELLIGENCE
     assert "183 days" in PLOT_INTELLIGENCE

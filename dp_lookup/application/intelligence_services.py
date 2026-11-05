@@ -7,7 +7,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
-from dp_lookup.application.intelligence_builder import PlotIntelligenceBuilder
+from dp_lookup.application.intelligence_builder import (
+    PlotIntelligenceBuilder,
+    _authority_registry_revision,
+    _source_fingerprint,
+)
+from dp_lookup.intelligence.models import ALGORITHM_VERSION
 from dp_lookup.intelligence.store import IntelligenceStateError, IntelligenceStore
 from dp_lookup.planning_evidence.models import EvidenceMode
 from dp_lookup.planning_snapshot import PlanningSnapshotStore
@@ -114,6 +119,17 @@ def _dossier(record: Mapping[str, Any], build: Mapping[str, Any]) -> Dict[str, A
 
 
 class PlotIntelligenceServices:
+    def _require_current_build(self, database: Path, build_id: Optional[int]) -> None:
+        if build_id is not None:
+            return  # Explicit historical IDs remain available for audit.
+        check = self.check(database)
+        if check["active_intelligence_build_id"] is None:
+            raise IntelligenceStateError("no active plot-intelligence build is available")
+        if not check["source_alignment"]:
+            raise IntelligenceStateError(
+                "active plot-intelligence build is stale; build, verify and activate current sources"
+            )
+
     def build(
         self,
         database: Path,
@@ -124,7 +140,7 @@ class PlotIntelligenceServices:
         evidence_mode: str = "full",
         parcel_snapshot_id: Optional[int] = None,
         planning_snapshot_id: Optional[int] = None,
-        workers: int = 4,
+        workers: int = 1,
     ) -> Mapping[str, Any]:
         return PlotIntelligenceBuilder(database).build(
             limit=limit,
@@ -168,6 +184,17 @@ class PlotIntelligenceServices:
                 raise IntelligenceStateError("intelligence build does not match the active parcel snapshot")
             if build.planning_snapshot_id != planning.active_snapshot_id():
                 raise IntelligenceStateError("intelligence build does not match the active planning snapshot")
+            expected_fingerprint = _source_fingerprint(
+                build.parcel_snapshot_id,
+                parcels.snapshot_metadata(build.parcel_snapshot_id),
+                build.planning_snapshot_id,
+                planning.snapshot(build.planning_snapshot_id).content_hash,
+                _authority_registry_revision(database),
+            )
+            if build.algorithm_version != ALGORITHM_VERSION or build.source_fingerprint != expected_fingerprint:
+                raise IntelligenceStateError(
+                    "intelligence build has a stale algorithm or source fingerprint; rebuild it"
+                )
             return store.activate(selected).to_dict()
 
     def analyze(
@@ -178,6 +205,7 @@ class PlotIntelligenceServices:
         *,
         build_id: Optional[int] = None,
     ) -> Mapping[str, Any]:
+        self._require_current_build(database, build_id)
         with IntelligenceStore.open(database) as store:
             record = store.get(village, cts_no, build_id=build_id)
             if record is None:
@@ -186,6 +214,7 @@ class PlotIntelligenceServices:
             return _dossier(record, store.build(selected).to_dict())
 
     def search(self, database: Path, **filters: Any) -> Mapping[str, Any]:
+        self._require_current_build(database, filters.get("build_id"))
         with IntelligenceStore.open(database) as store:
             records = store.search(**filters)
             selected = filters.get("build_id") or store.active_build_id()
@@ -202,6 +231,7 @@ class PlotIntelligenceServices:
         *,
         build_id: Optional[int] = None,
     ) -> Mapping[str, Any]:
+        self._require_current_build(database, build_id)
         with IntelligenceStore.open(database) as store:
             result = store.compare(identities, build_id=build_id)
             result["records"] = [_summary(record) for record in result["records"]]
@@ -223,9 +253,21 @@ class PlotIntelligenceServices:
             build = intelligence.build(build_id) if build_id is not None else None
             parcel_age = _age_days(parcel.finalized_at if parcel else None)
             planning_age = _age_days(planning_snapshot.finalized_at if planning_snapshot else None)
-            aligned = bool(
+            snapshot_alignment = bool(
                 build and build.parcel_snapshot_id == parcel_id and build.planning_snapshot_id == planning_id
             )
+            algorithm_alignment = bool(build and build.algorithm_version == ALGORITHM_VERSION)
+            expected_fingerprint = None
+            if parcel_id is not None and planning_id is not None and planning_snapshot is not None:
+                expected_fingerprint = _source_fingerprint(
+                    parcel_id,
+                    parcels.snapshot_metadata(parcel_id),
+                    planning_id,
+                    planning_snapshot.content_hash,
+                    _authority_registry_revision(database),
+                )
+            fingerprint_alignment = bool(build and build.source_fingerprint == expected_fingerprint)
+            aligned = snapshot_alignment and algorithm_alignment and fingerprint_alignment
             refresh_due = bool(
                 parcel_age is None or planning_age is None or parcel_age >= refresh_days or planning_age >= refresh_days
             )
@@ -243,6 +285,9 @@ class PlotIntelligenceServices:
                 "parcel_snapshot_age_days": parcel_age,
                 "planning_snapshot_age_days": planning_age,
                 "source_alignment": aligned,
+                "snapshot_alignment": snapshot_alignment,
+                "algorithm_alignment": algorithm_alignment,
+                "fingerprint_alignment": fingerprint_alignment,
                 "refresh_due": refresh_due,
                 "intelligence_rebuild_required": not aligned,
                 "ready_for_operational_use": aligned and not refresh_due,

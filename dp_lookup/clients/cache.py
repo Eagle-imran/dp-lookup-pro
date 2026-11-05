@@ -214,8 +214,8 @@ def read_cache_entry(
     Return a cached result, or None when it is absent, expired, has a known
     incompatible schema, or is no longer backed by files on disk.
 
-    Timestamped entries written before cache schema metadata was introduced
-    remain readable so this hardening release does not invalidate user output.
+    Old entries remain on disk but must be recomputed after analysis-policy
+    changes; missing schema metadata is not proof of compatibility.
     """
     entry = load_disk_cache(output_dir).get(key)
     if not isinstance(entry, dict):
@@ -232,7 +232,7 @@ def read_cache_entry(
     except (OverflowError, ValueError):
         return None
     entry_schema = entry.get("cache_schema_version")
-    if entry_schema is not None and entry_schema != CACHE_SCHEMA_VERSION:
+    if entry_schema != CACHE_SCHEMA_VERSION:
         return None
     if ttl_seconds >= 0 and (time.time() - cached_at) > ttl_seconds:
         return None
