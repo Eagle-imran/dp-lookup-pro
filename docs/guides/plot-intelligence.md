@@ -1,8 +1,7 @@
 # Plot intelligence database
 
-**Status:** Implemented; representative builds verified. A full citywide build
-must be verified and explicitly activated before it becomes the default search
-source.
+**Status:** Verified and active locally as of 2026-11-05. Build 14 contains all
+119,548 queryable identities, with full evidence and neighbour analysis.
 
 ## Purpose and authority boundary
 
@@ -53,8 +52,9 @@ Normal plot lookup reads the source snapshots directly; it does not query this
 derived build or require intelligence activation. The retained validation build
 6 is a 25-identity sample using parcel snapshot 1, planning snapshot 2 and
 algorithm 1.1.0. It cannot be activated. The active source baseline is now parcel
-snapshot 3 and planning snapshot 5; a fresh full build with the current algorithm
-is required for citywide search.
+snapshot 3 and planning snapshot 5. Full build 14, using algorithm 1.4.1, has
+been verified and activated for default analysis, citywide search and comparison.
+See the [activation audit](../audits/PLOT-INTELLIGENCE-ACTIVATION-2026-11-05.md).
 
 ## Stored facts
 
@@ -161,14 +161,16 @@ planning cache reuses source geometries without changing archived records.
 See [development status](../project/development-status.md) for the measured
 scope and publication progress.
 
-Single-record analysis and structured searches are fast once a build exists.
-The first full build performs exact intersections against the complete evidence
-registry and is deliberately resumable. A measured four-worker, 100-identity
-run on 2026-08-21 took 98.59 seconds, giving a historical 30–36 hour citywide
-estimate. Later database and geometry optimizations have not been rebenchmarked
-for a full intelligence publication. Measure a fresh representative sample
-before scheduling the full job. It is an offline publication job, not a
-request-time operation.
+The full 2026-11-05 build processed 119,548 identities with one worker in
+3,470.868 seconds (57 minutes 51 seconds), with no derivation errors and 626,130
+source references. All fact hashes were independently recomputed, and 36
+stratified/control plots matched normal local lookup. Source-quality flags
+remain visible; successful publication does not certify an official boundary.
+
+Single-record analysis and structured searches read the published records.
+The full build performs exact intersections against the complete evidence
+registry and is resumable. It is an offline publication job, separate from a
+user's individual query. Validate a sample before scheduling a later rebuild.
 
 The real-data results are recorded in the
 [plot-intelligence validation audit](../audits/PLOT-INTELLIGENCE-VALIDATION-2026-08-21.md).

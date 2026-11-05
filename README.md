@@ -237,6 +237,13 @@ activated unless the full build passes verification and its source versions
 match the active source snapshots. Normal lookup reads the source snapshots
 directly and does not require an active intelligence build.
 
+The local publication verified on 2026-11-05 is active: build 14 contains all
+119,548 queryable identities from parcel snapshot 3 and planning snapshot 5,
+using algorithm `plot-intelligence/1.4.1`. Default `plots analyze`, `plots search`
+and `plots compare` are operational. The derived database remains outside Git;
+a new installation needs its own verified source database and publication.
+See the [activation audit](docs/audits/PLOT-INTELLIGENCE-ACTIVATION-2026-11-05.md).
+
 ```bash
 # Validate the pipeline with a non-publishable sample
 dp-lookup-pro plots build --limit 25 --json

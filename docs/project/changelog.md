@@ -4,7 +4,19 @@ All notable changes to this project. Newest first.
 
 > **If something breaks after an update, see the [rollback guide](../operations/rollback.md).**
 
-## [Unreleased] — 2026-10-23
+## [Unreleased] — 2026-11-05
+
+### Plot-intelligence publication — 2026-11-05
+
+* Published full local build 14 from the existing parcel/planning snapshots,
+  with 119,548 records, full evidence and neighbours, and zero derivation errors.
+  Added an offline acceptance tool for complete identity/reference coverage,
+  recomputed fact hashes, normal-lookup parity and public CLI queries.
+* Retain the selected road's layer/ObjectID and preserve source-reference
+  policy/warning metadata and order when rehydrating normalized attributes.
+  Advance the intelligence algorithm to 1.4.1.
+* Stop workers on interruption while retaining completed records for resumption.
+  Honor `--json` for both argument and query failures in intelligence commands.
 
 ### Targeted source updates
 

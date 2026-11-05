@@ -119,8 +119,7 @@ def parse_intelligence_args(argv: Sequence[str]) -> Dict[str, Any]:
     if command == "compare" and not 2 <= len(positionals) <= 20:
         raise ValueError("compare requires 2-20 VILLAGE:CTS values")
     if command == "compare" and any(
-        ":" not in value or not all(part.strip() for part in value.split(":", 1))
-        for value in positionals
+        ":" not in value or not all(part.strip() for part in value.split(":", 1)) for value in positionals
     ):
         raise ValueError("compare identities must use VILLAGE:CTS")
     if command not in {"analyze", "compare"} and positionals:
@@ -169,8 +168,10 @@ def main(
     *,
     services: Optional[PlotIntelligenceServices] = None,
 ) -> int:
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    as_json = "--json" in raw_args
     try:
-        parsed = parse_intelligence_args(list(sys.argv[1:] if argv is None else argv))
+        parsed = parse_intelligence_args(raw_args)
         service = services or PlotIntelligenceServices()
         command = parsed.pop("command")
         database = parsed.pop("database")
@@ -201,16 +202,28 @@ def main(
             result = service.analyze(database, positionals[0], positionals[1], build_id=parsed.get("build_id"))
         elif command == "search":
             allowed_keys = {
-                "build_id", "village", "ward", "min_area_sqm", "max_area_sqm", "zone",
-                "reservations", "designations", "max_encumbered_percent", "road_name", "limit", "offset",
+                "build_id",
+                "village",
+                "ward",
+                "min_area_sqm",
+                "max_area_sqm",
+                "zone",
+                "reservations",
+                "designations",
+                "max_encumbered_percent",
+                "road_name",
+                "limit",
+                "offset",
             }
             result = service.search(database, **{key: value for key, value in parsed.items() if key in allowed_keys})
         elif command == "compare":
-            result = service.compare(database, [_identity(value) for value in positionals], build_id=parsed.get("build_id"))
+            result = service.compare(
+                database, [_identity(value) for value in positionals], build_id=parsed.get("build_id")
+            )
         else:
             result = service.check(database, refresh_days=parsed.get("refresh_days", 183.0))
     except Exception as exc:
-        print(f"Error: {exc}")
+        print(json.dumps({"error": str(exc)}, ensure_ascii=False) if as_json else f"Error: {exc}")
         return 1
     print(json.dumps(result, indent=2, ensure_ascii=False, default=str) if as_json else _human(command, result))
     return 0

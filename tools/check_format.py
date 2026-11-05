@@ -18,6 +18,7 @@ TARGETS = (
     "dp_lookup/core/topology.py",
     "dp_lookup/core/villages.py",
     "dp_lookup/intelligence",
+    "dp_lookup/intelligence_cli.py",
     "dp_lookup/planning_snapshot/copying.py",
     "dp_lookup/planning_snapshot_cli.py",
     "dp_lookup/exporters/contracts.py",

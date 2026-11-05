@@ -52,7 +52,8 @@ A separate 1,000-identity full-evidence sample completed without errors in
 therefore the default. These are sample measurements, not a citywide timing
 guarantee or a completed publication.
 
-The current offline suite passes 567 tests with 84.30% coverage. Formatting,
+The complete publication pass passed 573 offline tests at 84.37% coverage,
+including JSON argument/query error regressions. Formatting,
 Ruff and strict typing pass. CI results are available on
 [development PR #6](https://github.com/Eagle-imran/dp-lookup-pro/pull/6). The
 previous code baseline passed all four Python versions, packaging, dependency
@@ -73,12 +74,30 @@ Former active snapshots are retained for rollback. The abandoned full planning
 snapshot 4 retains its partial data but is marked superseded/failed to prevent
 accidental resumption. No whole planning refresh was completed or restarted.
 
-Remaining plot-intelligence work:
+## Plot-intelligence publication
 
-- Build every queryable village/CTS identity with full evidence and neighbours,
-  resolve derivation errors, verify and activate the matching full build.
-- Exercise default analyze, search and comparison and record publication
-  evidence. No full intelligence build was started during this source update.
+Full build 14 is verified and active as of 2026-11-05: all 119,548 queryable
+identities, 626,130 source references, full evidence and neighbours, and zero
+derivation errors. All fact checksums matched, all source references resolved,
+and 36 stratified/control cases matched normal local lookup. Default analyze,
+filtered search and comparison passed, including negative cases. Health reports
+zero critical findings and current source/algorithm/fingerprint alignment.
+
+The full one-worker build took 3,470.868 seconds. Source-quality labels remain
+visible: 78,863 verified, 34,245 qualified and 6,440 review_required. Source data
+was not refreshed for this run. See the
+[activation audit](../audits/PLOT-INTELLIGENCE-ACTIVATION-2026-11-05.md).
+
+Road-source provenance, normalized reference metadata roundtrips, interruption
+resumption and JSON error responses were corrected during publication.
+`tools/intelligence_acceptance.py` reproduces the offline checks.
+
+## Merge status
+
+The user explicitly placed the merge on hold. PR #6 remains a draft on
+`codex/development`; main remains the synchronized maintenance baseline.
+Do not merge without renewed authorization. FSI, a web interface and comparison
+or search report exports remain separate future work.
 
 Operational databases, retained snapshots, report bundles and certified source
 files remain outside Git. Existing data and reports are preserved.

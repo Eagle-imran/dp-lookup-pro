@@ -658,3 +658,24 @@ def test_source_reference_roundtrip_preserves_policy_metadata_and_order(tmp_path
         store.finalize(build_id)
         record = store.get("WORLI", "100", build_id=build_id)
         assert record["source_refs"] == list(references)
+
+
+@pytest.mark.parametrize(
+    "arguments,message",
+    [
+        (["analyze", "WORLI", "missing"], "not present"),
+        (["search", "--limit", "0"], "limit"),
+        (["search", "--limit", "bad"], "integer"),
+        (["compare", "WORLI:100"], "2-20"),
+    ],
+)
+def test_json_cli_errors_are_machine_readable_for_usage_and_query_failures(tmp_path, capsys, arguments, message):
+    import json
+
+    database = _database(tmp_path)
+    PlotIntelligenceServices().build(database)
+    PlotIntelligenceServices().activate(database)
+    status = intelligence_main(["intelligence", *arguments, "--database", str(database), "--json"])
+    assert status != 0
+    output = json.loads(capsys.readouterr().out)
+    assert message in output["error"]
