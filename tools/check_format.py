@@ -44,6 +44,7 @@ TARGETS = (
     "tests/test_planning_database_services.py",
     "tests/test_planning_snapshot_store.py",
     "tests/test_planning_snapshot_cli_extended.py",
+    "tests/test_report_outputs.py",
     "tests/test_telemetry.py",
     "tests/test_tile_cache.py",
     "tests/test_topology_contract.py",

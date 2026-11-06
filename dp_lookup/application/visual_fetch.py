@@ -12,7 +12,7 @@ from dp_lookup.application.dependencies import LookupDependencies
 from dp_lookup.application.telemetry import RunDiagnostics
 from dp_lookup.clients.arcgis import map_export_params
 from dp_lookup.core.constants import SERVER_URL
-from dp_lookup.core.geometry import latlon_to_tile
+from dp_lookup.core.geometry import latlon_to_tile, mercator_to_wgs84, tile_to_latlon
 
 
 @dataclass(frozen=True)
@@ -72,7 +72,23 @@ def start_visual_fetch(
     )
 
     zoom, grid_dimension = 18, 3
-    tile_x, tile_y = latlon_to_tile(parcel.latitude, parcel.longitude, zoom)
+    center_lon, center_lat = mercator_to_wgs84(parcel.mcx, parcel.mcy)
+    min_lon, min_lat = mercator_to_wgs84(min(parcel.xs), min(parcel.ys))
+    max_lon, max_lat = mercator_to_wgs84(max(parcel.xs), max(parcel.ys))
+    # Keep the nine-tile download, but fit every plot part rather than centring
+    # a fixed zoom on the representative point of just one part.
+    while True:
+        tile_x, tile_y = latlon_to_tile(center_lat, center_lon, zoom)
+        top, left = tile_to_latlon(tile_x - 1, tile_y - 1, zoom)
+        bottom, right = tile_to_latlon(tile_x + 2, tile_y + 2, zoom)
+        lon_padding = (right - left) / 32  # 24 pixels clear of the image edge.
+        lat_padding = (top - bottom) / 32
+        if zoom == 0 or (
+            left + lon_padding <= min_lon <= max_lon <= right - lon_padding
+            and bottom + lat_padding <= min_lat <= max_lat <= top - lat_padding
+        ):
+            break
+        zoom -= 1
     half_grid = grid_dimension // 2
     coordinates: List[Tuple[int, int]] = []
     tiles = []
