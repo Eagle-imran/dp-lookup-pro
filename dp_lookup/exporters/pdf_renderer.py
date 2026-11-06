@@ -3,6 +3,7 @@
 import datetime
 from typing import Any, Dict, List, Optional
 from xml.sax.saxutils import escape as xml_escape
+from xml.sax.saxutils import quoteattr
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -50,6 +51,7 @@ def _build_pdf_doc_values(
     encumbered_percent: float = 0.0,
     encumbered_area_sqm: float = 0.0,
     net_unencumbered_sqm: float = 0.0,
+    modification_document: str = "None",
 ) -> None:
     """
     Build a strictly 2-page, high-density DP Remark Dossier PDF.
@@ -100,8 +102,6 @@ def _build_pdf_doc_values(
     )
     story.append(banner_table)
     story.append(Spacer(1, 4))
-
-    mod_label_trimmed = mod_label[:60] + ("..." if len(mod_label) > 60 else "")
 
     # Format reservation details (cap at 3 in summary table to guarantee 2-page docket)
     res_items = reservations or []
@@ -244,11 +244,19 @@ def _build_pdf_doc_values(
                 Paragraph("Spatial Polygon Overlay", body_style),
             ]
         )
+    modification_row = len(table_data)
+    modification_text = (
+        f"Approval: {_esc(mod_approval)}<br/>{_esc(mod_label)}"
+        if mod_approval != "None" or mod_label != "None"
+        else "None"
+    )
+    if modification_document.startswith(("https://", "http://")):
+        modification_text += f'<br/><a href={quoteattr(modification_document)} color="blue">Open source notification</a>'
     table_data += [
         [
             Paragraph("DP Modification", body_style),
-            Paragraph(f"Approval: {_esc(mod_approval)}", body_style),
-            Paragraph(_esc(mod_label_trimmed), body_style),
+            Paragraph(modification_text, body_style),
+            "",
         ],
         [
             Paragraph("CRZ Status", body_style),
@@ -275,6 +283,7 @@ def _build_pdf_doc_values(
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CFD8DC")),
                 ("PADDING", (0, 0), (-1, -1), 1.7),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("SPAN", (1, modification_row), (2, modification_row)),
             ]
         )
     )
@@ -316,7 +325,7 @@ def _build_pdf_doc_values(
     )
     story.append(Spacer(1, 8))
 
-    sat_img_rl = RLImage(sat_snapshot_path, width=540, height=340)
+    sat_img_rl = RLImage(sat_snapshot_path, width=540, height=340, kind="proportional")
     story.append(sat_img_rl)
     story.append(Spacer(1, 10))
 
@@ -332,15 +341,21 @@ def _build_pdf_doc_values(
         [
             Paragraph("<b>Adjoining CTS No.</b>", bold_style),
             Paragraph("<b>Village</b>", bold_style),
-            Paragraph("<b>Plot Area (sq m)</b>", bold_style),
+            Paragraph("<b>Area (sq m) / basis</b>", bold_style),
         ]
     ]
     for n in neighbors[:8]:
+        area_basis = {
+            "Recorded plot area": "MCGM recorded area",
+            "Calculated boundary area": "Calculated nearby pieces",
+            "Unavailable": "Area unavailable",
+        }.get(str(n.get("area_source", "")), "Source record area")
+        area_text = f"{_esc(n['area_sqm'])} sq m" if n["area_sqm"] != "N/A" else "N/A"
         adj_table_data.append(
             [
                 Paragraph(f"CTS {_esc(n['cts_no'])}", body_style),
                 Paragraph(_esc(n["village"].upper()), body_style),
-                Paragraph(f"{_esc(n['area_sqm'])} sq m" if n["area_sqm"] != "N/A" else "N/A", body_style),
+                Paragraph(f"{area_text}<br/>{_esc(area_basis)}", body_style),
             ]
         )
     if not neighbors:
@@ -364,6 +379,15 @@ def _build_pdf_doc_values(
         )
     )
     story.append(adj_table)
+    if any(n.get("area_source") == "Calculated boundary area" for n in neighbors[:8]):
+        story.append(Spacer(1, 4))
+        story.append(
+            Paragraph(
+                "Calculated neighbour areas cover nearby source pieces. "
+                "A full CTS lookup may include additional pieces and a larger area.",
+                body_style,
+            )
+        )
 
     doc.build(story)
 
@@ -399,6 +423,7 @@ def write_pdf_report(data: PlotReportData) -> None:
         encumbered_percent=data.encumbered_percent,
         encumbered_area_sqm=data.encumbered_area_sqm,
         net_unencumbered_sqm=data.net_unencumbered_sqm,
+        modification_document=data.modification_document,
     )
 
 
@@ -432,6 +457,7 @@ def build_pdf_doc(
     encumbered_percent: float = 0.0,
     encumbered_area_sqm: float = 0.0,
     net_unencumbered_sqm: float = 0.0,
+    modification_document: str = "None",
 ) -> None:
     """Compatibility adapter for integrations using the historical signature."""
     write_pdf_report(
@@ -449,7 +475,7 @@ def build_pdf_doc(
             designation_code=des_code,
             modification_approval=mod_approval,
             modification_label=mod_label,
-            modification_document="None",
+            modification_document=modification_document,
             crz_status=crz_buffer_flag,
             metro_buffer=metro_buffer_flag,
             road_name=road_name,
