@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from dp_lookup.application.contracts import NeighbourContext, ParcelContext, RoadContext
 from dp_lookup.application.normalization import (
     normalize_planning_evidence,
@@ -65,6 +67,84 @@ def test_spatial_planning_failure_is_visible_when_identify_fallback_succeeds():
     assert planning.warnings
     assert planning.evidence["planning_constraints"]["state"] == "unknown"
     assert planning.evidence["zoning"]["method"] == "identify_fallback"
+
+
+def _polygon_result(*, failed_layer=None, reservations=(), encumbered_percent=0.0):
+    layers = [0, 46, 47, 192, 1550]
+    return {
+        "primary_zone": "R",
+        "zones": [{"zone": "R", "overlap_sqm": 100.0, "overlap_percent": 100.0}],
+        "reservations": list(reservations),
+        "designations": [],
+        "modifications": [],
+        "encumbered_percent": encumbered_percent,
+        "queried_layers": layers,
+        "successful_layers": [layer for layer in layers if layer != failed_layer],
+        "warnings": [f"Layer {failed_layer} query failed"] if failed_layer is not None else [],
+    }
+
+
+def _nearby_planning_hits():
+    return JsonResponse(
+        {
+            "results": [
+                {"layerId": 46, "attributes": {"FINAL_RES_CODE": "RSA2.1"}},
+                {"layerId": 47, "attributes": {"FINAL_DES_CODE": "EH1.1+ESA2.8"}},
+                {"layerId": 192, "attributes": {"APPROVAL_NO": "NEARBY-MODIFICATION"}},
+            ]
+        }
+    )
+
+
+@pytest.mark.parametrize("unrelated_failure", [None, 1550])
+def test_successful_empty_polygon_queries_are_not_replaced_by_nearby_hits(unrelated_failure):
+    planning = normalize_planning_evidence(
+        _polygon_result(failed_layer=unrelated_failure),
+        _nearby_planning_hits(),
+        100.0,
+        _parcel().wgs_rings,
+        [14, 1264, 1548],
+    )
+
+    assert planning.reservations == []
+    assert planning.designations == []
+    assert planning.modifications == []
+    assert planning.encumbered_percent == 0.0
+    assert planning.net_unencumbered_sqm == 100.0
+    assert "CLEAR" in planning.status_badge
+
+
+@pytest.mark.parametrize("failed_layer,field", [(46, "reservations"), (47, "designations"), (192, "modifications")])
+def test_nearby_fallback_is_retained_only_for_the_failed_polygon_layer(failed_layer, field):
+    planning = normalize_planning_evidence(
+        _polygon_result(failed_layer=failed_layer),
+        _nearby_planning_hits(),
+        100.0,
+        _parcel().wgs_rings,
+        [14, 1264, 1548],
+    )
+
+    for name in ("reservations", "designations", "modifications"):
+        assert len(getattr(planning, name)) == (1 if name == field else 0)
+    assert planning.warnings
+    assert planning.evidence["planning_constraints"]["state"] == "unknown"
+
+
+def test_dahisar_reservation_is_kept_without_adding_the_nearby_designation():
+    reservation = {"code": "RR", "type": "RR", "overlap_percent": 100.0}
+    planning = normalize_planning_evidence(
+        _polygon_result(reservations=[reservation], encumbered_percent=100.0),
+        _nearby_planning_hits(),
+        100.0,
+        _parcel().wgs_rings,
+        [14, 1264, 1548],
+    )
+
+    assert [item["code"] for item in planning.reservations] == ["RR"]
+    assert planning.designations == []
+    assert planning.encumbered_percent == 100.0
+    assert planning.net_unencumbered_sqm == 0.0
+    assert "RESERVED" in planning.status_badge
 
 
 def test_output_layout_is_absolute_and_preserves_exact_slash_identity(tmp_path):
