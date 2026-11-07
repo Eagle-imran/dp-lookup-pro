@@ -58,7 +58,15 @@ def test_pdf_preserves_full_note_source_link_image_proportions_and_area_basis(tm
         status_badge="MODIFIED",
         status_summary="Source notification applies",
         village="BYCULLA",
-        attrs={"WARD": "E", "TYPE": "CTS", "AREA_APP_SQ_MTRS": 1877.87},
+        attrs={
+            "WARD": "E",
+            "TYPE": "CTS",
+            "_DP_AREA_ASSESSMENT": {
+                "recorded_plot_area_sqm": None,
+                "calculated_boundary_area_sqm": 1877.87,
+                "selected_area_sqm": 1877.87,
+            },
+        },
         cts_number="1605",
         zone="R",
         des_desc="Municipal Hospital",
@@ -87,6 +95,8 @@ def test_pdf_preserves_full_note_source_link_image_proportions_and_area_basis(tm
     assert "Calculated nearby pieces" in text
     assert "MCGM recorded area" in text
     assert "A full CTS lookup may include additional pieces and a larger area." in text
+    assert "Recorded: Not available" in text
+    assert "Boundary: 1877.87 sq m" in text
     satellite = next(item for item in captured if isinstance(item, ReportImage))
     assert satellite.drawWidth / satellite.drawHeight == pytest.approx(satellite_size[0] / satellite_size[1])
     assert satellite.drawWidth <= 540

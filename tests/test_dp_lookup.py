@@ -861,6 +861,7 @@ def test_map_export_params_shape():
     assert got["size"] == "1000,1000"
     assert got["f"] == "image"
     assert got["dpi"] == "144"
+    assert got["layers"] == "show:0,13,44,45,46,47,192,193,194,2224"
 
 
 # ---- probe geometry ----

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import List, Optional
 
 from dp_lookup.application.contracts import NeighbourContext, ParcelContext
-from dp_lookup.core.area_assessment import calculated_boundary_area_sqm
-from dp_lookup.core.geometry import mercator_to_wgs84
+from dp_lookup.application.neighbour_normalization import (
+    ADJACENCY_TOLERANCE_M,
+    MIN_SHARED_BOUNDARY_M,
+    adjoining_parcels,
+)
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.spatial_store import SnapshotStore
 
@@ -18,8 +20,8 @@ class LocalNeighbourProvider:
         self,
         database: Path,
         *,
-        tolerance_m: float = 0.5,
-        min_shared_boundary_m: float = 0.05,
+        tolerance_m: float = ADJACENCY_TOLERANCE_M,
+        min_shared_boundary_m: float = MIN_SHARED_BOUNDARY_M,
         store: Optional[SnapshotStore] = None,
     ) -> None:
         if tolerance_m < 0 or min_shared_boundary_m < 0:
@@ -32,7 +34,7 @@ class LocalNeighbourProvider:
     def __call__(self, parcel: ParcelContext) -> Optional[NeighbourContext]:
         # In ``auto`` mode the parcel adapter can legitimately fall back to
         # live ArcGIS. Returning ``None`` here preserves the established live
-        # neighbour probes instead of falsely reporting an empty local result.
+        # boundary query instead of falsely reporting an empty local result.
         if parcel.attrs.get("_DP_PARCEL_SOURCE") != "local_snapshot":
             return None
         subject = arcgis_rings_to_geometry(parcel.rings)
@@ -64,66 +66,14 @@ class LocalNeighbourProvider:
                 snapshot_id=snapshot_id,
             )
 
-        grouped: Dict[Tuple[str, str], List[Mapping[str, Any]]] = defaultdict(list)
-        for row in rows:
-            village = str(row.get("village") or "")
-            cts_no = str(row.get("cts_no") or "")
-            if not cts_no or (village == parcel.village and cts_no == parcel.cts_no):
-                continue
-            grouped[(village, cts_no)].append(row)
-
-        neighbours: List[Dict[str, Any]] = []
-        for (village, cts_no), parts in grouped.items():
-            rings: List[Any] = []
-            for part in parts:
-                part_rings = part.get("rings")
-                if isinstance(part_rings, list):
-                    rings.extend(part_rings)
-            geometry = arcgis_rings_to_geometry(rings)
-            if geometry.is_empty:
-                continue
-            if subject.intersection(geometry).area > 1e-6:
-                continue
-            shared = float(subject.boundary.intersection(geometry.boundary).length)
-            gap = float(subject.distance(geometry))
-            if shared >= self.min_shared_boundary_m:
-                relation = "shared_boundary"
-            elif 0.0 < gap <= self.tolerance_m:
-                relation = "tolerance_gap"
-            else:
-                # Point-only contact and overlapping source errors are not
-                # silently promoted to an adjoining cadastral boundary.
-                continue
-            recorded = {
-                float(part["area_app_sqm"])
-                for part in parts
-                if part.get("area_app_sqm") is not None and float(part["area_app_sqm"]) > 0
-            }
-            if len(recorded) == 1:
-                area: Any = next(iter(recorded))
-                area_source = "Recorded plot area"
-            else:
-                calculated = calculated_boundary_area_sqm(rings)
-                area = round(calculated, 2) if calculated is not None else "N/A"
-                area_source = "Calculated boundary area" if calculated is not None else "Unavailable"
-            neighbours.append(
-                {
-                    "cts_no": cts_no,
-                    "village": village,
-                    "area_sqm": str(area),
-                    "area_source": area_source,
-                    "rings": [[mercator_to_wgs84(point[0], point[1]) for point in ring] for ring in rings],
-                    "source_objectids": sorted(int(part["objectid"]) for part in parts),
-                    "adjacency_relation": relation,
-                    "shared_boundary_m": round(shared, 3),
-                    "gap_m": round(gap, 3),
-                }
-            )
-        neighbours.sort(key=lambda item: (item["village"], item["cts_no"]))
         return NeighbourContext(
-            plots=neighbours,
-            warnings=[],
-            evidence_state="confirmed",
+            plots=adjoining_parcels(
+                parcel,
+                subject,
+                rows,
+                tolerance_m=self.tolerance_m,
+                min_shared_boundary_m=self.min_shared_boundary_m,
+            ),
             method="spatial_database",
         )
 

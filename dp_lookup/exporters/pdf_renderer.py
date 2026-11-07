@@ -21,6 +21,10 @@ def _esc(val: Any) -> str:
     return xml_escape(str(val))
 
 
+def _area_text(value: Any) -> str:
+    return f"{_esc(value)} sq m" if value is not None else "Not available"
+
+
 def _build_pdf_doc_values(
     pdf_path: str,
     status_badge: str,
@@ -164,13 +168,13 @@ def _build_pdf_doc_values(
         area_rows = [
             [
                 Paragraph("Working plot area", body_style),
-                Paragraph(f"{_esc(selected_area)} sq m" if selected_area is not None else "Not available", body_style),
+                Paragraph(_area_text(selected_area), body_style),
                 Paragraph(_esc(working_source), body_style),
             ],
             [
                 Paragraph("Source area comparison", body_style),
                 Paragraph(
-                    f"Recorded: {_esc(recorded_area)} sq m<br/>Boundary: {_esc(calculated_area)} sq m",
+                    f"Recorded: {_area_text(recorded_area)}<br/>Boundary: {_area_text(calculated_area)}",
                     body_style,
                 ),
                 Paragraph(

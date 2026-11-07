@@ -63,6 +63,6 @@ def map_export_params(
         "format": "png",
         "transparent": "false",
         "dpi": str(dpi),
-        "layers": "show:0,44,45,46,47,192,193,194,2224",
+        "layers": "show:0,13,44,45,46,47,192,193,194,2224",
         "f": "image",
     }

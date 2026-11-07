@@ -6,15 +6,15 @@ import sys
 import time
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-from dp_lookup.application.contracts import ArtifactContext
+from dp_lookup.application.contracts import ArtifactContext, NeighbourContext
 from dp_lookup.application.dependencies import DEFAULT_DEPENDENCIES, LookupDependencies
 from dp_lookup.application.ingestion import ParcelIngestionError, build_parcel_context, not_found_result
-from dp_lookup.application.live_queries import build_live_probe_queries
+from dp_lookup.application.live_queries import build_live_road_queries, query_live_neighbours
 from dp_lookup.application.local_spatial import parcel_source_notes
+from dp_lookup.application.neighbour_normalization import live_neighbours_unavailable
 from dp_lookup.application.normalization import (
     PlanningEvidenceError,
     normalize_planning_evidence,
-    parse_neighbour_responses,
     parse_road_responses,
 )
 from dp_lookup.application.output_layout import (
@@ -147,7 +147,7 @@ async def lookup_plot_pro(
                 local_neighbours = deps.neighbour_provider(parcel)
         except Exception as exc:
             local_neighbours = None
-            notes.append(f"Local adjacency was unavailable; live neighbour probes were used ({exc}).")
+            notes.append(f"Local adjacency was unavailable; live boundaries were queried ({exc}).")
 
         try:
             with diagnostics.span("road_provider"):
@@ -181,11 +181,10 @@ async def lookup_plot_pro(
 
         visual_fetch = start_visual_fetch(client, parcel, deps, diagnostics)
 
-        road_points, road_tasks, neighbour_points, neighbour_tasks = build_live_probe_queries(
+        road_points, road_tasks = build_live_road_queries(
             client,
             parcel,
             has_local_road=local_road is not None,
-            has_local_neighbours=local_neighbours is not None,
         )
 
         evidence_task: Awaitable[Any]
@@ -202,16 +201,16 @@ async def lookup_plot_pro(
             diagnostics.wait("road_queries", asyncio.gather(*road_tasks, return_exceptions=True)),
             diagnostics.wait(
                 "neighbour_queries",
-                asyncio.gather(*neighbour_tasks, return_exceptions=True),
+                query_live_neighbours(client, parcel) if local_neighbours is None else asyncio.sleep(0),
             ),
             evidence_task,
             return_exceptions=True,
         )
         diagnostics.mark("source_queries")
         road = local_road or parse_road_responses(fast_results[2], len(road_points))
-        neighbours = local_neighbours or parse_neighbour_responses(
-            fast_results[3], len(neighbour_points), safe_cts, safe_village
-        )
+        neighbours = local_neighbours or fast_results[3]
+        if not isinstance(neighbours, NeighbourContext):
+            neighbours = live_neighbours_unavailable("the MCGM boundary query failed")
         warnings.extend(road.warnings)
         warnings.extend(neighbours.warnings)
         if isinstance(fast_results[1], dict):
