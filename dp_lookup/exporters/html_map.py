@@ -14,9 +14,10 @@ from html import escape as _escape_html
 from importlib import resources
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
-from shapely.geometry import MultiPolygon, Polygon
+from shapely.geometry import mapping
 from shapely.ops import unary_union
 
+from dp_lookup.core.topology import arcgis_rings_to_geometry, rings_to_geojson_geometry
 from dp_lookup.exporters.contracts import ExportPayload, legacy_export_properties
 
 _TEMPLATE_NAME = "html_map.html"
@@ -169,45 +170,6 @@ def _reliability_css_class(status: str) -> str:
     }.get(status, "reliability-screening")
 
 
-def _compute_net_developable_wgs(
-    wgs_rings: List[List[List[float]]],
-    encumbered_items: Sequence[Mapping[str, Any]],
-) -> List[List[List[float]]]:
-    """Compute the unencumbered polygon in WGS84 coordinates using Shapely."""
-    try:
-        plot_poly = Polygon(wgs_rings[0])
-        if not plot_poly.is_valid:
-            plot_poly = plot_poly.buffer(0)
-
-        enc_polys: List[Any] = []
-        for item in encumbered_items:
-            for ring in item.get("wgs_rings", []):
-                if len(ring) >= 3:
-                    p = Polygon(ring)
-                    if not p.is_valid:
-                        p = p.buffer(0)
-                    enc_polys.append(p)
-
-        if not enc_polys:
-            return wgs_rings
-
-        union_enc = unary_union(enc_polys)
-        net_poly = plot_poly.difference(union_enc)
-        if net_poly.is_empty:
-            return []
-
-        out_rings: List[List[List[float]]] = []
-        parts = list(net_poly.geoms) if isinstance(net_poly, MultiPolygon) else [net_poly]
-        for part in parts:
-            if getattr(part, "exterior", None) is not None:
-                coords = [[round(x, 7), round(y, 7)] for x, y in part.exterior.coords]
-                if len(coords) >= 4:
-                    out_rings.append(coords)
-        return out_rings or wgs_rings
-    except Exception:
-        return wgs_rings
-
-
 def export_html_map(
     wgs_rings: List[List[List[float]]],
     properties: ExportPayload,
@@ -226,7 +188,9 @@ def export_html_map(
     all_des = designations or []
     all_encumbered = all_res + all_des
     has_encumbrance = bool(all_encumbered)
-    net_rings = _compute_net_developable_wgs(wgs_rings, all_encumbered)
+    plot_geometry = arcgis_rings_to_geometry(wgs_rings)
+    encumbered_geometry = unary_union([arcgis_rings_to_geometry(item.get("wgs_rings", [])) for item in all_encumbered])
+    net_geometry = plot_geometry.difference(encumbered_geometry)
 
     # Compute plot centroid for initial map view
     all_lons = [pt[0] for pt in wgs_rings[0]]
@@ -251,7 +215,7 @@ def export_html_map(
     # Convert GeoJSON objects for client embedding
     base_plot_geojson = {
         "type": "Feature",
-        "geometry": {"type": "Polygon", "coordinates": wgs_rings},
+        "geometry": mapping(plot_geometry),
         "properties": {
             "title": f"CTS {properties.get('cts_no')} ({properties.get('village')})",
             "area_sqm": area_sqm,
@@ -261,17 +225,9 @@ def export_html_map(
         },
     }
 
-    net_coordinates: Any
-    if len(net_rings) == 1:
-        net_coordinates = net_rings
-    else:
-        net_coordinates = [net_rings]
     net_plot_geojson: Dict[str, Any] = {
         "type": "Feature",
-        "geometry": {
-            "type": "Polygon" if len(net_rings) == 1 else "MultiPolygon",
-            "coordinates": net_coordinates,
-        },
+        "geometry": mapping(net_geometry),
         "properties": {
             "title": "Net Developable Envelope",
             "net_sqm": round(net_sqm, 2),
@@ -281,39 +237,35 @@ def export_html_map(
 
     res_features = []
     for item in all_res:
-        for ring in item.get("wgs_rings", []):
-            if len(ring) >= 3:
-                res_features.append(
-                    {
-                        "type": "Feature",
-                        "geometry": {"type": "Polygon", "coordinates": [ring]},
-                        "properties": {
-                            "category": "RESERVATION",
-                            "code": item.get("code", "RES"),
-                            "type": item.get("type", "Reservation"),
-                            "overlap_sqm": round(item.get("overlap_sqm", 0), 2),
-                            "overlap_percent": round(item.get("overlap_percent", 0), 1),
-                        },
-                    }
-                )
+        res_features.append(
+            {
+                "type": "Feature",
+                "geometry": rings_to_geojson_geometry(item.get("wgs_rings", [])),
+                "properties": {
+                    "category": "RESERVATION",
+                    "code": item.get("code", "RES"),
+                    "type": item.get("type", "Reservation"),
+                    "overlap_sqm": round(item.get("overlap_sqm", 0), 2),
+                    "overlap_percent": round(item.get("overlap_percent", 0), 1),
+                },
+            }
+        )
 
     des_features = []
     for item in all_des:
-        for ring in item.get("wgs_rings", []):
-            if len(ring) >= 3:
-                des_features.append(
-                    {
-                        "type": "Feature",
-                        "geometry": {"type": "Polygon", "coordinates": [ring]},
-                        "properties": {
-                            "category": "DESIGNATION",
-                            "code": item.get("code", "DES"),
-                            "description": item.get("description", "Designation"),
-                            "overlap_sqm": round(item.get("overlap_sqm", 0), 2),
-                            "overlap_percent": round(item.get("overlap_percent", 0), 1),
-                        },
-                    }
-                )
+        des_features.append(
+            {
+                "type": "Feature",
+                "geometry": rings_to_geojson_geometry(item.get("wgs_rings", [])),
+                "properties": {
+                    "category": "DESIGNATION",
+                    "code": item.get("code", "DES"),
+                    "description": item.get("description", "Designation"),
+                    "overlap_sqm": round(item.get("overlap_sqm", 0), 2),
+                    "overlap_percent": round(item.get("overlap_percent", 0), 1),
+                },
+            }
+        )
 
     neighbor_features = []
     for n in neighbors or []:

@@ -94,15 +94,18 @@
     }).addTo(map);
 
     // Corner Vertex Markers
-    if (DATA.base_plot.geometry && DATA.base_plot.geometry.coordinates[0]) {
-      DATA.base_plot.geometry.coordinates[0].forEach((pt, i) => {
+    const { type: plotType, coordinates: plotCoordinates } = DATA.base_plot.geometry;
+    const plotParts = plotType === 'MultiPolygon' ? plotCoordinates : [plotCoordinates];
+    let corner = 0;
+    for (const [outerRing = []] of plotParts) {
+      outerRing.slice(0, -1).forEach((pt) => {
         L.circleMarker([pt[1], pt[0]], {
           radius: 4,
           color: '#e11d48',
           fillColor: '#ffffff',
           fillOpacity: 1.0,
           weight: 2
-        }).bindTooltip(`Corner ${i + 1}: [${pt[1].toFixed(5)}, ${pt[0].toFixed(5)}]`).addTo(map);
+        }).bindTooltip(`Corner ${++corner}: [${pt[1].toFixed(5)}, ${pt[0].toFixed(5)}]`).addTo(map);
       });
     }
 

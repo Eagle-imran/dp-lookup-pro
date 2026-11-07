@@ -53,6 +53,8 @@ class _DelayedClient:
 
     async def get(self, url: str, **_: Any) -> _Response:
         await asyncio.sleep(self.delay_s)
+        if url.endswith("/13/query"):
+            return _Response({"features": []})
         if url.endswith("/export"):
             return _Response(content=_png_bytes())
         if "/tile/" in url:
@@ -64,7 +66,7 @@ class _DelayedClient:
         if not url.endswith("/identify"):
             raise AssertionError(f"unexpected POST in latency harness: {url}")
         layers = (data or {}).get("layers", "")
-        if layers.startswith("visible:193") or layers == "visible:13":
+        if layers.startswith("visible:193"):
             return _Response({"results": []})
         return _Response({"results": [{"layerId": 0, "attributes": {"Zone_Code2": "R"}}]})
 

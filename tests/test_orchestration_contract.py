@@ -64,6 +64,7 @@ class FakeArcGISClient:
                     "features": [
                         {
                             "attributes": {
+                                "OBJECTID": 1,
                                 "WARD": "G/S",
                                 "TYPE": "CTS",
                                 "VILLAGE": "WORLI",
@@ -98,8 +99,6 @@ class FakeArcGISClient:
         self.calls.append(("POST", url, data))
         if url.endswith("/identify"):
             layers = (data or {}).get("layers", "")
-            if layers == "visible:13":
-                return FakeResponse({"results": []})
             if layers.startswith("visible:193"):
                 return FakeResponse({"results": []})
             results = []
@@ -216,7 +215,7 @@ def test_complete_lookup_preserves_arcgis_contract(tmp_path):
     assert assessment["selected_area_basis"] == "recorded_plot_area"
     assert assessment["reliability_label"] in {"Screening", "Qualified with warnings"}
     assert result["metadata"]["evidence"]["zoning"]["layer_ids"] == [0]
-    assert result["spatial_cluster"]["adjacency_method"] == "probe"
+    assert result["spatial_cluster"]["adjacency_method"] == "live_boundary_query"
     assert snapshots and snapshots[0]["metadata"]["documents_pending"] is True
     assert client_options == {"timeout_seconds": 20.0, "verify_tls": True}
     assert len(cache_writes) == 1

@@ -7,8 +7,8 @@ from typing import Tuple
 SERVER_URL = "https://agsmaps.mcgm.gov.in/server/rest/services/Development_Plan_2034/MapServer"
 APPLICATION_VERSION = "3.14.0"
 RESULT_SCHEMA_VERSION = 1
-# Rebuild results that added nearby planning hits after successful polygon checks.
-CACHE_SCHEMA_VERSION = 4
+# Regenerate older reports with the corrected map, neighbour list and area label.
+CACHE_SCHEMA_VERSION = 5
 
 # Web Mercator projection sphere radius
 WEB_MERCATOR_R = 20037508.342789244

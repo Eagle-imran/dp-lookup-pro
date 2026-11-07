@@ -1,13 +1,14 @@
 """Focused contracts for the extracted application stages."""
 
+import asyncio
 from pathlib import Path
 
 import pytest
 
 from dp_lookup.application.contracts import NeighbourContext, ParcelContext, RoadContext
+from dp_lookup.application.live_queries import query_live_neighbours
 from dp_lookup.application.normalization import (
     normalize_planning_evidence,
-    parse_neighbour_responses,
     parse_road_responses,
 )
 from dp_lookup.application.output_layout import build_output_paths
@@ -162,17 +163,60 @@ def test_stage_contracts_are_independently_constructible():
     assert neighbours.plots[0]["cts_no"] == "2"
 
 
-def test_malformed_probe_collections_fail_visibly_without_crashing():
+def test_malformed_road_probe_collection_fails_visibly_without_crashing():
     response = JsonResponse({"features": {"unexpected": True}, "results": "not-a-list"})
     road = parse_road_responses([response], 1)
-    neighbours = parse_neighbour_responses([response], 1, "733", "WORLI")
 
     assert road.evidence_state == "failed"
     assert road.name == "None"
     assert road.warnings
+
+
+@pytest.mark.parametrize("payload", [{"features": {}}, {"features": [], "exceededTransferLimit": True}])
+def test_unusable_live_neighbour_query_is_not_confirmed(payload):
+    class Client:
+        async def get(self, _url, *, params):
+            return JsonResponse(payload)
+
+    neighbours = asyncio.run(query_live_neighbours(Client(), _parcel()))
+
     assert neighbours.plots == []
     assert neighbours.evidence_state == "failed"
     assert neighbours.warnings
+
+
+def test_live_neighbours_check_shared_boundaries_across_villages():
+    def feature(objectid, cts, left, bottom, right, top, *, village="MALABAR HILL"):
+        return {
+            "attributes": {"OBJECTID": objectid, "VILLAGE": village, "CTS_CS_NO": cts, "AREA_APP_SQ_MTRS": 20},
+            "geometry": {"rings": [[[left, bottom], [right, bottom], [right, top], [left, top], [left, bottom]]]},
+        }
+
+    class Client:
+        async def get(self, url, *, params):
+            assert url.endswith("/13/query")
+            assert params["geometry"] == "-0.5,-0.5,10.5,10.5"
+            return JsonResponse(
+                {
+                    "features": [
+                        feature(1, "1/6", 0, 0, 10, 10),  # Subject.
+                        feature(2, "1/6", 10, 0, 12, 10, village="TARDEO"),
+                        feature(3, "2", 0, 10.25, 10, 12),  # Small gap within tolerance.
+                        feature(4, "3", 10, 10, 12, 12),  # Point-only contact.
+                        feature(5, "4", -2, -2, 4, 4),  # Overlap.
+                        feature(6, "5", 13, 0, 14, 10),  # Across a larger gap.
+                    ]
+                }
+            )
+
+    neighbours = asyncio.run(query_live_neighbours(Client(), _parcel()))
+
+    assert neighbours.method == "live_boundary_query"
+    assert neighbours.evidence_state == "confirmed"
+    assert [(item["village"], item["cts_no"], item["adjacency_relation"]) for item in neighbours.plots] == [
+        ("MALABAR HILL", "2", "tolerance_gap"),
+        ("TARDEO", "1/6", "shared_boundary"),
+    ]
 
 
 def test_empty_layer_audit_is_not_confirmed_and_bad_percent_is_sanitized():

@@ -3,6 +3,7 @@ import json
 from importlib import resources
 
 import pytest
+from shapely.geometry import box, shape
 
 import dp_lookup.exporters.html_map as html_map
 from dp_lookup.exporters.html_map import _render_html_template, export_html_map
@@ -84,6 +85,28 @@ def test_export_renders_escaped_fields_and_valid_embedded_data(tmp_path):
     data = json.loads(data_text)
     assert data["plot_identity"]["village"] == "<WORLI>"
     assert data["plot_identity"]["cts_no"] == '947" onclick="bad'
+
+
+def test_remaining_area_keeps_all_plot_parts_and_holes(tmp_path):
+    first = box(0, 0, 10, 10)
+    second = box(20, 0, 30, 10)
+    strip = box(4, -1, 6, 11)
+    island = box(22, 2, 24, 4)
+    output = tmp_path / "multipart.html"
+    export_html_map(
+        [list(first.exterior.coords), list(second.exterior.coords)],
+        _plot_properties(),
+        str(output),
+        reservations=[{"wgs_rings": [list(strip.exterior.coords), list(island.exterior.coords)]}],
+    )
+
+    html = output.read_text(encoding="utf-8")
+    data = json.loads(html.split("const DATA = ", 1)[1].split(";\n", 1)[0])
+    base = shape(data["base_plot"]["geometry"])
+    net = shape(data["net_plot"]["geometry"])
+    assert base.is_valid and base.equals(first.union(second))
+    assert net.is_valid and net.equals(base.difference(strip.union(island)))
+    assert len(net.geoms) == 3
 
 
 def test_export_displays_nested_area_assessment_and_uses_selected_area(tmp_path):
