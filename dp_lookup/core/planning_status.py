@@ -49,7 +49,10 @@ def select_road(road_map: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     name = selected.get("name")
     if not real_name(selected):
         name = "Unnamed / existing road"
-    return {"name": name, "width": selected.get("width") or "N/A"}
+    result = {"name": name, "width": selected.get("width") or "N/A"}
+    if selected.get("source_layer_id") is not None:
+        result["source_layer_id"] = selected["source_layer_id"]
+    return result
 
 
 def crz_flag_from(crz_item: Optional[Dict[str, Any]]) -> str:

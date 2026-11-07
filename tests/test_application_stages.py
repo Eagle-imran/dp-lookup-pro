@@ -54,6 +54,20 @@ def test_road_placeholders_are_explicit_unknown_evidence():
     assert road.warnings == []
 
 
+def test_road_probe_retains_layer_of_the_selected_road():
+    response = JsonResponse(
+        {
+            "results": [
+                {"layerId": 45, "attributes": {"WIDTH": "13.4"}},
+                {"layerId": 44, "attributes": {"ROAD_NAME": "Existing road"}},
+            ]
+        }
+    )
+    road = parse_road_responses([response], 1)
+    assert road.selected_source_layer_id == 45
+    assert road.width == "13.4"
+
+
 def test_spatial_planning_failure_is_visible_when_identify_fallback_succeeds():
     identify = JsonResponse({"results": [{"layerId": 0, "attributes": {"Zone_Code2": "R"}}]})
     planning = normalize_planning_evidence(

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Mapping, Optional
 
+from dp_lookup.core.constants import GENERIC_ROAD_NAMES, LAYER_PROPOSED_ROAD
 from dp_lookup.exporters.dxf_policy import DEFAULT_DXF_LAYOUT_POLICY, DXF_LEGEND_ROWS, DxfLayoutPolicy
 from dp_lookup.exporters.dxf_text import text_extents
 
@@ -59,6 +61,30 @@ def legend_data_row(
     if current:
         lines.append(current)
     return [f"{label:<{label_width}}: {lines[0]}"] + [f"{'':<{label_width}}  {line}" for line in lines[1:]]
+
+
+def dxf_road_label(properties: Mapping[str, Any]) -> tuple[str, str]:
+    name = str(properties.get("abutting_road") or "N/A")
+    width = properties.get("road_width") or "N/A"
+    gap = properties.get("road_gap_m")
+    # Keep sub-metre source alignment noise from being reported as a gap.
+    nearby = isinstance(gap, (int, float)) and math.isfinite(gap) and gap > 0.5
+    if properties.get("road_source_layer_id") == LAYER_PROPOSED_ROAD:
+        label = "NEARBY PROPOSED ROAD" if nearby else "PROPOSED ROAD"
+    elif nearby:
+        label = "NEARBY ROAD"
+    elif gap is None and properties.get("road_method"):
+        label = "MAPPED ROAD"
+    else:
+        label = "ABUTTING ROAD"
+
+    name_key = name.strip().casefold()
+    if label != "ABUTTING ROAD" and name_key in (*GENERIC_ROAD_NAMES, "unnamed / existing road"):
+        name = "Not identified" if name_key == "none" else "Unnamed"
+    value = f"{name} ({width})"
+    if nearby:
+        value = f"~{gap:.1f} m gap | {value}"
+    return label, value
 
 
 def legend_data_rows(
@@ -125,9 +151,8 @@ def legend_data_rows(
         rows += legend_data_row("AUTHORITY RECORDS", record_ids, policy)
     rows += legend_data_row("CTS / VILLAGE", f"{properties.get('cts_no')} / {properties.get('village')}", policy)
     rows += legend_data_row("WARD / ZONE", f"{properties.get('ward')} / {properties.get('zone')}", policy)
-    rows += legend_data_row(
-        "ABUTTING ROAD", f"{properties.get('abutting_road')} ({properties.get('road_width')})", policy
-    )
+    road_label, road_value = dxf_road_label(properties)
+    rows += legend_data_row(road_label, road_value, policy)
     crz_value = properties.get("crz_buffer_flag")
     if str(crz_value or "").upper().startswith("YES"):
         crz_value = f"{crz_value} - verify with MCGM/MCZMA"

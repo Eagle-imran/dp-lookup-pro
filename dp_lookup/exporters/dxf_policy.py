@@ -25,7 +25,7 @@ DXF_LAYERS = (
 DXF_LEGEND_ROWS = (
     ("C-PLOT-BDY", "PLOT BOUNDARY - gross plot area"),
     ("C-PROP-HATCH", "Gross plot area (fill)"),
-    ("C-ROAD-ALIGN", "Abutting road alignment / frontage"),
+    ("C-ROAD-ALIGN", "Mapped road alignment"),
     ("C-SETBACK-3M", "3.0 m setback line (true parallel offset)"),
     ("C-SETBACK-6M", "6.0 m setback line (true parallel offset)"),
     ("C-RESTRICT-ZONE", "CRZ / Metro restriction (advisory note)"),
@@ -79,7 +79,7 @@ class DxfLayoutPolicy:
     neighbor_label_height_fraction: float = 0.9
     neighbor_nudge_step_fraction: float = 1.2
     neighbor_nudge_limit: int = 10
-    metro_radius_fraction: float = 0.6
+    metro_radius_fraction: float = 0.6  # Legacy custom-policy argument.
     restriction_note_y_offset_fraction: float = 4.4
     restriction_nudge_step_fraction: float = 1.2
     restriction_nudge_limit: int = 14

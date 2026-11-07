@@ -1,5 +1,6 @@
 """Canonical output layout and export-property construction."""
 
+import math
 import os
 from typing import Any, Dict
 
@@ -78,6 +79,10 @@ def build_export_data(
         net_unencumbered_percent=planning.net_unencumbered_percent,
         area_assessment=parcel.area_assessment,
         authority_resolution=parcel.authority_resolution,
+        road_source_layer_id=road.selected_source_layer_id,
+        # Road proximity is measured in Web Mercator units upstream.
+        road_gap_m=road.distance_m * math.cos(math.radians(parcel.latitude)) if road.distance_m is not None else None,
+        road_method=road.method,
     )
 
 

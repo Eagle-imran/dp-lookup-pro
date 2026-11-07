@@ -457,6 +457,38 @@ def test_dxf_has_no_empty_layers_and_carries_a_legend(tmp_path):
         assert token in text, f"legend is missing {token!r}"
 
 
+@pytest.mark.parametrize(
+    "source_layer,gap,label",
+    [
+        (45, 25.2, "NEARBY PROPOSED ROAD"),
+        (45, 0.0, "PROPOSED ROAD"),
+        (44, 12.0, "NEARBY ROAD"),
+        (193, None, "MAPPED ROAD"),
+    ],
+)
+def test_dxf_road_annotations_distinguish_proposed_and_unconfirmed_frontage(tmp_path, source_layer, gap, label):
+    ezdxf = pytest.importorskip("ezdxf")
+    out = tmp_path / "road.dxf"
+    props = dict(
+        PROPS,
+        abutting_road="Unnamed / existing road",
+        road_source_layer_id=source_layer,
+        road_gap_m=gap,
+        road_method="boundary_probe" if gap is None else "local_snapshot_distance",
+    )
+    dp.export_dxf(RING, props, str(out), roads=[[[72.82, 18.9698], [72.821, 18.9698]]])
+    model = ezdxf.readfile(out).modelspace()
+    (drawing_label,) = model.query('TEXT[layer=="C-ROAD-ALIGN"]')
+    legend_label = next(
+        item.dxf.text for item in model.query('TEXT[layer=="C-TITLE-BLOCK"]') if item.dxf.text.startswith(label)
+    )
+    for text in (drawing_label.dxf.text, legend_label):
+        assert text.startswith(label)
+        assert "existing road" not in text
+        if gap:
+            assert f"~{gap:.1f} m gap" in text
+
+
 def test_dxf_geometry_stays_within_sane_extents(tmp_path):
     """Regression: neighbour rings arrived in Web Mercator and drew at ~8e11."""
     ezdxf = pytest.importorskip("ezdxf")
@@ -1271,35 +1303,28 @@ def test_dxf_annotation_is_readable_on_a_very_small_plot(tmp_path):
         )
 
 
-def test_metro_buffer_restriction_is_actually_drawn(tmp_path):
-    """Regression: the lookup sets this flag to 'YES (Metro Buffer Zone)' but the
-    DXF tested `== "YES"`, so the metro restriction was silently missing from every
-    drawing. AMBIVALI 807 is in a metro buffer and its DXF said nothing."""
+def test_metro_buffer_flag_is_shown_as_an_advisory_note(tmp_path):
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
     props = dict(PROPS, crz_buffer_flag="NO (Outside CRZ Buffer)", metro_buffer_flag="YES (Metro Buffer Zone)")
     dp.export_dxf(RING, props, str(out), neighbors=[])
 
     msp = ezdxf.readfile(str(out)).modelspace()
-    circles = list(msp.query("CIRCLE[layer=='C-RESTRICT-ZONE']"))
-    assert circles, "no metro influence circle drawn"
+    assert not list(msp.query("CIRCLE[layer=='C-RESTRICT-ZONE']"))
     notes = [e.dxf.text for e in msp.query("TEXT[layer=='C-RESTRICT-ZONE']")]
-    assert any("METRO" in n for n in notes), f"no metro note drawn, got {notes}"
+    assert notes == ["METRO BUFFER INTERSECTS PLOT"]
 
 
-def test_restriction_layer_carries_geometry_not_just_a_legend_swatch(tmp_path):
-    """`C-RESTRICT-ZONE` counted as non-empty purely because the legend draws a
-    sample line on it, which hid the metro bug from the empty-layer test."""
+def test_restriction_layer_carries_notes_in_addition_to_the_legend_swatch(tmp_path):
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
     props = dict(PROPS, crz_buffer_flag="YES (CRZ II)", metro_buffer_flag="YES (Metro Buffer Zone)")
     dp.export_dxf(RING, props, str(out), neighbors=[])
 
     msp = ezdxf.readfile(str(out)).modelspace()
-    # The legend swatch is a single short LINE inside the panel. Real content is
-    # the notes and the influence circle.
-    real = [e for e in msp if e.dxf.layer == "C-RESTRICT-ZONE" and e.dxftype() in ("TEXT", "CIRCLE")]
-    assert len(real) >= 2, "restriction layer carries only its legend swatch"
+    notes = {e.dxf.text for e in msp.query("TEXT[layer=='C-RESTRICT-ZONE']")}
+    assert "METRO BUFFER INTERSECTS PLOT" in notes
+    assert any(note.startswith("CRZ:") for note in notes)
 
 
 # --------------------------------------------------------------------------

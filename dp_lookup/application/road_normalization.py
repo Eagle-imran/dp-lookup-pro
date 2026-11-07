@@ -43,7 +43,11 @@ def parse_road_responses(responses: Any, expected_count: int) -> RoadContext:
         for item in payload.features + payload.results:
             name, width = _road_attributes(item.attributes)
             if name or width:
-                road_map[f"{name}|{width}"] = {"name": name or "Road", "width": width or "N/A"}
+                road_map[f"{name}|{width}|{item.layer_id}"] = {
+                    "name": name or "Road",
+                    "width": width or "N/A",
+                    "source_layer_id": item.layer_id,
+                }
             raw_parts = item.geometry.get("paths") or item.geometry.get("rings") or []
             if not isinstance(raw_parts, (list, tuple)):
                 continue
@@ -72,4 +76,5 @@ def parse_road_responses(responses: Any, expected_count: int) -> RoadContext:
         geometries=geometries,
         warnings=warnings,
         evidence_state=state,
+        selected_source_layer_id=selected.get("source_layer_id"),
     )

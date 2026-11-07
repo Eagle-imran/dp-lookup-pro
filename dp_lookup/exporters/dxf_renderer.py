@@ -39,6 +39,7 @@ from dp_lookup.exporters.dxf_geometry import (
 from dp_lookup.exporters.dxf_legend import (
     draw_dxf_legend_column as draw_dxf_legend_column,
 )
+from dp_lookup.exporters.dxf_legend import dxf_road_label
 from dp_lookup.exporters.dxf_legend import (
     dxf_title_block_lines as dxf_title_block_lines,
 )
@@ -302,10 +303,11 @@ def export_dxf(
                 road_drawn += 1
 
     if road_drawn:
+        road_label, road_value = dxf_road_label(properties)
         road_text = msp.add_text(
             fit_label_to_width(
-                "ABUTTING ROAD: {}",
-                f"{properties.get('abutting_road') or 'N/A'} ({properties.get('road_width')})",
+                f"{road_label}: {{}}",
+                road_value,
                 max_width=max(width, height) * layout_policy.road_label_width_fraction,
                 char_h=dim_char_h,
                 policy=layout_policy,
@@ -392,12 +394,7 @@ def export_dxf(
         restrict_notes.append(f"CRZ: {crz_flag}")
         restrict_notes.append("DEVELOPMENT RESTRICTED")
     if str(properties.get("metro_buffer_flag") or "").upper().startswith("YES"):
-        msp.add_circle(
-            (cx, cy),
-            radius=scale * layout_policy.metro_radius_fraction,
-            dxfattribs={"layer": "C-RESTRICT-ZONE"},
-        )
-        restrict_notes.append("METRO RAIL BUFFER")
+        restrict_notes.append("METRO BUFFER INTERSECTS PLOT")
 
     note_y = max_y + dim_char_h * layout_policy.restriction_note_y_offset_fraction
     for note in restrict_notes:
