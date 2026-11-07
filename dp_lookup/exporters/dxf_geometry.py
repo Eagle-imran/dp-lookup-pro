@@ -5,8 +5,8 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from shapely.geometry import Polygon
-from shapely.geometry.base import BaseMultipartGeometry
+from shapely.geometry import MultiPolygon, Polygon
+from shapely.geometry.base import BaseGeometry
 
 METRES_PER_DEG_LAT = 111132.0
 METRES_PER_DEG_LON_EQUATOR = 111319.5
@@ -18,6 +18,13 @@ def polygon_signed_area(ring: Ring) -> float:
     """Shoelace formula. Positive means counter-clockwise winding."""
     n = len(ring)
     return sum(ring[i][0] * ring[(i + 1) % n][1] - ring[(i + 1) % n][0] * ring[i][1] for i in range(n)) / 2.0
+
+
+def inset_polygon_parts(geometry: BaseGeometry, distance: float) -> List[Polygon]:
+    """Offset the land as a whole, preserving any excluded interior areas."""
+    inset = geometry.buffer(-distance, join_style=2)
+    parts = inset.geoms if isinstance(inset, MultiPolygon) else (inset,)
+    return [part for part in parts if isinstance(part, Polygon) and part.area >= 1.0]
 
 
 def offset_polygon_inward(ring: Ring, distance: float) -> List[List[Point]]:
@@ -36,28 +43,14 @@ def offset_polygon_inward(ring: Ring, distance: float) -> List[List[Point]]:
         poly = Polygon(pts)
         if not poly.is_valid:
             poly = poly.buffer(0)
-        shrunk = poly.buffer(-abs(distance), join_style=2)
+        parts = inset_polygon_parts(poly, distance)
     except Exception:
         return []
-    if shrunk.is_empty:
-        return []
-
-    parts = list(shrunk.geoms) if isinstance(shrunk, BaseMultipartGeometry) else [shrunk]
-    out: List[List[Point]] = []
-    for part in parts:
-        exterior = getattr(part, "exterior", None)
-        if exterior is None:
-            continue
-        coords = [(x, y) for x, y in exterior.coords]
-        if len(coords) > 1 and coords[0] == coords[-1]:
-            coords = coords[:-1]
-        if len(coords) >= 3 and abs(polygon_signed_area(coords)) >= 1.0:
-            out.append(coords)
-    return out
+    return [list(part.exterior.coords)[:-1] for part in parts]
 
 
 def project_rings_to_local_metres(wgs_rings: Sequence[Ring]) -> Dict[str, Any]:
-    """Project WGS84 degrees into a local metric frame at the plot centroid."""
+    """Project WGS84 degrees into a local metric frame at the first ring's vertex average."""
     r0 = wgs_rings[0]
     lon0 = sum(p[0] for p in r0) / len(r0)
     lat0 = sum(p[1] for p in r0) / len(r0)

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Mapping, Optional
 
+from dp_lookup.core.constants import GENERIC_ROAD_NAMES, LAYER_PROPOSED_ROAD
 from dp_lookup.exporters.dxf_policy import DEFAULT_DXF_LAYOUT_POLICY, DXF_LEGEND_ROWS, DxfLayoutPolicy
 from dp_lookup.exporters.dxf_text import text_extents
 
@@ -14,8 +16,8 @@ def dxf_title_block_lines(properties: Dict[str, Any], utm_cx: float, utm_cy: flo
         f"PLOT: CTS {properties.get('cts_no')} ({properties.get('village')})",
         "PURPOSE: Architectural concept & massing base",
         "SCALE: 1:1 METRIC (1 CAD unit = 1 metre)",
-        "ORIGIN: Plot centroid (0.00, 0.00)",
-        f"UTM 43N CENTROID: E {utm_cx:.2f} / N {utm_cy:.2f}",
+        "ORIGIN: Local drawing grid (0.00, 0.00)",
+        f"UTM 43N AT ORIGIN: E {utm_cx:.2f} / N {utm_cy:.2f}",
         "SETBACKS ARE INDICATIVE - confirm against DCPR 2034",
         "PLOT AREA PER PROPERTY CARD MAY DIFFER FROM THE MCGM",
         "RECORD - reconcile both before any FSI calculation",
@@ -59,6 +61,30 @@ def legend_data_row(
     if current:
         lines.append(current)
     return [f"{label:<{label_width}}: {lines[0]}"] + [f"{'':<{label_width}}  {line}" for line in lines[1:]]
+
+
+def dxf_road_label(properties: Mapping[str, Any]) -> tuple[str, str]:
+    name = str(properties.get("abutting_road") or "N/A")
+    width = properties.get("road_width") or "N/A"
+    gap = properties.get("road_gap_m")
+    # Keep sub-metre source alignment noise from being reported as a gap.
+    nearby = isinstance(gap, (int, float)) and math.isfinite(gap) and gap > 0.5
+    if properties.get("road_source_layer_id") == LAYER_PROPOSED_ROAD:
+        label = "NEARBY PROPOSED ROAD" if nearby else "PROPOSED ROAD"
+    elif nearby:
+        label = "NEARBY ROAD"
+    elif gap is None and properties.get("road_method"):
+        label = "MAPPED ROAD"
+    else:
+        label = "ABUTTING ROAD"
+
+    name_key = name.strip().casefold()
+    if label != "ABUTTING ROAD" and name_key in (*GENERIC_ROAD_NAMES, "unnamed / existing road"):
+        name = "Not identified" if name_key == "none" else "Unnamed"
+    value = f"{name} ({width})"
+    if nearby:
+        value = f"~{gap:.1f} m gap | {value}"
+    return label, value
 
 
 def legend_data_rows(
@@ -125,9 +151,8 @@ def legend_data_rows(
         rows += legend_data_row("AUTHORITY RECORDS", record_ids, policy)
     rows += legend_data_row("CTS / VILLAGE", f"{properties.get('cts_no')} / {properties.get('village')}", policy)
     rows += legend_data_row("WARD / ZONE", f"{properties.get('ward')} / {properties.get('zone')}", policy)
-    rows += legend_data_row(
-        "ABUTTING ROAD", f"{properties.get('abutting_road')} ({properties.get('road_width')})", policy
-    )
+    road_label, road_value = dxf_road_label(properties)
+    rows += legend_data_row(road_label, road_value, policy)
     crz_value = properties.get("crz_buffer_flag")
     if str(crz_value or "").upper().startswith("YES"):
         crz_value = f"{crz_value} - verify with MCGM/MCZMA"
@@ -159,6 +184,8 @@ def draw_dxf_legend_column(
     scale: float,
     data_rows: Optional[List[str]] = None,
     policy: DxfLayoutPolicy = DEFAULT_DXF_LAYOUT_POLICY,
+    *,
+    legend_rows: tuple[tuple[str, str], ...] = DXF_LEGEND_ROWS,
 ) -> float:
     if data_rows is None:
         data_rows = legend_data_rows(properties, setback_status, policy=policy)
@@ -178,7 +205,7 @@ def draw_dxf_legend_column(
     place("LAYER LEGEND", char_height * policy.legend_heading_height_fraction, left, y)
     y -= row_height * policy.legend_section_gap_fraction
     swatch_width = row_height * policy.legend_swatch_width_fraction
-    for layer_name, meaning in DXF_LEGEND_ROWS:
+    for layer_name, meaning in legend_rows:
         msp.add_line(
             (left, y + row_height * policy.legend_swatch_y_fraction),
             (left + swatch_width, y + row_height * policy.legend_swatch_y_fraction),
@@ -206,7 +233,7 @@ def draw_dxf_legend_column(
     legend_right = measured_right + row_height * policy.legend_border_pad_fraction
     legend_bottom = min(
         y + row_height - row_height * policy.legend_text_height_fraction,
-        legend_top - legend_column_height(row_height, len(DXF_LEGEND_ROWS), len(data_rows), policy),
+        legend_top - legend_column_height(row_height, len(legend_rows), len(data_rows), policy),
     )
     msp.add_lwpolyline(
         [(legend_x, legend_bottom), (legend_right, legend_bottom), (legend_right, legend_top), (legend_x, legend_top)],

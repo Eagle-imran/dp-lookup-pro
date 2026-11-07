@@ -25,7 +25,7 @@ DXF_LAYERS = (
 DXF_LEGEND_ROWS = (
     ("C-PLOT-BDY", "PLOT BOUNDARY - gross plot area"),
     ("C-PROP-HATCH", "Gross plot area (fill)"),
-    ("C-ROAD-ALIGN", "Abutting road alignment / frontage"),
+    ("C-ROAD-ALIGN", "Mapped road alignment"),
     ("C-SETBACK-3M", "3.0 m setback line (true parallel offset)"),
     ("C-SETBACK-6M", "6.0 m setback line (true parallel offset)"),
     ("C-RESTRICT-ZONE", "CRZ / Metro restriction (advisory note)"),
@@ -33,9 +33,10 @@ DXF_LEGEND_ROWS = (
     ("C-ANNO-DIMS", "Boundary segment dimensions (m)"),
     ("C-ANNO-TEXT", "Plot metadata"),
     ("C-NORTH-ARROW", "True north"),
-    ("0_GRID_AXIS", "Metric grid, 0,0 at plot centroid"),
+    ("0_GRID_AXIS", "Metric grid and drawing origin"),
     ("C-TITLE-BLOCK", "Sheet border, legend, title block"),
 )
+DXF_RESERVATION_LEGEND_ROW = ("C-RESERVATIONS", "DP reservations and designations")
 
 
 @dataclass(frozen=True)
@@ -79,7 +80,7 @@ class DxfLayoutPolicy:
     neighbor_label_height_fraction: float = 0.9
     neighbor_nudge_step_fraction: float = 1.2
     neighbor_nudge_limit: int = 10
-    metro_radius_fraction: float = 0.6
+    metro_radius_fraction: float = 0.6  # Legacy custom-policy argument.
     restriction_note_y_offset_fraction: float = 4.4
     restriction_nudge_step_fraction: float = 1.2
     restriction_nudge_limit: int = 14
@@ -113,7 +114,7 @@ class DxfLayoutPolicy:
     legend_width_fraction: float = 0.95
     legend_width_min: float = 26.0
     legend_x_gap_fraction: float = 0.06
-    vport_height_fraction: float = 1.08
+    vport_height_fraction: float = 1.6
 
     def __post_init__(self) -> None:
         numeric_controls = (

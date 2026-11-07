@@ -7,8 +7,8 @@ from typing import Tuple
 SERVER_URL = "https://agsmaps.mcgm.gov.in/server/rest/services/Development_Plan_2034/MapServer"
 APPLICATION_VERSION = "3.14.0"
 RESULT_SCHEMA_VERSION = 1
-# Regenerate older reports with the corrected map, neighbour list and area label.
-CACHE_SCHEMA_VERSION = 5
+# Regenerate older reports with the updated DXF legend and origin labels.
+CACHE_SCHEMA_VERSION = 9
 
 # Web Mercator projection sphere radius
 WEB_MERCATOR_R = 20037508.342789244
@@ -22,6 +22,7 @@ LAYER_RESERVATION = 46
 LAYER_DESIGNATION = 47
 LAYER_MODIFICATION = 192
 LAYER_METRO = 1550
+LAYER_PROPOSED_ROAD = 45
 CRZ_LAYER_IDS: Tuple[int, ...] = (14, 1264, 1548)
 
 PLANNING_LAYER_IDS = [0, 46, 47, 192, 1550]  # zone, reservation, designation, DP mod, metro

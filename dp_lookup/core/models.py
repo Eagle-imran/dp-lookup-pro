@@ -125,6 +125,9 @@ class ExportData:
     net_unencumbered_percent: float
     area_assessment: Optional[AreaAssessment] = None
     authority_resolution: Optional[Mapping[str, Any]] = None
+    road_source_layer_id: Optional[int] = None
+    road_gap_m: Optional[float] = None
+    road_method: Optional[str] = None
 
     def to_legacy_dict(self) -> Dict[str, Any]:
         """Adapt at a legacy renderer edge without leaking mutable state."""
@@ -158,6 +161,12 @@ class ExportData:
             result["area_assessment"] = self.area_assessment.to_dict()
         if self.authority_resolution is not None:
             result["authority_resolution"] = deepcopy(dict(self.authority_resolution))
+        if self.road_source_layer_id is not None:
+            result["road_source_layer_id"] = self.road_source_layer_id
+        if self.road_gap_m is not None:
+            result["road_gap_m"] = self.road_gap_m
+        if self.road_method is not None:
+            result["road_method"] = self.road_method
         return result
 
 
