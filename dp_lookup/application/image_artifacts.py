@@ -156,6 +156,7 @@ class MapImageArtifactExporter:
                 "lat": parcel.latitude,
                 "lon": parcel.longitude,
                 "neighbours": len(context.neighbours.plots),
+                "adjoining_plots": context.neighbours.plots[:8],
             },
         )
         image: List[Image.Image] = []
