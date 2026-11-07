@@ -50,7 +50,7 @@ def offset_polygon_inward(ring: Ring, distance: float) -> List[List[Point]]:
 
 
 def project_rings_to_local_metres(wgs_rings: Sequence[Ring]) -> Dict[str, Any]:
-    """Project WGS84 degrees into a local metric frame at the plot centroid."""
+    """Project WGS84 degrees into a local metric frame at the first ring's vertex average."""
     r0 = wgs_rings[0]
     lon0 = sum(p[0] for p in r0) / len(r0)
     lat0 = sum(p[1] for p in r0) / len(r0)

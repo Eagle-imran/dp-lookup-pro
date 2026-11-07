@@ -16,8 +16,8 @@ def dxf_title_block_lines(properties: Dict[str, Any], utm_cx: float, utm_cy: flo
         f"PLOT: CTS {properties.get('cts_no')} ({properties.get('village')})",
         "PURPOSE: Architectural concept & massing base",
         "SCALE: 1:1 METRIC (1 CAD unit = 1 metre)",
-        "ORIGIN: Plot centroid (0.00, 0.00)",
-        f"UTM 43N CENTROID: E {utm_cx:.2f} / N {utm_cy:.2f}",
+        "ORIGIN: Local drawing grid (0.00, 0.00)",
+        f"UTM 43N AT ORIGIN: E {utm_cx:.2f} / N {utm_cy:.2f}",
         "SETBACKS ARE INDICATIVE - confirm against DCPR 2034",
         "PLOT AREA PER PROPERTY CARD MAY DIFFER FROM THE MCGM",
         "RECORD - reconcile both before any FSI calculation",
@@ -184,6 +184,8 @@ def draw_dxf_legend_column(
     scale: float,
     data_rows: Optional[List[str]] = None,
     policy: DxfLayoutPolicy = DEFAULT_DXF_LAYOUT_POLICY,
+    *,
+    legend_rows: tuple[tuple[str, str], ...] = DXF_LEGEND_ROWS,
 ) -> float:
     if data_rows is None:
         data_rows = legend_data_rows(properties, setback_status, policy=policy)
@@ -203,7 +205,7 @@ def draw_dxf_legend_column(
     place("LAYER LEGEND", char_height * policy.legend_heading_height_fraction, left, y)
     y -= row_height * policy.legend_section_gap_fraction
     swatch_width = row_height * policy.legend_swatch_width_fraction
-    for layer_name, meaning in DXF_LEGEND_ROWS:
+    for layer_name, meaning in legend_rows:
         msp.add_line(
             (left, y + row_height * policy.legend_swatch_y_fraction),
             (left + swatch_width, y + row_height * policy.legend_swatch_y_fraction),
@@ -231,7 +233,7 @@ def draw_dxf_legend_column(
     legend_right = measured_right + row_height * policy.legend_border_pad_fraction
     legend_bottom = min(
         y + row_height - row_height * policy.legend_text_height_fraction,
-        legend_top - legend_column_height(row_height, len(DXF_LEGEND_ROWS), len(data_rows), policy),
+        legend_top - legend_column_height(row_height, len(legend_rows), len(data_rows), policy),
     )
     msp.add_lwpolyline(
         [(legend_x, legend_bottom), (legend_right, legend_bottom), (legend_right, legend_top), (legend_x, legend_top)],

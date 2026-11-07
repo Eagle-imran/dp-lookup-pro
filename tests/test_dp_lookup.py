@@ -453,8 +453,14 @@ def test_dxf_has_no_empty_layers_and_carries_a_legend(tmp_path):
         "ABUTTING ROAD",
         "CRZ STATUS",
         "1 CAD unit = 1 metre",
+        "ORIGIN: Local drawing grid (0.00, 0.00)",
+        "UTM 43N AT ORIGIN:",
+        "Metric grid and drawing origin",
     ):
         assert token in text, f"legend is missing {token!r}"
+    assert "centroid" not in text.casefold()
+    assert "C-RESERVATIONS" not in text
+    assert "C-RESERVATIONS" not in doc.layers
 
 
 @pytest.mark.parametrize(
@@ -1637,6 +1643,8 @@ def test_dxf_exports_reservations_layer(tmp_path):
         (e.plain_text() if hasattr(e, "plain_text") else e.dxf.text) for e in msp if e.dxftype() in ("TEXT", "MTEXT")
     )
     assert "RES: ROS1.5" in text
+    assert "C-RESERVATIONS  -  DP reservations and designations" in text
+    assert len(msp.query('LINE[layer=="C-RESERVATIONS"]')) == 1
     assert "ENCUMBERED" in text
     assert "NET DEVELOPABLE" in text
 

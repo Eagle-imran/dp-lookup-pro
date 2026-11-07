@@ -33,9 +33,10 @@ DXF_LEGEND_ROWS = (
     ("C-ANNO-DIMS", "Boundary segment dimensions (m)"),
     ("C-ANNO-TEXT", "Plot metadata"),
     ("C-NORTH-ARROW", "True north"),
-    ("0_GRID_AXIS", "Metric grid, 0,0 at plot centroid"),
+    ("0_GRID_AXIS", "Metric grid and drawing origin"),
     ("C-TITLE-BLOCK", "Sheet border, legend, title block"),
 )
+DXF_RESERVATION_LEGEND_ROW = ("C-RESERVATIONS", "DP reservations and designations")
 
 
 @dataclass(frozen=True)

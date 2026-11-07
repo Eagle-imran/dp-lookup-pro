@@ -7,8 +7,8 @@ from typing import Tuple
 SERVER_URL = "https://agsmaps.mcgm.gov.in/server/rest/services/Development_Plan_2034/MapServer"
 APPLICATION_VERSION = "3.14.0"
 RESULT_SCHEMA_VERSION = 1
-# Regenerate older reports with corrected DXF Metro and road annotations.
-CACHE_SCHEMA_VERSION = 8
+# Regenerate older reports with the updated DXF legend and origin labels.
+CACHE_SCHEMA_VERSION = 9
 
 # Web Mercator projection sphere radius
 WEB_MERCATOR_R = 20037508.342789244

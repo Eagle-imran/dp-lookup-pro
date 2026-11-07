@@ -67,6 +67,7 @@ from dp_lookup.exporters.dxf_policy import (
 from dp_lookup.exporters.dxf_policy import (
     DXF_LEGEND_ROWS as DXF_LEGEND_ROWS,
 )
+from dp_lookup.exporters.dxf_policy import DXF_RESERVATION_LEGEND_ROW
 from dp_lookup.exporters.dxf_policy import (
     LEGEND_PAD_ROWS as LEGEND_PAD_ROWS,
 )
@@ -508,10 +509,13 @@ def export_dxf(
 
     measured_area = float(parcel_geometry.area) or None
     data_rows = legend_data_rows(properties, setback_status, measured_area, layout_policy)
+    legend_rows: tuple[tuple[str, str], ...] = DXF_LEGEND_ROWS
+    if "C-RESERVATIONS" in doc.layers:
+        legend_rows = (*legend_rows, DXF_RESERVATION_LEGEND_ROW)
 
     _lg_row = max(char_h * layout_policy.legend_row_height_fraction, layout_policy.legend_row_min)
     _needed = (
-        legend_column_height(_lg_row, len(DXF_LEGEND_ROWS), len(data_rows), layout_policy)
+        legend_column_height(_lg_row, len(legend_rows), len(data_rows), layout_policy)
         + title_block_height(_lg_row, len(dxf_title_block_lines(properties, utm_cx, utm_cy)), layout_policy)
         + pad * 3
     )
@@ -536,6 +540,7 @@ def export_dxf(
         scale,
         data_rows=data_rows,
         policy=layout_policy,
+        legend_rows=legend_rows,
     )
     b_max_x = max(lg_x0 + lg_w, lg_x1) + scale * layout_policy.legend_x_gap_fraction
 
