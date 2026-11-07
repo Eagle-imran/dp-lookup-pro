@@ -5,8 +5,11 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import ezdxf
 from ezdxf.enums import TextEntityAlignment
+from ezdxf.lldxf.const import BOUNDARY_PATH_EXTERNAL, BOUNDARY_PATH_OUTERMOST
+from shapely.geometry import MultiPolygon, Polygon
 
 from dp_lookup.core.geometry import wgs84_to_utm43n
+from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.exporters.contracts import ExportPayload, legacy_export_properties
 from dp_lookup.exporters.dxf_geometry import (
     METRES_PER_DEG_LAT as METRES_PER_DEG_LAT,
@@ -20,6 +23,7 @@ from dp_lookup.exporters.dxf_geometry import (
 from dp_lookup.exporters.dxf_geometry import (
     clip_segment_to_box as clip_segment_to_box,
 )
+from dp_lookup.exporters.dxf_geometry import inset_polygon_parts
 from dp_lookup.exporters.dxf_geometry import (
     offset_polygon_inward as offset_polygon_inward,
 )
@@ -132,6 +136,7 @@ def export_dxf(
     lon0, lat0 = proj["lon0"], proj["lat0"]
     meters_per_deg_lon, meters_per_deg_lat = proj["mpd_lon"], proj["mpd_lat"]
     local_rings = proj["local_rings"]
+    parcel_geometry = arcgis_rings_to_geometry(local_rings)
 
     lr0 = local_rings[0]
     all_x = [p[0] for p in lr0]
@@ -191,12 +196,14 @@ def export_dxf(
             layout_policy.plot_line_min_width,
             scale * layout_policy.plot_line_width_fraction,
         )
-        try:
+    plot_parts = parcel_geometry.geoms if isinstance(parcel_geometry, MultiPolygon) else (parcel_geometry,)
+    for part in plot_parts:
+        if isinstance(part, Polygon) and not part.is_empty:
             hatch = msp.add_hatch(color=252, dxfattribs={"layer": "C-PROP-HATCH"})
-            hatch.paths.add_polyline_path(loc_ring, is_closed=True)
+            hatch.paths.add_polyline_path(part.exterior.coords, flags=BOUNDARY_PATH_EXTERNAL)
+            for cutout in part.interiors:
+                hatch.paths.add_polyline_path(cutout.coords, flags=BOUNDARY_PATH_OUTERMOST)
             hatch.transparency = 0.65
-        except Exception:
-            pass
 
     cts_label = msp.add_text(f"CTS {properties.get('cts_no')}", dxfattribs={"layer": "C-ANNO-TEXT", "height": char_h})
     cts_label.set_placement((cx, cy), align=TextEntityAlignment.MIDDLE_CENTER)
@@ -210,13 +217,12 @@ def export_dxf(
     for spec_layer, spec_dist, marker_offset in zip(
         setback_layers, layout_policy.setback_distances, layout_policy.setback_marker_offsets, strict=False
     ):
-        drawn = 0
-        for loc_ring in local_rings:
-            for offset_ring in offset_polygon_inward(loc_ring, spec_dist):
-                msp.add_lwpolyline(offset_ring, close=True, dxfattribs={"layer": spec_layer})
-                drawn += 1
-        setback_status[spec_dist] = drawn > 0
-        if not drawn:
+        inset_parts = inset_polygon_parts(parcel_geometry, spec_dist)
+        for part in inset_parts:
+            for ring in (part.exterior, *part.interiors):
+                msp.add_lwpolyline(list(ring.coords)[:-1], close=True, dxfattribs={"layer": spec_layer})
+        setback_status[spec_dist] = bool(inset_parts)
+        if not inset_parts:
             marker = msp.add_text(
                 f"{spec_dist:.1f}m SETBACK N/A", dxfattribs={"layer": spec_layer, "height": dim_char_h}
             )
@@ -417,7 +423,7 @@ def export_dxf(
             ov_sqm = item.get("overlap_sqm", 0)
             for res_wgs_ring in item.get("wgs_rings", []):
                 if len(res_wgs_ring) >= 3:
-                    res_loc_ring = project_rings_to_local_metres([res_wgs_ring])["local_rings"][0]
+                    res_loc_ring = to_local_metres(res_wgs_ring, lon0, lat0, meters_per_deg_lon, meters_per_deg_lat)
                     msp.add_lwpolyline(res_loc_ring, close=True, dxfattribs={"layer": "C-RESERVATIONS"})
                     if res_loc_ring and ov_sqm >= 100.0:
                         rcx = sum(p[0] for p in res_loc_ring) / len(res_loc_ring)
@@ -446,7 +452,7 @@ def export_dxf(
             ov_sqm = item.get("overlap_sqm", 0)
             for des_wgs_ring in item.get("wgs_rings", []):
                 if len(des_wgs_ring) >= 3:
-                    des_loc_ring = project_rings_to_local_metres([des_wgs_ring])["local_rings"][0]
+                    des_loc_ring = to_local_metres(des_wgs_ring, lon0, lat0, meters_per_deg_lon, meters_per_deg_lat)
                     msp.add_lwpolyline(des_loc_ring, close=True, dxfattribs={"layer": "C-RESERVATIONS"})
                     if des_loc_ring and ov_sqm >= 100.0:
                         dcx = sum(p[0] for p in des_loc_ring) / len(des_loc_ring)
@@ -503,7 +509,7 @@ def export_dxf(
     b_min_y = min(content_y) - pad
     b_max_y = max(content_y) + pad
 
-    measured_area = sum(abs(polygon_signed_area(r)) for r in local_rings) or None
+    measured_area = float(parcel_geometry.area) or None
     data_rows = legend_data_rows(properties, setback_status, measured_area, layout_policy)
 
     _lg_row = max(char_h * layout_policy.legend_row_height_fraction, layout_policy.legend_row_min)
@@ -547,10 +553,13 @@ def export_dxf(
     doc.header["$LIMMIN"] = (b_min_x, b_min_y)
     doc.header["$LIMMAX"] = (b_max_x, b_max_y)
 
+    # Keep the full sheet available at Zoom Extents, but open on the selected parcel.
+    view_bounds = parcel_geometry.bounds if not parcel_geometry.is_empty else (min_x, min_y, max_x, max_y)
+    view_left, view_bottom, view_right, view_top = view_bounds
     try:
         doc.set_modelspace_vport(
-            height=(b_max_y - b_min_y) * layout_policy.vport_height_fraction,
-            center=((b_min_x + b_max_x) / 2.0, (b_min_y + b_max_y) / 2.0),
+            height=max(1.0, view_right - view_left, view_top - view_bottom) * layout_policy.vport_height_fraction,
+            center=((view_left + view_right) / 2.0, (view_bottom + view_top) / 2.0),
         )
     except Exception:
         pass

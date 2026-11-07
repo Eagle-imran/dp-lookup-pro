@@ -113,7 +113,7 @@ class DxfLayoutPolicy:
     legend_width_fraction: float = 0.95
     legend_width_min: float = 26.0
     legend_x_gap_fraction: float = 0.06
-    vport_height_fraction: float = 1.08
+    vport_height_fraction: float = 1.6
 
     def __post_init__(self) -> None:
         numeric_controls = (

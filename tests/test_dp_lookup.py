@@ -1580,7 +1580,8 @@ def test_dxf_exports_reservations_layer(tmp_path):
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "res_test.dxf"
     ring = [[[72.8200, 18.9700], [72.8220, 18.9700], [72.8220, 18.9720], [72.8200, 18.9720], [72.8200, 18.9700]]]
-    res_rings = [[[72.8205, 18.9705], [72.8215, 18.9705], [72.8215, 18.9715], [72.8205, 18.9715], [72.8205, 18.9705]]]
+    res_rings = [[[72.8201, 18.9701], [72.8206, 18.9701], [72.8206, 18.9706], [72.8201, 18.9706], [72.8201, 18.9701]]]
+    des_rings = [[[72.8214, 18.9714], [72.8219, 18.9714], [72.8219, 18.9719], [72.8214, 18.9719], [72.8214, 18.9714]]]
     props = dict(
         PROPS,
         encumbered_percent=25.0,
@@ -1596,12 +1597,16 @@ def test_dxf_exports_reservations_layer(tmp_path):
             "wgs_rings": res_rings,
         }
     ]
-    dp.export_dxf(ring, props, str(out), reservations=reservations)
+    designations = [{"code": "EOS1.4", "overlap_sqm": 1200.0, "wgs_rings": des_rings}]
+    dp.export_dxf(ring, props, str(out), reservations=reservations, designations=designations)
 
     doc = ezdxf.readfile(str(out))
     msp = doc.modelspace()
     layers = {e.dxf.layer for e in msp}
     assert "C-RESERVATIONS" in layers
+    reservation, designation = msp.query('LWPOLYLINE[layer=="C-RESERVATIONS"]')
+    assert all(x < 0 and y < 0 for x, y in reservation.get_points("xy"))
+    assert all(x > 0 and y > 0 for x, y in designation.get_points("xy"))
 
     text = " ".join(
         (e.plain_text() if hasattr(e, "plain_text") else e.dxf.text) for e in msp if e.dxftype() in ("TEXT", "MTEXT")

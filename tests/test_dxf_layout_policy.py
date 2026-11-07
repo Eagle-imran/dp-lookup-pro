@@ -6,7 +6,9 @@ from dataclasses import FrozenInstanceError
 
 import ezdxf
 import pytest
+from ezdxf.lldxf.const import BOUNDARY_PATH_EXTERNAL, BOUNDARY_PATH_OUTERMOST
 
+from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.exporters.dxf import (
     DEFAULT_DXF_LAYOUT_POLICY,
     DxfLayoutPolicy,
@@ -56,6 +58,51 @@ def _assert_valid_dxf(path) -> ezdxf.document.Drawing:
             assert box[2] >= box[0]
             assert box[3] >= box[1]
     return doc
+
+
+def test_dxf_preserves_cutouts_in_fill_and_setbacks(tmp_path):
+    outer = [[72.83, 19.07], [72.831, 19.07], [72.831, 19.071], [72.83, 19.071], [72.83, 19.07]]
+    cutout = [
+        [72.8303, 19.0703],
+        [72.8307, 19.0703],
+        [72.8307, 19.0707],
+        [72.8303, 19.0707],
+        [72.8303, 19.0703],
+    ]
+    path = tmp_path / "cutout.dxf"
+    export_dxf([outer, cutout], _properties(), str(path))
+    model = _assert_valid_dxf(path).modelspace()
+    parcel = arcgis_rings_to_geometry(
+        [entity.get_points("xy") for entity in model.query('LWPOLYLINE[layer=="C-PLOT-BDY"]')]
+    )
+    (hatch,) = model.query('HATCH[layer=="C-PROP-HATCH"]')
+    outside, inside = hatch.paths
+    assert outside.path_type_flags & BOUNDARY_PATH_EXTERNAL
+    assert inside.path_type_flags & BOUNDARY_PATH_OUTERMOST
+    assert arcgis_rings_to_geometry([outside.vertices, inside.vertices]).equals(parcel)
+    for distance in (3, 6):
+        rings = [entity.get_points("xy") for entity in model.query(f'LWPOLYLINE[layer=="C-SETBACK-{distance}M"]')]
+        assert len(rings) == 2
+        assert arcgis_rings_to_geometry(rings).equals(parcel.buffer(-distance, join_style=2))
+
+
+def test_dxf_opens_on_all_plot_parts_with_full_neighbour_geometry_retained(tmp_path):
+    first = [[72.83, 19.07], [72.8302, 19.07], [72.8302, 19.0702], [72.83, 19.0702]]
+    second = [[72.831, 19.07], [72.8312, 19.07], [72.8312, 19.0702], [72.831, 19.0702]]
+    neighbour = [[72.8312, 19.07], [72.834, 19.07], [72.834, 19.0702], [72.8312, 19.0702]]
+    path = tmp_path / "plot-view.dxf"
+    export_dxf([first, second], _properties(), str(path), neighbors=[{"cts_no": "2", "rings": [neighbour]}])
+    doc = _assert_valid_dxf(path)
+    model = doc.modelspace()
+    (viewport,) = doc.viewports.get_config("*Active")
+    plot = [pt for part in model.query('LWPOLYLINE[layer=="C-PLOT-BDY"]') for pt in part.get_points("xy")]
+    xs, ys = zip(*plot, strict=True)
+    assert viewport.dxf.center.x == pytest.approx((min(xs) + max(xs)) / 2)
+    assert viewport.dxf.center.y == pytest.approx((min(ys) + max(ys)) / 2)
+    half_width = viewport.dxf.height * viewport.dxf.aspect_ratio / 2
+    assert all(abs(x - viewport.dxf.center.x) < half_width for x in xs)
+    (neighbour_boundary,) = model.query('LWPOLYLINE[layer=="C-ADJN-PLOTS"]')
+    assert max(x for x, _ in neighbour_boundary.get_points("xy")) > viewport.dxf.center.x + half_width
 
 
 def test_default_layout_policy_is_frozen_and_has_stable_grid_breaks():
