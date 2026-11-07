@@ -6,8 +6,6 @@ from typing import Any, Dict, List, Tuple
 
 from PIL import Image, ImageDraw
 
-from dp_lookup.renderers.parcel_labels import PixelBox, draw_cts_label, visible_parcel_points
-
 
 def stitch_satellite(
     tiles: List[Any],
@@ -42,17 +40,6 @@ def stitch_satellite(
             (top_lat - lat) / (top_lat - bot_lat) * canvas_h,
         )
 
-    visible_bounds = (left_lon, bot_lat, right_lon, top_lat)
-    neighbours = []
-    for neighbour in labels.get("adjoining_plots", []):
-        rings = neighbour.get("rings", [])
-        points = visible_parcel_points(rings, visible_bounds)
-        if not points:
-            continue
-        for ring in rings:
-            draw.polygon([to_px(p[0], p[1]) for p in ring], outline="#8ce2ff", width=2)
-        neighbours.append((points[0], str(neighbour["cts_no"])))
-
     for ring in wgs_rings:
         draw.polygon([to_px(p[0], p[1]) for p in ring],
                      fill=(255, 235, 59, 50), outline=(255, 235, 59, 255), width=5)
@@ -71,13 +58,5 @@ def stitch_satellite(
               fill=(255, 255, 255, 255), font_size=12)
     draw.text((sx + 12, sy + 82), f"Adjoining Parcels Identified: {labels['neighbours']}",
               fill=(255, 255, 255, 255), font_size=12)
-
-    occupied: list[PixelBox] = [(sx, sy, sx + slw, sy + slh)]
-    for lon, lat in visible_parcel_points(wgs_rings, visible_bounds):
-        draw_cts_label(
-            draw, to_px(lon, lat), f"CTS {labels['cts']}", canvas.size, occupied, font_size=27, color="#ffeb3b"
-        )
-    for (lon, lat), cts in neighbours:
-        draw_cts_label(draw, to_px(lon, lat), cts, canvas.size, occupied, font_size=21, color="#8ce2ff")
 
     return Image.alpha_composite(canvas, overlay)

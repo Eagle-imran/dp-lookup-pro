@@ -6,8 +6,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image, ImageDraw
 
-from dp_lookup.renderers.parcel_labels import PixelBox, draw_cts_label, visible_parcel_points
-
 
 def render_dp_map(
     base_png: Optional[bytes],
@@ -62,9 +60,5 @@ def render_dp_map(
               fill=(0, 0, 0, 255), font_size=16)
     draw.text((lx0 + 20, ly0 + 115), f"Status: {labels['status']}",
               fill=(0, 0, 0, 255), font_size=16)
-
-    occupied: list[PixelBox] = [(lx0, ly0, lx0 + lw, ly0 + lh), (nx - 30, ny - 48, nx + 30, ny + 30)]
-    for x, y in visible_parcel_points(rings, bbox):
-        draw_cts_label(draw, to_px(x, y), f"CTS {labels['cts']}", base.size, occupied, font_size=32, color="white")
 
     return Image.alpha_composite(base, overlay)
