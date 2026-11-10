@@ -174,3 +174,40 @@ def test_multiprocess_writers_keep_all_distinct_entries(tmp_path):
     with open(cache.cache_path_for(output), "r", encoding="utf-8") as handle:
         payload = json.load(handle)
     assert all(f"PROCESS-{index}" in payload for index in range(12))
+
+
+def test_writes_prune_entries_that_can_never_be_served(tmp_path):
+    cache._STORES.clear()
+    output = str(tmp_path)
+    cache.write_cache_entry(output, "FRESH", _result(tmp_path, "fresh.pdf"))
+    cache.write_cache_entry(output, "MISSING", _result(tmp_path, "missing.pdf"))
+    cache.write_cache_entry(output, "EXPIRED", _result(tmp_path, "expired.pdf"))
+    cache.write_cache_entry(output, "OLD_SCHEMA", _result(tmp_path, "old.pdf"))
+    path = cache.cache_path_for(output)
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    payload["EXPIRED"]["cached_at"] -= cache.DEFAULT_CACHE_TTL_SECONDS + 60
+    payload["OLD_SCHEMA"]["cache_schema_version"] = cache.CACHE_SCHEMA_VERSION - 1
+    payload["MALFORMED"] = "not an entry"
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+    os.unlink(tmp_path / "missing.pdf")
+    cache._STORES.clear()
+
+    cache.write_cache_entry(output, "NEW", _result(tmp_path, "new.pdf"))
+
+    with open(path, "r", encoding="utf-8") as handle:
+        remaining = json.load(handle)
+    assert set(remaining) == {"FRESH", "NEW", cache.CACHE_METADATA_KEY}
+
+
+def test_negative_retention_keeps_entries_of_any_age(tmp_path):
+    entry = {
+        "cached_at": 1.0,
+        "cache_schema_version": cache.CACHE_SCHEMA_VERSION,
+        "result": _result(tmp_path),
+    }
+    store = {"OLD": entry}
+    assert cache.prune_cache_store(store, retention_seconds=-1) == 0
+    assert cache.prune_cache_store(store) == 1
+    assert store == {}

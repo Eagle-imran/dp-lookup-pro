@@ -89,7 +89,7 @@ class TileFetcher(Protocol):
         zoom: int,
         ytile: int,
         xtile: int,
-        tile_dir: str = "/tmp/dp_tile_cache",
+        tile_dir: Optional[str] = None,
     ) -> Awaitable[Optional[bytes]]: ...
 
 

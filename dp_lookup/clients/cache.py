@@ -252,8 +252,47 @@ def read_cache_entry(
     return result
 
 
-def write_cache_entry(output_dir: str, key: str, result: Dict[str, Any]) -> None:
-    """Persist a clean lookup result to the local disk cache."""
+def _entry_is_servable(entry: Any, now: float, retention_seconds: Optional[int]) -> bool:
+    """True while an entry could still be returned by ``read_cache_entry``."""
+    if not isinstance(entry, dict) or not isinstance(entry.get("result"), dict):
+        return False
+    if entry.get("cache_schema_version") != CACHE_SCHEMA_VERSION:
+        return False
+    cached_at = entry.get("cached_at")
+    if isinstance(cached_at, bool) or not isinstance(cached_at, (int, float)):
+        return False
+    if not math.isfinite(float(cached_at)) or cached_at > now:
+        return False
+    if retention_seconds is not None and retention_seconds >= 0 and now - cached_at > retention_seconds:
+        return False
+    return bundle_is_intact(entry["result"])
+
+
+def prune_cache_store(store: Dict[str, Any], retention_seconds: Optional[int] = DEFAULT_CACHE_TTL_SECONDS) -> int:
+    """Drop entries that can never be served again; return how many were removed.
+
+    That is: malformed entries, entries from another cache schema, entries
+    whose bundle files were deleted, and entries older than the retention
+    window (``None`` or a negative value keeps entries of any age).
+    """
+    now = time.time()
+    stale = [
+        key
+        for key, entry in store.items()
+        if key != CACHE_METADATA_KEY and not _entry_is_servable(entry, now, retention_seconds)
+    ]
+    for key in stale:
+        del store[key]
+    return len(stale)
+
+
+def write_cache_entry(
+    output_dir: str,
+    key: str,
+    result: Dict[str, Any],
+    retention_seconds: Optional[int] = DEFAULT_CACHE_TTL_SECONDS,
+) -> None:
+    """Persist a clean lookup result and prune entries that can no longer be served."""
     path = cache_path_for(output_dir)
     with _CACHE_LOCK:
         previous_store = _STORES.get(path)
@@ -262,6 +301,8 @@ def write_cache_entry(output_dir: str, key: str, result: Dict[str, Any]) -> None
         # in-memory snapshots.
         with _disk_lock(path):
             store = _read_store(path)
+            store.pop(CACHE_METADATA_KEY, None)
+            prune_cache_store(store, retention_seconds)
             store[key] = {
                 "cached_at": time.time(),
                 "cache_schema_version": CACHE_SCHEMA_VERSION,

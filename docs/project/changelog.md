@@ -6,6 +6,28 @@ All notable changes to this project. Newest first.
 
 ## [Unreleased] — 2026-11-05
 
+### Audit fixes — 2026-11-10
+
+* **Security:** escape every MCGM-sourced value in HTML map popups, which
+  Leaflet renders as HTML. Excel register text starting with `= + - @` is
+  stored as inert, quote-prefixed text instead of a formula.
+* **Parcel identity:** the live `LIKE 'n%'` retry now accepts only plots whose
+  stored CTS number equals the request apart from spacing and case. Otherwise the
+  lookup stops and lists the similarly numbered plots instead of reporting
+  another plot under the requested number.
+* **Split parcels:** live lookups combine every Layer 13 part of a village/CTS
+  identity (as local lookups already did). Parts with conflicting recorded
+  areas are flagged and fall back to the combined boundary area. The query now
+  requests `OBJECTID`.
+* **Excel register:** values are written by header name; new columns are added
+  after the last existing one, so older or reordered registers stay aligned.
+* **Result cache:** each write drops entries that can never be served
+  (expired past 30 days, other cache schema, deleted bundle files, malformed).
+* **Satellite tiles:** cached per user (`~/Library/Caches/dp-lookup-pro/tiles`,
+  `$XDG_CACHE_HOME/dp-lookup-pro/tiles` or `%LOCALAPPDATA%`), overridable with
+  `DP_LOOKUP_TILE_CACHE`, instead of shared `/tmp`. Tiles older than 30 days are
+  refreshed, and the old tile is used only if the refresh fails.
+
 ### Plot-intelligence publication — 2026-11-05
 
 * Published full local build 14 from the existing parcel/planning snapshots,

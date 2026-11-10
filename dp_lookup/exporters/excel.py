@@ -93,6 +93,54 @@ def _save_workbook_atomic(workbook: Workbook, register_path: str) -> None:
             pass
 
 
+# Leading characters that spreadsheet applications interpret as a formula.
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _write_cell(worksheet: Any, row: int, column: int, value: Any) -> None:
+    """Write one value; source text is always stored as inert text.
+
+    openpyxl turns any string beginning with ``=`` into a formula, and Excel
+    re-evaluates ``+``/``-``/``@`` text when a cell is edited. MCGM attribute
+    text is untrusted, so such strings are stored as literal text and marked
+    with Excel's quote prefix.
+    """
+    cell = worksheet.cell(row=row, column=column, value=value)
+    if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
+        cell.value = value
+        cell.data_type = "s"
+        cell.quotePrefix = True
+
+
+def _append_register_row(worksheet: Any, headers: List[str], values: List[Any]) -> None:
+    """Append by header name so older registers never receive shifted values.
+
+    Existing columns keep their positions; headers new to this register are
+    added after the last used column instead of overwriting another header.
+    """
+    if worksheet.max_row == 1 and worksheet["A1"].value is None:
+        for column, header in enumerate(headers, start=1):
+            worksheet.cell(row=1, column=column, value=header)
+        columns = {header: index for index, header in enumerate(headers, start=1)}
+    else:
+        columns = {}
+        last_column = 0
+        for column in range(1, worksheet.max_column + 1):
+            existing = worksheet.cell(row=1, column=column).value
+            if existing is None:
+                continue
+            last_column = column
+            columns.setdefault(str(existing), column)
+        for header in headers:
+            if header not in columns:
+                last_column += 1
+                worksheet.cell(row=1, column=last_column, value=header)
+                columns[header] = last_column
+    target_row = worksheet.max_row + 1
+    for header, value in zip(headers, values, strict=True):
+        _write_cell(worksheet, target_row, columns[header], value)
+
+
 def update_excel_register(
     register_path: str,
     attrs: Dict[str, Any],
@@ -257,20 +305,7 @@ def update_excel_register(
         with _register_file_lock(register_path):
             wb = load_workbook(register_path) if os.path.exists(register_path) else Workbook()
             try:
-                ws = wb.active
-                if ws.max_row == 1 and ws["A1"].value is None:
-                    for column, header in enumerate(headers, start=1):
-                        ws.cell(row=1, column=column, value=header)
-                else:
-                    existing_headers = {
-                        str(ws.cell(row=1, column=column).value): column
-                        for column in range(1, ws.max_column + 1)
-                        if ws.cell(row=1, column=column).value is not None
-                    }
-                    for column, header in enumerate(headers, start=1):
-                        if header not in existing_headers:
-                            ws.cell(row=1, column=column, value=header)
-                ws.append(row)
+                _append_register_row(wb.active, headers, row)
                 _save_workbook_atomic(wb, register_path)
             finally:
                 wb.close()

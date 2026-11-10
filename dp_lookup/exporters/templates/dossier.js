@@ -1,5 +1,16 @@
     const DATA = @@A0@@;
 
+    // Source attributes come from MCGM services; popups render HTML, so every
+    // interpolated value must be escaped before Leaflet assigns innerHTML.
+    const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    function esc(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
+    }
+    function num(value) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n.toLocaleString() : 'N/A';
+    }
+
     // Initialize Leaflet Map
     const center = DATA.plot_identity.center;
     const map = L.map('map', {
@@ -61,8 +72,8 @@
         layer.bindPopup(`
           <div class="custom-popup">
             <h4 style="color:#0284c7">🛣️ Abutting Road Alignment</h4>
-            <div><b>Road:</b> ${feature.properties.road_name}</div>
-            <div><b>Width:</b> ${feature.properties.road_width}</div>
+            <div><b>Road:</b> ${esc(feature.properties.road_name)}</div>
+            <div><b>Width:</b> ${esc(feature.properties.road_width)}</div>
           </div>
         `);
       }
@@ -81,13 +92,13 @@
         layer.bindPopup(`
           <div class="custom-popup">
             <h4 style="color:#e11d48">🔴 Plot Boundary</h4>
-            <div><b>CTS / CS No:</b> ${DATA.plot_identity.cts_no}</div>
-            <div><b>Village:</b> ${DATA.plot_identity.village}</div>
-            <div><b>Ward:</b> ${DATA.plot_identity.ward}</div>
-            <div><b>Working plot area:</b> ${DATA.plot_identity.area_sqm.toLocaleString()} m² (${DATA.plot_identity.area_sqft.toLocaleString()} sq.ft)</div>
-            <div><b>Area reliability:</b> ${DATA.plot_identity.area_assessment.reliability_label}</div>
-            <div><b>Boundary source:</b> ${DATA.plot_identity.geometry_source}</div>
-            <div><b>Zone:</b> Zone ${DATA.plot_identity.zone}</div>
+            <div><b>CTS / CS No:</b> ${esc(DATA.plot_identity.cts_no)}</div>
+            <div><b>Village:</b> ${esc(DATA.plot_identity.village)}</div>
+            <div><b>Ward:</b> ${esc(DATA.plot_identity.ward)}</div>
+            <div><b>Working plot area:</b> ${num(DATA.plot_identity.area_sqm)} m² (${num(DATA.plot_identity.area_sqft)} sq.ft)</div>
+            <div><b>Area reliability:</b> ${esc(DATA.plot_identity.area_assessment.reliability_label)}</div>
+            <div><b>Boundary source:</b> ${esc(DATA.plot_identity.geometry_source)}</div>
+            <div><b>Zone:</b> Zone ${esc(DATA.plot_identity.zone)}</div>
           </div>
         `);
       }
@@ -122,9 +133,9 @@
         layer.bindPopup(`
           <div class="custom-popup">
             <h4 style="color:#059669">🟢 Net Developable Envelope</h4>
-            <div><b>Net Usable Area:</b> ${DATA.plot_identity.net_sqm.toLocaleString()} m²</div>
-            <div><b>Percentage:</b> ${DATA.plot_identity.net_percent}% of working plot area</div>
-            <div><b>Status:</b> Unencumbered Zone ${DATA.plot_identity.zone} land</div>
+            <div><b>Net Usable Area:</b> ${num(DATA.plot_identity.net_sqm)} m²</div>
+            <div><b>Percentage:</b> ${esc(DATA.plot_identity.net_percent)}% of working plot area</div>
+            <div><b>Status:</b> Unencumbered Zone ${esc(DATA.plot_identity.zone)} land</div>
           </div>
         `);
       }
@@ -145,9 +156,9 @@
           layer.bindPopup(`
             <div class="custom-popup">
               <h4 style="color:#d97706">🟡 Statutory Reservation</h4>
-              <div><b>Code:</b> ${p.code}</div>
-              <div><b>Type:</b> ${p.type}</div>
-              <div><b>Overlap:</b> ${p.overlap_sqm.toLocaleString()} m² (${p.overlap_percent}%)</div>
+              <div><b>Code:</b> ${esc(p.code)}</div>
+              <div><b>Type:</b> ${esc(p.type)}</div>
+              <div><b>Overlap:</b> ${num(p.overlap_sqm)} m² (${esc(p.overlap_percent)}%)</div>
             </div>
           `);
         }
@@ -169,9 +180,9 @@
           layer.bindPopup(`
             <div class="custom-popup">
               <h4 style="color:#7c3aed">🟣 Existing Designation</h4>
-              <div><b>Code:</b> ${p.code}</div>
-              <div><b>Description:</b> ${p.description}</div>
-              <div><b>Overlap:</b> ${p.overlap_sqm.toLocaleString()} m² (${p.overlap_percent}%)</div>
+              <div><b>Code:</b> ${esc(p.code)}</div>
+              <div><b>Description:</b> ${esc(p.description)}</div>
+              <div><b>Overlap:</b> ${num(p.overlap_sqm)} m² (${esc(p.overlap_percent)}%)</div>
             </div>
           `);
         }
@@ -191,7 +202,7 @@
         layer.bindPopup(`
           <div class="custom-popup">
             <h4>📍 Adjoining Parcel</h4>
-            <div><b>CTS Number:</b> ${feature.properties.cts_no}</div>
+            <div><b>CTS Number:</b> ${esc(feature.properties.cts_no)}</div>
           </div>
         `);
       }
