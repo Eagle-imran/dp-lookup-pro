@@ -12,18 +12,14 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any
 
 from dp_lookup.core.constants import SERVER_URL
+from dp_lookup.core.timestamps import utc_now
 
 LAYER13_ID = 13
 LAYER13_URL = f"{SERVER_URL}/{LAYER13_ID}"
 DEFAULT_OUT_SR = 102100
-
-
-def utc_now() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def canonical_json(value: Any) -> bytes:

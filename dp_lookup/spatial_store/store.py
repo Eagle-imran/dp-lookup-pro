@@ -8,13 +8,12 @@ normal bbox scan is used when the SQLite build does not provide R-Tree.
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import json
 import os
 import sqlite3
 import time
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -27,6 +26,7 @@ from dp_lookup.spatial_store.codecs import record_geometry as _record_geometry
 from dp_lookup.spatial_store.schema import SCHEMA, SCHEMA_VERSION
 from dp_lookup.spatial_store.validation import integrity_check as _integrity_check
 from dp_lookup.spatial_store.validation import validate_snapshot as _validate_snapshot
+from dp_lookup.storage import SQLiteStore, connect, initialize_schema, set_meta, table_exists
 
 
 class SpatialStoreError(RuntimeError):
@@ -64,7 +64,7 @@ def _now() -> float:
     return time.time()
 
 
-class SnapshotStore:
+class SnapshotStore(SQLiteStore):
     """SQLite-backed immutable snapshot store.
 
     ``SnapshotStore`` owns a connection and is safe to use sequentially from
@@ -73,21 +73,15 @@ class SnapshotStore:
     """
 
     def __init__(self, connection: sqlite3.Connection, path: str | os.PathLike[str]) -> None:
-        self.connection = connection
-        self.path = Path(path)
-        self.rtree_available = self._has_rtree()
+        super().__init__(connection, path)
+        self.rtree_available = table_exists(connection, "parcel_bbox")
 
     @classmethod
     def open(cls, path: str | os.PathLike[str]) -> SnapshotStore:
         path_obj = Path(path)
         connection: sqlite3.Connection | None = None
         try:
-            path_obj.parent.mkdir(parents=True, exist_ok=True)
-            connection = sqlite3.connect(str(path_obj), timeout=30.0)
-            connection.row_factory = sqlite3.Row
-            connection.execute("PRAGMA foreign_keys = ON")
-            connection.execute("PRAGMA journal_mode = WAL")
-            connection.execute("PRAGMA synchronous = FULL")
+            connection = connect(path_obj)
             cls._initialize_schema(connection)
             return cls(connection, path_obj)
         except SpatialStoreError:
@@ -99,36 +93,26 @@ class SnapshotStore:
                 connection.close()
             raise StoreCorruptError(f"unable to open SQLite store {path_obj}: {exc}") from exc
 
-    create_or_open = open
-
     @staticmethod
     def _initialize_schema(connection: sqlite3.Connection) -> None:
         try:
-            existing = connection.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
-        except sqlite3.OperationalError:
-            existing = None
-        try:
-            connection.executescript(SCHEMA)
-            if existing is not None and int(existing[0]) != SCHEMA_VERSION:
-                raise StoreCorruptError(f"unsupported schema version {existing[0]}; expected {SCHEMA_VERSION}")
-            connection.execute(
-                "INSERT INTO meta(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO NOTHING",
-                (str(SCHEMA_VERSION),),
+            initialize_schema(
+                connection,
+                script=SCHEMA,
+                meta_table="meta",
+                version=SCHEMA_VERSION,
+                mismatch=lambda found: StoreCorruptError(
+                    f"unsupported schema version {found}; expected {SCHEMA_VERSION}"
+                ),
             )
-            connection.execute(
-                "INSERT INTO meta(key,value) VALUES('created_at',?) ON CONFLICT(key) DO NOTHING", (str(_now()),)
-            )
+            set_meta(connection, "meta", "created_at", str(_now()))
             try:
                 connection.execute(
                     "CREATE VIRTUAL TABLE IF NOT EXISTS parcel_bbox USING rtree(bbox_id, min_x, max_x, min_y, max_y)"
                 )
-                connection.execute(
-                    "INSERT INTO meta(key,value) VALUES('rtree_available','1') ON CONFLICT(key) DO UPDATE SET value='1'"
-                )
+                set_meta(connection, "meta", "rtree_available", "1", replace=True)
             except sqlite3.OperationalError:
-                connection.execute(
-                    "INSERT INTO meta(key,value) VALUES('rtree_available','0') ON CONFLICT(key) DO UPDATE SET value='0'"
-                )
+                set_meta(connection, "meta", "rtree_available", "0", replace=True)
             connection.commit()
         except StoreCorruptError:
             connection.rollback()
@@ -137,35 +121,13 @@ class SnapshotStore:
             connection.rollback()
             raise StoreCorruptError(f"could not initialize schema: {exc}") from exc
 
-    def _has_rtree(self) -> bool:
-        return (
-            self.connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='parcel_bbox'").fetchone()
-            is not None
-        )
-
-    def close(self) -> None:
-        self.connection.close()
-
-    def __enter__(self) -> SnapshotStore:
-        return self
-
-    def __exit__(self, *_: Any) -> None:
-        self.close()
-
-    @contextlib.contextmanager
-    def transaction(self) -> Iterator[sqlite3.Connection]:
-        try:
-            self.connection.execute("BEGIN IMMEDIATE")
-            yield self.connection
-            self.connection.commit()
-        except sqlite3.OperationalError as exc:
-            self.connection.rollback()
-            if "readonly" in str(exc).lower() or "read-only" in str(exc).lower():
-                raise StoreReadOnlyError(str(exc)) from exc
-            raise SpatialStoreError(str(exc)) from exc
-        except Exception:
-            self.connection.rollback()
-            raise
+    def _transaction_error(self, error: Exception) -> Exception | None:
+        if not isinstance(error, sqlite3.OperationalError):
+            return None
+        message = str(error)
+        if "readonly" in message.lower() or "read-only" in message.lower():
+            return StoreReadOnlyError(message)
+        return SpatialStoreError(message)
 
     def begin_snapshot(
         self,
@@ -826,13 +788,6 @@ class SnapshotStore:
         )
 
 
-def open_store(path: str | os.PathLike[str]) -> SnapshotStore:
-    return SnapshotStore.open(path)
-
-
-create_or_open = open_store
-
-
 __all__ = [
     "SCHEMA_VERSION",
     "Snapshot",
@@ -842,6 +797,4 @@ __all__ = [
     "SpatialStoreError",
     "StoreCorruptError",
     "StoreReadOnlyError",
-    "create_or_open",
-    "open_store",
 ]

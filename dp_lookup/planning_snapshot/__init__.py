@@ -11,7 +11,7 @@ from .models import (
     canonical_json,
     sha256_json,
 )
-from .store import SCHEMA_VERSION, PlanningSnapshotStore, create_or_open, open_store
+from .store import SCHEMA_VERSION, PlanningSnapshotStore
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -25,8 +25,6 @@ __all__ = [
     "PlanningSnapshotValidationError",
     "build_planning_snapshot",
     "canonical_json",
-    "create_or_open",
     "ingest_planning_snapshot",
-    "open_store",
     "sha256_json",
 ]

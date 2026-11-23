@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import time
 from collections.abc import Mapping, Sequence
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,24 +11,12 @@ from dp_lookup.application.intelligence_builder import (
     _authority_registry_revision,
     _source_fingerprint,
 )
+from dp_lookup.core.timestamps import age_days
 from dp_lookup.intelligence.models import ALGORITHM_VERSION
 from dp_lookup.intelligence.store import IntelligenceStateError, IntelligenceStore
 from dp_lookup.planning_evidence.models import EvidenceMode
 from dp_lookup.planning_snapshot import PlanningSnapshotStore
 from dp_lookup.spatial_store import SnapshotStore
-
-
-def _age_days(value: Any) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        timestamp = float(value)
-    else:
-        try:
-            timestamp = datetime.fromisoformat(str(value)).timestamp()
-        except ValueError:
-            return None
-    return round(max(0.0, (time.time() - timestamp) / 86_400.0), 3)
 
 
 def _summary(record: Mapping[str, Any]) -> dict[str, Any]:
@@ -252,8 +238,8 @@ class PlotIntelligenceServices:
             parcel = parcels.snapshot(parcel_id) if parcel_id is not None else None
             planning_snapshot = planning.snapshot(planning_id) if planning_id is not None else None
             build = intelligence.build(build_id) if build_id is not None else None
-            parcel_age = _age_days(parcel.finalized_at if parcel else None)
-            planning_age = _age_days(planning_snapshot.finalized_at if planning_snapshot else None)
+            parcel_age = age_days(parcel.finalized_at if parcel else None)
+            planning_age = age_days(planning_snapshot.finalized_at if planning_snapshot else None)
             snapshot_alignment = bool(
                 build and build.parcel_snapshot_id == parcel_id and build.planning_snapshot_id == planning_id
             )

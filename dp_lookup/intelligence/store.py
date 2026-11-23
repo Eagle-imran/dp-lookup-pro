@@ -2,25 +2,21 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 import sqlite3
-from collections.abc import Iterator, Mapping, Sequence
-from datetime import UTC, datetime
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
+from dp_lookup.core.timestamps import utc_now
 from dp_lookup.intelligence.models import IntelligenceBuild, PlotIntelligence
+from dp_lookup.storage import SQLiteStore, connect, initialize_schema
 
 SCHEMA_VERSION = 1
 
 
 class IntelligenceStateError(RuntimeError):
     """A derived build lifecycle transition is unsafe."""
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def _json(value: Any) -> str:
@@ -132,50 +128,27 @@ CREATE TABLE IF NOT EXISTS intelligence_activations (
 """
 
 
-class IntelligenceStore:
-    def __init__(self, connection: sqlite3.Connection, path: str | Path) -> None:
-        self.connection = connection
-        self.path = Path(path)
+def _schema_mismatch(found: str) -> IntelligenceStateError:
+    return IntelligenceStateError(f"unsupported intelligence schema {found}; expected {SCHEMA_VERSION}")
 
+
+class IntelligenceStore(SQLiteStore):
     @classmethod
     def open(cls, path: str | Path) -> IntelligenceStore:
-        path_obj = Path(path)
-        path_obj.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(str(path_obj), timeout=30.0)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA synchronous=FULL")
-        connection.executescript(SCHEMA)
-        existing = connection.execute("SELECT value FROM intelligence_meta WHERE key='schema_version'").fetchone()
-        if existing is not None and int(existing[0]) != SCHEMA_VERSION:
-            connection.close()
-            raise IntelligenceStateError(f"unsupported intelligence schema {existing[0]}; expected {SCHEMA_VERSION}")
-        connection.execute(
-            "INSERT INTO intelligence_meta(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO NOTHING",
-            (str(SCHEMA_VERSION),),
-        )
-        connection.commit()
-        return cls(connection, path_obj)
-
-    def close(self) -> None:
-        self.connection.close()
-
-    def __enter__(self) -> IntelligenceStore:
-        return self
-
-    def __exit__(self, *_: Any) -> None:
-        self.close()
-
-    @contextlib.contextmanager
-    def transaction(self) -> Iterator[sqlite3.Connection]:
+        connection = connect(path)
         try:
-            self.connection.execute("BEGIN IMMEDIATE")
-            yield self.connection
-            self.connection.commit()
+            initialize_schema(
+                connection,
+                script=SCHEMA,
+                meta_table="intelligence_meta",
+                version=SCHEMA_VERSION,
+                mismatch=_schema_mismatch,
+            )
+            connection.commit()
         except Exception:
-            self.connection.rollback()
+            connection.close()
             raise
+        return cls(connection, path)
 
     def begin_build(
         self,
@@ -224,7 +197,7 @@ class IntelligenceStore:
                     algorithm_version,
                     expected_count,
                     source_fingerprint,
-                    _now(),
+                    utc_now(),
                     _json({"parameters": build_parameters}),
                 ),
             )
@@ -343,7 +316,7 @@ class IntelligenceStore:
             connection.execute(
                 "INSERT INTO intelligence_issues(build_id,village,cts_no,error,updated_at) VALUES(?,?,?,?,?) "
                 "ON CONFLICT(build_id,village,cts_no) DO UPDATE SET error=excluded.error,updated_at=excluded.updated_at",
-                (build_id, village, cts_no, str(error), _now()),
+                (build_id, village, cts_no, str(error), utc_now()),
             )
 
     def verify(self, build_id: int) -> dict[str, Any]:
@@ -407,7 +380,7 @@ class IntelligenceStore:
                 (
                     state,
                     report["record_count"],
-                    _now(),
+                    utc_now(),
                     _json(report),
                     None if report["ok"] else "; ".join(report["errors"]),
                     build_id,
@@ -422,7 +395,7 @@ class IntelligenceStore:
         with self.transaction() as connection:
             connection.execute(
                 "UPDATE intelligence_builds SET state='failed',finalized_at=?,error=? WHERE build_id=?",
-                (_now(), str(error), build_id),
+                (utc_now(), str(error), build_id),
             )
         return self.build(build_id)
 
@@ -443,7 +416,7 @@ class IntelligenceStore:
         if not report["ok"]:
             raise IntelligenceStateError("intelligence build no longer passes verification")
         with self.transaction() as connection:
-            now = _now()
+            now = utc_now()
             connection.execute(
                 "UPDATE intelligence_builds SET state='retired' WHERE state='active' AND build_id<>?",
                 (build_id,),

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
-from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,6 +22,7 @@ from dp_lookup.clients.parcel_snapshot import (
     resolve_object_id_field,
     sha256_json,
 )
+from dp_lookup.core.batching import batched
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
 RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
@@ -150,11 +151,6 @@ def _sorted_ids(values: Iterable[Any]) -> tuple[int, ...]:
     return tuple(sorted({value for value in parsed if value is not None}))
 
 
-def _chunks(values: Sequence[int], size: int) -> Iterable[tuple[int, ...]]:
-    for offset in range(0, len(values), size):
-        yield tuple(values[offset : offset + size])
-
-
 def _usable_polygon(geometry: Mapping[str, Any]) -> bool:
     rings = geometry.get("rings")
     if not isinstance(rings, list) or not rings:
@@ -236,7 +232,7 @@ async def ingest_layer13_snapshot(
     observed_geometry: str | None = None
 
     pending = [oid for oid in expected_ids if oid not in received_ids_set]
-    for batch in _chunks(pending, cfg.batch_size):
+    for batch in batched(pending, cfg.batch_size):
         params = {
             "objectIds": ",".join(str(oid) for oid in batch),
             "outFields": "*",

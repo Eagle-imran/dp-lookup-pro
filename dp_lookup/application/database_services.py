@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -22,6 +22,7 @@ from dp_lookup.clients.parcel_snapshot import (
     sha256_json,
 )
 from dp_lookup.clients.transport import ArcGISClient, RetryPolicy
+from dp_lookup.core.batching import batched
 from dp_lookup.spatial_store import SnapshotStore
 
 
@@ -39,11 +40,6 @@ def _default_client_factory() -> AsyncClientContext:
         AsyncClientContext,
         ArcGISClient(timeout_seconds=120.0, retry_policy=RetryPolicy(max_attempts=1)),
     )
-
-
-def _chunks(values: Sequence[SnapshotFeature], size: int) -> Iterable[Sequence[SnapshotFeature]]:
-    for offset in range(0, len(values), size):
-        yield values[offset : offset + size]
 
 
 def _store_record(feature: SnapshotFeature) -> Mapping[str, Any]:
@@ -182,7 +178,7 @@ class LocalDatabaseServices:
                     metadata=_manifest_metadata(result),
                 )
                 store.set_inventory(snapshot_id, result.manifest.expected_ids)
-                for batch in _chunks(result.features, self.store_batch_size):
+                for batch in batched(result.features, self.store_batch_size):
                     store.insert_batch(snapshot_id, (_store_record(feature) for feature in batch))
 
             if streamed:

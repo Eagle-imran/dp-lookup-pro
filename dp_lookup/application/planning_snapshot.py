@@ -15,19 +15,16 @@ import json
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
+from dp_lookup.core.batching import batched
+from dp_lookup.core.timestamps import utc_now
 from dp_lookup.planning_evidence.models import EvidenceContext, LayerSpec
 from dp_lookup.planning_evidence.registry import LAYER_SPECS, SERVER_URL, deduplicate_layer_specs
 
 RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
-
-
-def utc_now() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def _canonical_json(value: Any) -> bytes:
@@ -306,11 +303,6 @@ def _sorted_ids(values: Iterable[Any]) -> tuple[int, ...]:
     return tuple(sorted({parsed for parsed in (_int_id(value) for value in values) if parsed is not None}))
 
 
-def _chunks(values: Sequence[int], size: int) -> Iterable[tuple[int, ...]]:
-    for offset in range(0, len(values), size):
-        yield tuple(values[offset : offset + size])
-
-
 def _retry_delay(config: PlanningIngestionConfig, attempt: int, response: Any = None) -> float:
     headers = getattr(response, "headers", {}) or {}
     retry_after = headers.get("Retry-After") if hasattr(headers, "get") else None
@@ -585,7 +577,7 @@ async def ingest_planning_snapshot(
             inventory_error = str(exc)
 
         if inventory_error is None:
-            for batch in _chunks([item for item in expected_ids if item not in completed], cfg.batch_size):
+            for batch in batched([item for item in expected_ids if item not in completed], cfg.batch_size):
                 params = {
                     "objectIds": ",".join(str(item) for item in batch),
                     "outFields": "*" if cfg.all_fields else ",".join(spec.out_fields),
