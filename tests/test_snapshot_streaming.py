@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from dp_lookup.application.database_services import LocalDatabaseServices
@@ -23,15 +25,8 @@ def _feature(objectid: int) -> dict[str, Any]:
     return {"attributes": attrs, "geometry": geometry, "source_member": f"raw-{objectid}"}
 
 
-class _Response:
-    status_code = 200
-
-    def __init__(self, payload: dict[str, Any]):
-        self.payload = payload
-        self.headers: dict[str, str] = {}
-
-    def json(self) -> dict[str, Any]:
-        return self.payload
+def _Response(payload: dict[str, Any]) -> httpx.Response:
+    return httpx.Response(200, json=payload)
 
 
 class _Client:
@@ -45,8 +40,14 @@ class _Client:
     async def __aexit__(self, *_args: Any) -> None:
         return None
 
-    async def get(self, _url: str, *, params: dict[str, Any]) -> Any:
-        self.calls.append(params)
+    async def get(self, _url: str, *, params: Mapping[str, Any]) -> httpx.Response:
+        return self._next(params)
+
+    async def post(self, _url: str, *, data: Mapping[str, Any]) -> httpx.Response:
+        return self._next(data)
+
+    def _next(self, params: Mapping[str, Any]) -> httpx.Response:
+        self.calls.append(dict(params))
         response = self.responses.pop(0)
         if isinstance(response, BaseException):
             raise response
@@ -97,7 +98,7 @@ def test_database_build_resumes_committed_batches_and_hashes_raw_source(tmp_path
         [
             _Response({"objectIds": [1, 2]}),
             _Response({"features": [_feature(1)]}),
-            TimeoutError("interrupted"),
+            httpx.ReadTimeout("interrupted"),
         ]
     )
     second_client = _Client([_Response({"objectIds": [1, 2]}), _Response({"features": [_feature(2)]})])
