@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import Any, TypeVar
-
-T = TypeVar("T")
+from typing import Any
 
 
 def run_artifact(
@@ -25,7 +23,7 @@ def run_artifact(
         return False
 
 
-def run_artifact_result(
+def run_artifact_result[T](
     label: str,
     warnings: list[str],
     writer: Callable[..., T],

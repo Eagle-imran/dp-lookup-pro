@@ -67,7 +67,7 @@ def polygon_validation_error(geometry: Any) -> str | None:
                 return "polygon contains an invalid coordinate"
             try:
                 x, y = float(point[0]), float(point[1])
-            except (TypeError, ValueError, OverflowError):
+            except TypeError, ValueError, OverflowError:
                 return "polygon contains a non-numeric coordinate"
             if not math.isfinite(x) or not math.isfinite(y):
                 return "polygon contains a non-finite coordinate"
@@ -102,7 +102,7 @@ def bbox_from_geometry(geometry: Any) -> tuple[float, float, float, float] | Non
             if len(value) >= 2 and not isinstance(value[0], (list, tuple, Mapping)):
                 try:
                     x, y = float(value[0]), float(value[1])
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     return
                 if math.isfinite(x) and math.isfinite(y):
                     points.append((x, y))

@@ -35,7 +35,7 @@ def age_days(value: Any, *, now: float | None = None) -> float | None:
         return None
     try:
         timestamp = _epoch_seconds(value)
-    except (TypeError, ValueError, OverflowError, OSError):
+    except TypeError, ValueError, OverflowError, OSError:
         return None
     if timestamp is None or not math.isfinite(timestamp):
         return None

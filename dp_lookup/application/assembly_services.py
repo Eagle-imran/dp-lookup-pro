@@ -60,7 +60,7 @@ def _public(value: Any) -> Any:
 def _positive_area(value: Any) -> float | None:
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return number if number > 0 else None
 

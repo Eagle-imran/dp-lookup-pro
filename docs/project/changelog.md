@@ -8,6 +8,12 @@ All notable changes to this project. Newest first.
 
 ### Code cleanup — 2026-11-24
 
+* **Python 3.15 only:** the project now requires Python 3.15, the version
+  used for development, instead of declaring 3.11 support nobody asked for.
+  Ruff and mypy check the 3.15 language level, CI runs the tests once on 3.15
+  instead of on four versions, CI uses uv 0.13.9, and the lockfile no longer
+  carries packages for older Pythons. The hand-written `core.batching.batched`
+  was replaced by `itertools.batched`. No behaviour change.
 * **Fix — planning features are no longer silently skipped:** if a zone,
   reservation, designation, DP modification, metro or CRZ feature returned for
   a plot could not be checked (for example a missing coordinate, no rings or

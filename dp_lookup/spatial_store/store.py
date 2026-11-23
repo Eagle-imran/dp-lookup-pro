@@ -425,7 +425,7 @@ class SnapshotStore(SQLiteStore):
         for row in rows:
             try:
                 metadata = json.loads(row["metadata_json"] or "{}")
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 continue
             if isinstance(metadata, Mapping) and metadata.get("inventory_hash") == inventory_hash:
                 return int(row["snapshot_id"])
@@ -522,11 +522,11 @@ class SnapshotStore(SQLiteStore):
         validation_raw = result.pop("validation_json", None)
         try:
             metadata = json.loads(metadata_raw) if metadata_raw else {}
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             metadata = {"error": "invalid snapshot metadata JSON"}
         try:
             validation = json.loads(validation_raw) if validation_raw else None
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             validation = {"ok": False, "errors": ["invalid validation JSON"]}
         result["metadata"] = metadata.get("manifest_summary", metadata)
         result["validation"] = validation

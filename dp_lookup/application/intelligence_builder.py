@@ -75,7 +75,7 @@ def _authority_registry_revision(database: Path) -> int | None:
     try:
         with AuthorityStore.open(database, create=False) as store:
             return store.revision()
-    except (OSError, sqlite3.DatabaseError, AuthorityStoreError):
+    except OSError, sqlite3.DatabaseError, AuthorityStoreError:
         return None
 
 
@@ -130,7 +130,7 @@ def _core_refs(
                 if not isinstance(source, BaseGeometry):
                     source = arcgis_rings_to_geometry(rings)
                 intersection = parcel.intersection(source)
-            except (IndexError, TypeError, ValueError):
+            except IndexError, TypeError, ValueError:
                 continue
             if intersection.is_empty:
                 continue

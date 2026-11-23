@@ -243,7 +243,7 @@ def resolve_plot_area(attrs: dict[str, Any]) -> dict[str, Any]:
                         "area_source": "Recorded plot area",
                         "note": None,
                     }
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
 
     for key in ("AREA_CAL_SQ_MTRS", "Area_Cal_Sq_Mtrs", "SHAPE.AREA", "Shape.STArea()", "st_area(shape)"):
@@ -260,7 +260,7 @@ def resolve_plot_area(attrs: dict[str, Any]) -> dict[str, Any]:
                             "is being used for screening."
                         ),
                     }
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
 
     return {"area_sqm": None, "area_source": "unavailable", "note": None}

@@ -54,8 +54,8 @@ Before running `dp-lookup-pro`, ensure your environment meets the following requ
 
 ### 1. System Requirements
 * **Operating System**: macOS, Linux, or Windows (WSL / PowerShell)
-* **Python**: Python `3.11` or later. CI covers Python 3.11, 3.13, 3.14 and 3.15.
-  The supported baseline follows Pillow 13, which includes image-decoder security fixes.
+* **Python**: Python `3.15` (pinned to 3.15.1 in `.python-version`). The project
+  targets only the latest tooling; older Python versions are not supported.
 
 ### 2. Recommended Package Manager
 * [uv](https://github.com/astral-sh/uv) (Fastest Python package manager, recommended):

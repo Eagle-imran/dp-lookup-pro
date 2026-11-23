@@ -58,7 +58,7 @@ def bbox(geometry: Any) -> tuple[float, float, float, float] | None:
             if len(value) >= 2 and not isinstance(value[0], (list, tuple, Mapping)):
                 try:
                     x, y = float(value[0]), float(value[1])
-                except (TypeError, ValueError, OverflowError):
+                except TypeError, ValueError, OverflowError:
                     return
                 if math.isfinite(x) and math.isfinite(y):
                     points.append((x, y))

@@ -15,11 +15,11 @@ import json
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from itertools import batched
 from typing import Any
 
 import httpx
 
-from dp_lookup.core.batching import batched
 from dp_lookup.core.timestamps import utc_now
 from dp_lookup.planning_evidence.models import EvidenceContext, LayerSpec
 from dp_lookup.planning_evidence.registry import LAYER_SPECS, SERVER_URL, deduplicate_layer_specs
@@ -284,7 +284,7 @@ def _int_id(value: Any) -> int | None:
         return None
     try:
         parsed = int(value)
-    except (TypeError, ValueError, OverflowError):
+    except TypeError, ValueError, OverflowError:
         return None
     return parsed if parsed >= 0 and str(value).strip() not in {"", "None", "null"} else None
 
@@ -299,7 +299,7 @@ def _retry_delay(config: PlanningIngestionConfig, attempt: int, response: Any = 
     if retry_after is not None:
         try:
             return min(config.max_delay_seconds, max(0.0, float(retry_after)))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
     return min(config.max_delay_seconds, config.base_delay_seconds * float(2 ** max(0, attempt - 1)))
 
@@ -567,7 +567,9 @@ async def ingest_planning_snapshot(
             inventory_error = str(exc)
 
         if inventory_error is None:
-            for batch in batched([item for item in expected_ids if item not in completed], cfg.batch_size):
+            for batch in batched(
+                [item for item in expected_ids if item not in completed], cfg.batch_size, strict=False
+            ):
                 params = {
                     "objectIds": ",".join(str(item) for item in batch),
                     "outFields": "*" if cfg.all_fields else ",".join(spec.out_fields),

@@ -40,7 +40,7 @@ parameters:
 
 ## Tooling Standards
 
-* **Python Runtime & Package Management**: Python **3.11+**, managed with **`uv`** (`uv run`). Standard `pip` or system `python` calls can be used as fallback.
+* **Python Runtime & Package Management**: Python **3.15**, managed with **`uv`** (`uv run`). Standard `pip` or system `python` calls can be used as fallback.
 * **JavaScript Runtime**: Use **`bun`** (`bun run`, `bun add`).
 
 ## Command-line options

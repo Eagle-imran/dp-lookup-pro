@@ -28,7 +28,7 @@ def _loads(value: Any, default: Any) -> Any:
         return default
     try:
         return json.loads(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 

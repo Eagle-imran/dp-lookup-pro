@@ -46,7 +46,7 @@ class EvidenceMode(str, Enum):
     FULL = "full"
 
     @classmethod
-    def parse(cls, value: object) -> "EvidenceMode":
+    def parse(cls, value: object) -> EvidenceMode:
         if isinstance(value, cls):
             return value
         try:
