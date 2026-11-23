@@ -40,7 +40,6 @@ def _register_file_lock(register_path: str) -> Iterator[None]:
             except OSError:
                 pass
         elif msvcrt is not None:
-            # msvcrt.locking locks bytes, so ensure the lock file has one.
             lock_handle.seek(0)
             lock_handle.write(b"0")
             lock_handle.flush()
@@ -50,8 +49,6 @@ def _register_file_lock(register_path: str) -> Iterator[None]:
             except OSError:
                 pass
     except OSError:
-        # The process-local lock still protects threads if an advisory lock is
-        # unavailable on a particular filesystem.
         pass
     try:
         yield
@@ -93,7 +90,6 @@ def _save_workbook_atomic(workbook: Workbook, register_path: str) -> None:
             pass
 
 
-# Leading characters that spreadsheet applications interpret as a formula.
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
 

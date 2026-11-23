@@ -122,8 +122,6 @@ class SnapshotStore:
                 )
                 connection.execute("INSERT INTO meta(key,value) VALUES('rtree_available','1') ON CONFLICT(key) DO UPDATE SET value='1'")
             except sqlite3.OperationalError:
-                # SQLite builds without the optional module remain correct via
-                # the indexed bbox columns on parcels.
                 connection.execute("INSERT INTO meta(key,value) VALUES('rtree_available','0') ON CONFLICT(key) DO UPDATE SET value='0'")
             connection.commit()
         except StoreCorruptError:
@@ -570,7 +568,6 @@ class SnapshotStore:
             sql += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
         elif offset:
-            # SQLite requires a LIMIT when OFFSET is present.
             sql += " LIMIT -1 OFFSET ?"
             params.append(offset)
         return [self._json_safe_parcel(self._parcel_dict(row)) for row in self.connection.execute(sql, params)]

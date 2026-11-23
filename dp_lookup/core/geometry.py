@@ -22,7 +22,7 @@ def wgs84_to_utm43n(lon: float, lat: float, precision: Optional[int] = 2) -> Tup
     a = 6378137.0
     f = 1.0 / 298.257223563
     k0 = 0.9996
-    lon0 = 75.0 * math.pi / 180.0  # Zone 43 central meridian
+    lon0 = 75.0 * math.pi / 180.0
 
     phi = lat * math.pi / 180.0
     lam = lon * math.pi / 180.0 - lon0
@@ -171,7 +171,6 @@ def road_probe_points(
             continue
         emx, emy = (p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0
         enx, eny = -ey / seg_len, ex / seg_len
-        # flip normal so it points away from parcel centre
         if (emx + enx - mcx) ** 2 + (emy + eny - mcy) ** 2 < (emx - mcx) ** 2 + (emy - mcy) ** 2:
             enx, eny = -enx, -eny
         for nudge in ROAD_EDGE_NUDGES:

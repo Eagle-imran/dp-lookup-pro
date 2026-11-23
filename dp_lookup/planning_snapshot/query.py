@@ -147,11 +147,6 @@ class PlanningFeatureQuery:
             if not isinstance(polygon, BaseGeometry):
                 polygon = arcgis_rings_to_geometry(rings)
             if not polygon.is_empty and parcel_geometry.intersects(polygon):
-                # This object is an in-process acceleration only. The exact
-                # source rings remain the archived geometry and are still
-                # returned unchanged; downstream local policies can reuse the
-                # already validated Shapely object instead of decoding very
-                # large CRZ/Metro geometries twice during one lookup.
                 candidate[_RUNTIME_GEOMETRY_KEY] = polygon
                 result.append(candidate)
         return result

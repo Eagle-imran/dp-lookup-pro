@@ -22,9 +22,6 @@ from dp_lookup.spatial_store import SnapshotStore
 
 
 def _parcel(objectid: int, cts: str, x: float = 8_066_000.0):
-    # EPSG:102100/Web Mercator metres around Mumbai.  Keeping this explicit
-    # protects the report's lat/lon assumptions from silently treating local
-    # snapshot coordinates as WGS84 degrees.
     attributes = {
         "OBJECTID": objectid,
         "VILLAGE": "WORLI",
@@ -80,7 +77,6 @@ def test_local_hit_preserves_web_mercator_assumption_in_report_coordinates(tmp_p
     assert feature["geometry"]["spatialReference"] == {"wkid": 102100}
 
     parcel, _ = build_parcel_context(feature, "WORLI", "733")
-    # A degree-as-metre interpretation would produce absurd values here.
     assert 18.0 < parcel.latitude < 20.0
     assert 71.0 < parcel.longitude < 73.0
 
@@ -95,7 +91,6 @@ def test_auto_fetcher_uses_live_fallback_for_unusable_local_state(tmp_path, data
             snapshot_id = store.begin_snapshot(source="regression", expected_count=1)
             store.insert_batch(snapshot_id, [_parcel(1, "733")])
             store.finalize_snapshot(snapshot_id)
-            # Deliberately leave the ready snapshot inactive.
     elif database_kind == "local_miss":
         _active_database(database, [_parcel(1, "733")])
 
@@ -130,8 +125,6 @@ def test_old_snapshot_remains_local_but_is_visibly_marked_stale(tmp_path, monkey
         calls.append((village, cts))
         return _parcel(99, cts)
 
-    # Snapshot creation uses the real clock; advance only the local adapter's
-    # clock so this test remains deterministic and does not mutate SQLite.
     real_now = local_parcels.time.time()
     monkeypatch.setattr(local_parcels.time, "time", lambda: real_now + 211 * 86_400)
     result = asyncio.run(

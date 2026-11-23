@@ -11,8 +11,6 @@ import dp_lookup.clients.cache as cache
 
 def _child_cache_writer(args):
     output, key, artifact = args
-    # Import inside the child so this also exercises independent process
-    # state rather than inheriting the parent's _STORES mapping.
     from dp_lookup.clients import cache as child_cache
 
     child_cache.write_cache_entry(

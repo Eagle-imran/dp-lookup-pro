@@ -1,7 +1,5 @@
     const DATA = @@A0@@;
 
-    // Source attributes come from MCGM services; popups render HTML, so every
-    // interpolated value must be escaped before Leaflet assigns innerHTML.
     const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
     function esc(value) {
       return String(value ?? '').replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
@@ -11,7 +9,6 @@
       return Number.isFinite(n) ? n.toLocaleString() : 'N/A';
     }
 
-    // Initialize Leaflet Map
     const center = DATA.plot_identity.center;
     const map = L.map('map', {
       center: center,
@@ -21,7 +18,6 @@
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    // High-Resolution Base Tile Layers
     const baseLayers = {
       sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'Esri World Imagery',
@@ -42,7 +38,6 @@
       baseLayers[key].addTo(map);
       currentBase = key;
 
-      // Bring vector overlays to front
       Object.values(overlayLayers).forEach(layer => {
         if (map.hasLayer(layer) && layer.bringToFront) layer.bringToFront();
       });
@@ -57,10 +52,8 @@
       setBase(currentBase === 'sat' ? 'cad' : 'sat');
     }
 
-    // Layer Storage
     const overlayLayers = {};
 
-    // 1. Abutting Roads Layer (HIGH-CONTRAST ELECTRIC CYAN)
     overlayLayers.roads = L.geoJSON(DATA.roads, {
       style: {
         color: '#0284c7',
@@ -79,7 +72,6 @@
       }
     }).addTo(map);
 
-    // 2. Base Plot Boundary (VIVID CRIMSON RED with Corner Vertex Markers)
     overlayLayers.plot = L.geoJSON(DATA.base_plot, {
       style: {
         color: '#e11d48',
@@ -104,7 +96,6 @@
       }
     }).addTo(map);
 
-    // Corner Vertex Markers
     const { type: plotType, coordinates: plotCoordinates } = DATA.base_plot.geometry;
     const plotParts = plotType === 'MultiPolygon' ? plotCoordinates : [plotCoordinates];
     let corner = 0;
@@ -120,7 +111,6 @@
       });
     }
 
-    // 3. Net Developable Layer (EMERALD GREEN)
     overlayLayers.net = L.geoJSON(DATA.net_plot, {
       style: {
         color: '#059669',
@@ -141,7 +131,6 @@
       }
     }).addTo(map);
 
-    // 4. Reservations Layer (VIVID AMBER)
     if (DATA.reservations.features.length > 0) {
       overlayLayers.res = L.geoJSON(DATA.reservations, {
         style: {
@@ -165,7 +154,6 @@
       }).addTo(map);
     }
 
-    // 5. Designations Layer (DEEP PURPLE)
     if (DATA.designations.features.length > 0) {
       overlayLayers.des = L.geoJSON(DATA.designations, {
         style: {
@@ -189,7 +177,6 @@
       }).addTo(map);
     }
 
-    // 6. Neighbours Layer (SLATE GREY)
     overlayLayers.neigh = L.geoJSON(DATA.neighbors, {
       style: {
         color: '#64748b',
@@ -208,7 +195,6 @@
       }
     }).addTo(map);
 
-    // Initial Zoom Fit
     function fitPlotBounds() {
       if (overlayLayers.plot && overlayLayers.plot.getBounds().isValid()) {
         map.fitBounds(overlayLayers.plot.getBounds(), {
@@ -221,7 +207,6 @@
 
     fitPlotBounds();
 
-    // Toggle Overlay Layers
     function toggleOverlay(layerKey) {
       const layer = overlayLayers[layerKey];
       const pill = document.getElementById('layer' + layerKey.charAt(0).toUpperCase() + layerKey.slice(1));
@@ -235,7 +220,6 @@
       }
     }
 
-    // Toggle HUD
     function toggleHud() {
       const hud = document.getElementById('dossierHud');
       const toggleBtn = document.getElementById('hudToggleBtn');
@@ -243,7 +227,6 @@
       toggleBtn.style.display = hud.classList.contains('collapsed') ? 'block' : 'none';
     }
 
-    // Measure Tool Mode
     let measureMode = false;
     let measurePoints = [];
     let measureLine = null;

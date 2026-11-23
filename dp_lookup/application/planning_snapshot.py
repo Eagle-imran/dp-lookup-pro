@@ -142,9 +142,6 @@ class PlanningIngestionConfig:
     request_delay_seconds: float = 0.0
     out_sr: int = 102100
     fetch_layer_metadata: bool = True
-    # Runtime evidence queries deliberately request an audited field subset;
-    # the durable source archive keeps every published attribute so future
-    # features do not require a destructive re-download just to expose a field.
     all_fields: bool = False
 
     def __post_init__(self) -> None:
@@ -428,9 +425,6 @@ def _feature_from_raw(
         return None, f"feature has no usable {resolved_object_id_field}"
     spatial_warning = None
     if not _usable_geometry(geometry, resolved_geometry_type):
-        # An authoritative inventory can legitimately contain a record with
-        # empty source geometry. Preserve it exactly and keep it out of spatial
-        # hits instead of silently dropping the source ObjectID.
         spatial_warning = f"feature geometry is empty or not usable as {resolved_geometry_type}"
     return PlanningFeature(
         spec.layer_id,

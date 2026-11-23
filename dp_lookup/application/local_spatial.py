@@ -32,9 +32,6 @@ class LocalNeighbourProvider:
         self.store = store
 
     def __call__(self, parcel: ParcelContext) -> Optional[NeighbourContext]:
-        # In ``auto`` mode the parcel adapter can legitimately fall back to
-        # live ArcGIS. Returning ``None`` here preserves the established live
-        # boundary query instead of falsely reporting an empty local result.
         if parcel.attrs.get("_DP_PARCEL_SOURCE") != "local_snapshot":
             return None
         subject = arcgis_rings_to_geometry(parcel.rings)

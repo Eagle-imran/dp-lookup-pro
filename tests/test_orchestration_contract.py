@@ -130,7 +130,6 @@ class FakeArcGISClient:
 
 def _stub_dependencies(client_factory):
     async def tile_fetcher(_client, _zoom, _y, _x):
-        # Test imagery must never enter the real satellite disk cache.
         return _png_bytes()
 
     def vector_writer(_rings, _props, path, **_kwargs):

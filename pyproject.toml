@@ -7,9 +7,7 @@ requires-python = ">=3.11"
 license = { file = "LICENSE" }
 dependencies = [
     "httpx>=0.28.0",
-    # Pillow 13 fixes the image-decoder advisories affecting older releases.
     "pillow>=13.0.0",
-    # Keep the TLS trust-store fix even when installing without uv.lock.
     "certifi>=2026.10.19",
     "openpyxl>=3.1.0",
     "reportlab>=4.0.0",
@@ -21,7 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=9.1.1",
-    "matplotlib>=3.11.2",  # matplotlib powers tools/render_dxf.py
+    "matplotlib>=3.11.2",
     "mypy>=2.4.0,<3",
     "pip-audit>=2.10.1",
     "pytest-cov>=7.1.0",
@@ -58,23 +56,11 @@ target-version = "py311"
 exclude = [".venv", "output", "docs"]
 
 [tool.ruff.lint]
-# Chosen for defects, not style. Deliberately excluded:
-#   UP/FA  - Dict->dict modernisation and __future__ annotations. Pure churn
-#            across 17 sites with no behaviour change, and the project still
-#            uses explicit compatibility-facing annotations.
-#   DTZ    - naive datetimes. These are local report timestamps shown to a
-#            human in one city; timezone-aware would add noise, not safety.
-#   S110   - try/except/pass. Several are deliberate (optional ezdxf linetypes);
-#            reviewed by hand rather than gated in CI.
 select = ["E", "F", "I", "B", "RUF"]
-# E501 remains disabled for a small number of generated-markup, ArcGIS schema,
-# and drawing-declaration lines where wrapping would reduce readability.
 ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Keep project/runtime warnings visible while suppressing ezdxf's upstream
-# pyparsing compatibility-alias deprecations.
 filterwarnings = ["ignore::pyparsing.exceptions.PyparsingDeprecationWarning"]
 
 [tool.coverage.run]
@@ -87,12 +73,8 @@ show_missing = true
 skip_covered = true
 
 [tool.mypy]
-# Strict checking covers the complete production package. Third-party modules
-# without inline typing are ignored explicitly below; project code is not.
 python_version = "3.11"
 strict = true
-# Named third-party rendering packages below remain outside the strict
-# checking boundary; project code is not excluded.
 follow_imports = "skip"
 files = ["dp_lookup"]
 

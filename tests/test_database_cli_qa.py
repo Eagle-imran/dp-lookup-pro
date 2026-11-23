@@ -162,8 +162,6 @@ def test_local_fetcher_auto_fallback_is_used_for_missing_identity(tmp_path):
 
 def test_local_fetcher_corrupt_geometry_falls_back_in_auto_mode(tmp_path):
     path = tmp_path / "snapshots.sqlite"
-    # A ready snapshot can contain a source row with no geometry; local mode
-    # must reject it, while auto mode should have a live escape hatch.
     with SnapshotStore.open(path) as store:
         snapshot_id = store.begin_snapshot(source="qa", expected_count=1)
         store.insert_batch(snapshot_id, [{"objectid": 1, "attributes": {"VILLAGE": "WORLI", "CTS_CS_NO": "733"}}])
@@ -182,9 +180,6 @@ def test_local_fetcher_corrupt_geometry_falls_back_in_auto_mode(tmp_path):
 def test_local_neighbours_group_duplicate_source_parts_and_report_ids(tmp_path):
     path = tmp_path / "snapshots.sqlite"
     subject = _parcel(1, "733", 0)
-    # Make the subject 40 m wide so both adjoining source parts are inside
-    # the spatial prefilter. The two parts still remain separate source
-    # features under one CTS identity.
     subject["geometry"]["rings"] = [[[0, 0], [40, 0], [40, 10], [0, 10], [0, 0]]]
     first_part = _parcel(2, "734", 40)
     first_part["geometry"]["rings"] = [[[40, 0], [50, 0], [50, 5], [40, 5], [40, 0]]]

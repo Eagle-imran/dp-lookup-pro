@@ -147,8 +147,6 @@ class LocalFirstPlanningQuery:
         if self.store is None:
             raise LocalPlanningError("no local planning snapshot store is configured")
         try:
-            # ``active_snapshot`` is accepted as a migration convenience for
-            # repositories that predate this explicit pinning contract.
             pin = getattr(self.store, "pin_active_snapshot", None)
             if pin is None:
                 pin = getattr(self.store, "active_snapshot", None)

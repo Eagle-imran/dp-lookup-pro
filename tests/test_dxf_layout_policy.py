@@ -165,7 +165,6 @@ def test_high_vertex_irregular_plots_export_as_valid_dxf(tmp_path, seed):
     boxes = [text_extents(entity) for entity in dimensions]
     assert boxes
     assert all(box is not None for box in boxes)
-    # The collision pass must keep surviving dimension labels disjoint.
     for index, first in enumerate(boxes):
         for second in boxes[index + 1 :]:
             assert not boxes_overlap(first, second)

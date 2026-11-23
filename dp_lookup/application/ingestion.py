@@ -106,8 +106,6 @@ def _merge_live_matches(matches: Sequence[ArcGISFeature], *, prefix_fallback: bo
     raw_areas = [match.attributes.get("AREA_APP_SQ_MTRS") for match in ordered]
     recorded_values = {area for area in (_positive_area(value) for value in raw_areas) if area is not None}
     if len(matches) > 1:
-        # One repeated value can stay the stated area; disagreeing parts must
-        # not be summed or silently resolved to the first record.
         attrs["AREA_APP_SQ_MTRS"] = next(iter(recorded_values)) if len(recorded_values) == 1 else None
     if len(recorded_values) > 1:
         attrs["_DP_AREA_CONFLICT_VALUES"] = sorted(recorded_values)
@@ -171,7 +169,6 @@ async def fetch_parcel_feature(client: Any, village: str, cts_no: str) -> Option
         feature for feature in fallback.features if _normalised_cts(feature.attributes.get("CTS_CS_NO")) == requested
     ]
     if same_identity:
-        # Only spacing/case differed from the stored identity.
         return _merge_live_matches(same_identity, prefix_fallback=True)
     candidates = sorted(
         {str(feature.attributes.get("CTS_CS_NO")).strip() for feature in fallback.features} - {"", "None"}

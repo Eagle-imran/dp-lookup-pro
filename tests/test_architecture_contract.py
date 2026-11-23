@@ -146,7 +146,7 @@ def test_cli_is_a_small_compatibility_facade_over_focused_boundaries():
     for module in ("cli_parser.py", "cli_bootstrap.py", "cli_command.py", "cli_presentation.py"):
         assert (facade.parent / module).is_file()
     assert "def format_result_human(" not in source
-    assert "def _parse_cli_args(" in source  # deliberately retained compatibility wrapper
+    assert "def _parse_cli_args(" in source
 
 
 def test_dxf_facade_delegates_policy_geometry_text_and_legend_subsystems():
@@ -233,7 +233,6 @@ def test_experimental_extensions_are_opt_in_and_keep_transport_and_output_bounda
         offenders = [name for name in _imports(path) if _matches_layer(name, forbidden)]
         assert offenders == [], f"{path.relative_to(PROJECT_ROOT)} crosses an opt-in boundary: {offenders}"
 
-    # Importing the normal parser must not import or register the experiment.
     parser_source = (PROJECT_ROOT / "dp_lookup" / "cli_parser.py").read_text(encoding="utf-8")
     assert "dp_lookup.experimental" not in parser_source
     cli_source = (package / "assemblies_cli.py").read_text(encoding="utf-8")

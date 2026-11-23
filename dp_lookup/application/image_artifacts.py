@@ -68,10 +68,6 @@ class MapImageArtifactExporter:
         fetched: MapFetchContext,
         warnings: List[str],
     ) -> RenderedMapAssets:
-        # The two renderers consume independent inputs and write nothing. Run
-        # their CPU/image work concurrently before the shared save boundary.
-        # Each worker owns its warning list; merge in output order so concurrent
-        # completion cannot make diagnostics nondeterministic.
         dp_warnings: List[str] = []
         satellite_warnings: List[str] = []
         dp_image, satellite_image = await asyncio.gather(

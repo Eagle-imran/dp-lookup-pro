@@ -64,9 +64,6 @@ def merge_local_features(rows: Sequence[Mapping[str, Any]]) -> Optional[Dict[str
         for row in ordered
         if row.get("area_app_sqm") is not None and float(row["area_app_sqm"]) > 0
     }
-    # A single repeated recorded value can safely remain the stated value. When
-    # parts disagree, fall back to the combined boundary and surface that it
-    # is derived rather than inventing a sum of possibly repeated totals.
     attrs["AREA_APP_SQ_MTRS"] = next(iter(recorded_values)) if len(recorded_values) == 1 else None
     attrs["SHAPE.AREA"] = float(geometry.area)
     attrs["OBJECTID"] = objectids[0]

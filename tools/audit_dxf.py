@@ -69,8 +69,6 @@ def main(argv=None):
         if out is not None:
             out.append(line)
 
-    # ---- frames -----------------------------------------------------------
-    # The sheet border is the largest C-TITLE-BLOCK rectangle; panels are the rest.
     rects = []
     for e in msp:
         if e.dxftype() == "LWPOLYLINE" and e.dxf.layer == "C-TITLE-BLOCK":
@@ -105,7 +103,6 @@ def main(argv=None):
             say("  none")
 
     say("\n=== text escaping a panel frame ===")
-    # Only judge text that starts inside a panel; drawing-area text is not its problem.
     panel_escapes = 0
     for e, b in texts:
         for p in panels:
@@ -145,7 +142,6 @@ def main(argv=None):
     if not collisions:
         say("  none")
 
-    # ---- areas ------------------------------------------------------------
     say("\n=== areas ===")
     bdy = [e for e in msp.query("LWPOLYLINE[layer=='C-PLOT-BDY']")]
     bdy_area = None
@@ -174,10 +170,6 @@ def main(argv=None):
         if bdy_area:
             d = (bdy_area - printed) / printed * 100.0
             say(f"  delta             : {bdy_area - printed:+10.2f} m2 ({d:+.2f}%)")
-            # A gap between MCGM's record and MCGM's own digitised polygon is real
-            # data, not a bug - AMBIVALI 807 is 6.10% apart. What matters is that
-            # the sheet admits it, so nobody computes FSI off an unreconciled
-            # figure. Silence is the fault, not the discrepancy.
             if abs(d) > 2.0 and not discloses:
                 faults.append(
                     f"boundary measures {d:+.2f}% vs the printed area, and the sheet "
@@ -187,7 +179,6 @@ def main(argv=None):
     else:
         faults.append("no plot area printed on the sheet")
 
-    # ---- annotation scale -------------------------------------------------
     say("\n=== annotation scale vs plot size ===")
     if bdy:
         pts = bdy[0].get_points("xy")
@@ -204,11 +195,6 @@ def main(argv=None):
             ratio, e, b = worst
             say(f"  widest annotation : {b[2]-b[0]:.2f} m = {ratio:.2f}x plot width")
             say(f"                      {entity_text(e)[:60]!r}")
-            # On a small plot any readable text is wide relative to the plot -- a
-            # 7.6 m frontage cannot hold a road name at legible cap height. That is
-            # inherent, and harmless while the label sits outside the boundary,
-            # which the collision and border checks above already enforce. So this
-            # is a proportion warning, and only egregious cases fail.
             if ratio > 3.0:
                 faults.append(
                     f"annotation is {ratio:.2f}x the plot width - unreadable at plot scale")
@@ -216,7 +202,6 @@ def main(argv=None):
                 say(f"  -> note: {ratio:.2f}x plot width. Acceptable (it sits outside the "
                     "boundary) but cramped on a small plot.")
 
-    # ---- layers -----------------------------------------------------------
     say("\n=== layers ===")
     used = {e.dxf.layer for e in msp}
     declared = {lay.dxf.name for lay in doc.layers} - {"0", "Defpoints"}
@@ -234,12 +219,6 @@ def main(argv=None):
     else:
         say("  every layer carries an explicit lineweight")
 
-    # ---- frontage present when one is claimed ------------------------------
-    # This audit reported 27/27 clean while AMBIVALI 807 had no road drawn at all.
-    # Absence is not something the collision and containment checks can see, so it
-    # has to be asserted directly: if PLOT DATA names an abutting road, the road
-    # layer must carry geometry. The frontage governs the front setback, so a sheet
-    # that names a road but does not draw it is worse than one that admits neither.
     say("\n=== abutting road ===")
     road_row = next((entity_text(e) for e, _ in texts if "ABUTTING ROAD" in entity_text(e)), "")
     claimed = road_row.split(":", 1)[-1].strip() if road_row else ""

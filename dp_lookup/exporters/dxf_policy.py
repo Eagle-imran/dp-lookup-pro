@@ -6,7 +6,6 @@ import math
 from dataclasses import dataclass
 from typing import Tuple
 
-# name, ACI colour, linetype, lineweight (1/100 mm).
 DXF_LAYERS = (
     ("0_GRID_AXIS", 8, "DASHED", 9),
     ("C-PLOT-BDY", 1, None, 50),
@@ -80,7 +79,7 @@ class DxfLayoutPolicy:
     neighbor_label_height_fraction: float = 0.9
     neighbor_nudge_step_fraction: float = 1.2
     neighbor_nudge_limit: int = 10
-    metro_radius_fraction: float = 0.6  # Legacy custom-policy argument.
+    metro_radius_fraction: float = 0.6
     restriction_note_y_offset_fraction: float = 4.4
     restriction_nudge_step_fraction: float = 1.2
     restriction_nudge_limit: int = 14

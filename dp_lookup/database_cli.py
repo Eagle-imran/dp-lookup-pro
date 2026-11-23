@@ -148,7 +148,7 @@ def main(argv: Optional[Sequence[str]] = None, *, services: Optional[DatabaseSer
         service_method = parsed["command"].replace("-", "_")
         result = getattr(service, service_method)(parsed["database"])
         _emit(result, parsed["command"], parsed["database"], parsed["json"], output)
-    except Exception as exc:  # adapter errors become stable CLI failures
+    except Exception as exc:
         if parsed["json"]:
             print(json.dumps({"command": parsed["command"], "database": str(parsed["database"]), "error": str(exc)}, sort_keys=True), file=output)
         else:

@@ -67,7 +67,6 @@ def dxf_road_label(properties: Mapping[str, Any]) -> tuple[str, str]:
     name = str(properties.get("abutting_road") or "N/A")
     width = properties.get("road_width") or "N/A"
     gap = properties.get("road_gap_m")
-    # Keep sub-metre source alignment noise from being reported as a gap.
     nearby = isinstance(gap, (int, float)) and math.isfinite(gap) and gap > 0.5
     if properties.get("road_source_layer_id") == LAYER_PROPOSED_ROAD:
         label = "NEARBY PROPOSED ROAD" if nearby else "PROPOSED ROAD"

@@ -18,7 +18,6 @@
 
     #map { height: 100%; width: 100%; z-index: 1; }
 
-    /* Dossier HUD Sidebar */
     .dossier-hud {
       position: absolute;
       top: 16px;
@@ -128,7 +127,6 @@
       gap: 13px;
     }
 
-    /* 2-Way Base Map Toggle Switch */
     .basemap-switch {
       background: #e2e8f0;
       border-radius: 9px;
@@ -157,7 +155,6 @@
       box-shadow: 0 2px 5px rgba(0,0,0,0.12);
     }
 
-    /* Stat Card Grid */
     .stat-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -193,7 +190,6 @@
       margin-top: 1px;
     }
 
-    /* Area source and reliability evidence */
     .area-evidence {
       background: #ffffff;
       border: 1px solid #dbe4ef;
@@ -281,7 +277,6 @@
 
     .is-hidden { display: none !important; }
 
-    /* Encumbrance Progress Meter */
     .meter-section {
       background: #f8fafc;
       border: 1px solid #e2e8f0;
@@ -323,7 +318,6 @@
       font-weight: 600;
     }
 
-    /* Planning details list */
     .detail-list {
       display: flex;
       flex-direction: column;
@@ -349,7 +343,6 @@
       text-align: right;
     }
 
-    /* Clean Essential Layer Toggles */
     .layer-controls {
       display: flex;
       flex-wrap: wrap;
@@ -383,7 +376,6 @@
       border-radius: 50%;
     }
 
-    /* HUD Actions */
     .hud-actions {
       padding: 12px 18px;
       background: #f8fafc;
@@ -421,7 +413,6 @@
     }
     .btn-outline:hover { background: #f1f5f9; }
 
-    /* Leaflet popup styling */
     .leaflet-popup-content-wrapper {
       border-radius: 10px;
       box-shadow: 0 10px 25px rgba(0,0,0,0.2);
@@ -438,7 +429,6 @@
       margin-bottom: 4px;
     }
 
-    /* Floating map tools (Top-Right) */
     .floating-tools {
       position: absolute;
       top: 16px;

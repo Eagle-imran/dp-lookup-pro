@@ -155,7 +155,6 @@ def export_dxf(
     char_h = max(layout_policy.min_char_height, scale * layout_policy.char_height_fraction)
     dim_char_h = max(layout_policy.min_dim_char_height, scale * layout_policy.dim_char_height_fraction)
 
-    # 2. 0_GRID_AXIS: Metric Axis Grid scaled to plot dimensions
     grid_step = layout_policy.grid_step_for(scale)
     g_min_x = math.floor((min_x - scale * layout_policy.grid_extent_fraction) / grid_step) * grid_step
     g_max_x = math.ceil((max_x + scale * layout_policy.grid_extent_fraction) / grid_step) * grid_step
@@ -191,7 +190,6 @@ def export_dxf(
                 placed_boxes.append(box)
         gy += grid_step
 
-    # 3. C-PLOT-BDY
     for loc_ring in local_rings:
         poly = msp.add_lwpolyline(loc_ring, close=True, dxfattribs={"layer": "C-PLOT-BDY"})
         poly.dxf.const_width = max(
@@ -213,7 +211,6 @@ def export_dxf(
     if cts_box:
         placed_boxes.append(cts_box)
 
-    # 4. C-SETBACK-3M & C-SETBACK-6M
     setback_status = {}
     setback_layers = ("C-SETBACK-3M", "C-SETBACK-6M")
     for spec_layer, spec_dist, marker_offset in zip(
@@ -240,7 +237,6 @@ def export_dxf(
             if box:
                 placed_boxes.append(box)
 
-    # 5. C-ANNO-DIMS
     segments = []
     for loc_ring in local_rings:
         n_pts = len(loc_ring)
@@ -290,7 +286,6 @@ def export_dxf(
         else:
             msp.delete_entity(txt_elem)
 
-    # 6b. C-ROAD-ALIGN (Placed before neighbours so road label claims priority)
     clip = scale * layout_policy.road_clip_fraction
     cx_lo, cx_hi = min_x - clip, max_x + clip
     cy_lo, cy_hi = min_y - clip, max_y + clip
@@ -327,7 +322,6 @@ def export_dxf(
         if box:
             placed_boxes.append(box)
 
-    # 6c. C-NORTH-ARROW (Placed before neighbours so north arrow claims clear area)
     na_x = max_x + scale * layout_policy.north_arrow_x_fraction
     na_y = max_y - scale * layout_policy.north_arrow_y_fraction
     na_r = scale * layout_policy.north_arrow_radius_fraction
@@ -355,7 +349,6 @@ def export_dxf(
     if na_box:
         placed_boxes.append(na_box)
 
-    # 6. C-ADJN-PLOTS
     if neighbors:
         for n in neighbors:
             n_rings = n.get("rings", [])
@@ -388,7 +381,6 @@ def export_dxf(
                         if box:
                             placed_boxes.append(box)
 
-    # 7. C-RESTRICT-ZONE
     restrict_notes = []
     crz_flag = str(properties.get("crz_buffer_flag") or "")
     if crz_flag.upper().startswith("YES"):
@@ -414,7 +406,6 @@ def export_dxf(
         else:
             note_y += dim_char_h * layout_policy.restriction_note_fallback_gap_fraction
 
-    # 7b. C-RESERVATIONS
     all_res_items = (reservations or []) + (designations or [])
     if all_res_items:
         for item in reservations or []:
@@ -476,7 +467,6 @@ def export_dxf(
                         else:
                             msp.delete_entity(txt)
 
-    # 9. C-TITLE-BLOCK
     content_x, content_y = [], []
     for entity in msp:
         try:
@@ -555,7 +545,6 @@ def export_dxf(
     doc.header["$LIMMIN"] = (b_min_x, b_min_y)
     doc.header["$LIMMAX"] = (b_max_x, b_max_y)
 
-    # Keep the full sheet available at Zoom Extents, but open on the selected parcel.
     view_bounds = parcel_geometry.bounds if not parcel_geometry.is_empty else (min_x, min_y, max_x, max_y)
     view_left, view_bottom, view_right, view_top = view_bounds
     try:

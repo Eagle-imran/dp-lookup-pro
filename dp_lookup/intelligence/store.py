@@ -533,8 +533,6 @@ class IntelligenceStore:
         attributes = {
             (ref["evidence_type"], ref["layer_id"], ref["object_id"]): ref["attributes"] for ref in normalized_refs
         }
-        # Keep policy/quality metadata and the deterministic reference order
-        # archived with the plot; the normalized index owns only attributes.
         result["source_refs"] = [
             {
                 **ref,

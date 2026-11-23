@@ -48,10 +48,6 @@ def geometry_with_repair_status(rings: Sequence[Sequence[Sequence[float]]]) -> T
 
     candidates.sort(key=lambda item: item[0].area, reverse=True)
     polygons = [candidate[0] for candidate in candidates]
-    # A single CRZ feature can contain hundreds of independent rings. Testing
-    # every ring against every larger ring made local evidence queries
-    # quadratic. The spatial tree keeps the same containment-depth policy but
-    # limits each test to geometrically plausible containers.
     tree = STRtree(polygons)
     containers_by_ring: List[List[int]] = []
     depths: List[int] = []
@@ -98,8 +94,6 @@ def geometry_with_repair_status(rings: Sequence[Sequence[Sequence[float]]]) -> T
         return shells[0], repaired
     geometry = MultiPolygon(shells)
     if not geometry.is_valid:
-        # Overlapping or edge-sharing source parts are a derived union, not
-        # an invalid MultiPolygon whose area double-counts the overlap.
         return unary_union(shells), True
     return geometry, repaired
 
