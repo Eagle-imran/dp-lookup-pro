@@ -1,6 +1,6 @@
 import io
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from hashlib import sha256
 
 from dp_lookup.application.database_health import database_health
@@ -64,7 +64,7 @@ def test_healthy_sources_are_reported_without_requiring_optional_enrichment(tmp_
     _healthy_database(path)
     before = path.stat().st_mtime_ns
 
-    report = database_health(path, checked_at=datetime.now(timezone.utc))
+    report = database_health(path, checked_at=datetime.now(UTC))
 
     assert report["health_policy_version"] == "database-health/1.0"
     assert report["overall_status"] == "healthy"
@@ -110,7 +110,7 @@ def test_schema_drift_and_stale_sources_are_visible(tmp_path):
     connection.commit()
     connection.close()
 
-    report = database_health(path, checked_at=datetime(2028, 1, 1, tzinfo=timezone.utc))
+    report = database_health(path, checked_at=datetime(2028, 1, 1, tzinfo=UTC))
 
     codes = {item["code"] for item in report["findings"]}
     assert report["overall_status"] == "critical"

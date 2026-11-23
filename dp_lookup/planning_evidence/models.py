@@ -6,11 +6,12 @@ legal conclusion about title, sanction, developability, or an applicable
 setback.
 """
 
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
 SPATIAL_OVERLAP_DISCLAIMER = (
     "A spatial overlap is a screening signal only; it is not a legal conclusion "
@@ -94,11 +95,11 @@ class LayerSpec:
     name: str
     evidence_class: EvidenceClass
     query_policy: QueryPolicy
-    out_fields: Tuple[str, ...]
+    out_fields: tuple[str, ...]
     role: str
     geometry_type: str = "esriGeometryPolygon"
     object_id_field: str = "OBJECTID"
-    canonical_id: Optional[int] = None
+    canonical_id: int | None = None
     audit_note: str = SPATIAL_OVERLAP_DISCLAIMER
 
     def __post_init__(self) -> None:
@@ -150,7 +151,7 @@ class EvidenceFinding:
 
     layer_id: int
     layer_name: str
-    object_id: Optional[int]
+    object_id: int | None
     evidence_class: EvidenceClass
     role: str
     overlap_sqm: float
@@ -163,7 +164,7 @@ class EvidenceFinding:
         object.__setattr__(self, "attributes", MappingProxyType(deepcopy(dict(self.attributes))))
         object.__setattr__(self, "warnings", tuple(str(warning) for warning in self.warnings))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "layer_id": self.layer_id,
             "layer_name": self.layer_name,
@@ -194,7 +195,7 @@ class LayerQueryOutcome:
         object.__setattr__(self, "findings", tuple(self.findings))
         object.__setattr__(self, "warnings", tuple(str(warning) for warning in self.warnings))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "layer_id": self.layer_id,
             "layer_name": self.layer_name,
@@ -227,10 +228,10 @@ class PlanningEvidenceReport:
         object.__setattr__(self, "provenance", MappingProxyType(deepcopy(dict(self.provenance))))
 
     @property
-    def findings(self) -> Tuple[EvidenceFinding, ...]:
+    def findings(self) -> tuple[EvidenceFinding, ...]:
         return tuple(finding for outcome in self.outcomes for finding in outcome.findings)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "mode": self.mode.value,
             "retrieved_at": self.retrieved_at,

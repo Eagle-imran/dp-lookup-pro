@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import httpx
 import pytest
@@ -24,28 +24,28 @@ from dp_lookup.planning_snapshot_cli import EXIT_SUCCESS, main, parse_planning_s
 
 
 class Response:
-    def __init__(self, payload: Dict[str, Any], status_code: int = 200):
+    def __init__(self, payload: dict[str, Any], status_code: int = 200):
         self.payload = payload
         self.status_code = status_code
-        self.headers: Dict[str, str] = {}
+        self.headers: dict[str, str] = {}
 
-    def json(self) -> Dict[str, Any]:
+    def json(self) -> dict[str, Any]:
         return self.payload
 
 
 class FakeClient:
-    def __init__(self, responses: List[Any]):
+    def __init__(self, responses: list[Any]):
         self.responses = list(responses)
-        self.calls: List[tuple[str, Dict[str, Any]]] = []
+        self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    async def get(self, url: str, *, params: Dict[str, Any]) -> Any:
+    async def get(self, url: str, *, params: dict[str, Any]) -> Any:
         self.calls.append(("GET", dict(params)))
         response = self.responses.pop(0)
         if isinstance(response, BaseException):
             raise response
         return response
 
-    async def post(self, url: str, *, data: Dict[str, Any]) -> Any:
+    async def post(self, url: str, *, data: dict[str, Any]) -> Any:
         self.calls.append(("POST", dict(data)))
         response = self.responses.pop(0)
         if isinstance(response, BaseException):
@@ -64,7 +64,7 @@ def spec(layer_id: int, name: str = "Layer") -> LayerSpec:
     )
 
 
-def feature(object_id: int, code: str = "A") -> Dict[str, Any]:
+def feature(object_id: int, code: str = "A") -> dict[str, Any]:
     return {
         "attributes": {"OBJECTID": object_id, "CODE": code},
         "geometry": {"rings": [[[72.8, 19.0], [72.81, 19.0], [72.81, 19.01], [72.8, 19.0]]]},
@@ -124,19 +124,23 @@ def test_partial_response_is_incomplete_and_checkpoint_resumes_only_missing_ids(
 
 
 def test_wrong_json_shapes_are_retried_before_abandoning_inventory_or_batch():
-    client = FakeClient([
-        Response({"status": "temporarily unavailable"}),
-        Response({"objectIds": [1]}),
-        Response({"status": "temporarily unavailable"}),
-        Response({"features": [feature(1)]}),
-    ])
+    client = FakeClient(
+        [
+            Response({"status": "temporarily unavailable"}),
+            Response({"objectIds": [1]}),
+            Response({"status": "temporarily unavailable"}),
+            Response({"features": [feature(1)]}),
+        ]
+    )
     sleeps = []
 
     async def sleep(delay):
         sleeps.append(delay)
 
     result = run(
-        client, specs=(spec(40),), sleep=sleep,
+        client,
+        specs=(spec(40),),
+        sleep=sleep,
         config=PlanningIngestionConfig(fetch_layer_metadata=False, max_attempts=2),
     )
     assert result.complete
@@ -152,7 +156,9 @@ def test_repeated_wrong_inventory_shape_remains_incomplete():
         pass
 
     result = run(
-        client, specs=(spec(40),), sleep=sleep,
+        client,
+        specs=(spec(40),),
+        sleep=sleep,
         config=PlanningIngestionConfig(fetch_layer_metadata=False, max_attempts=2),
     )
     assert not result.complete
@@ -161,7 +167,7 @@ def test_repeated_wrong_inventory_shape_remains_incomplete():
 
 
 def test_retry_and_batch_error_are_bounded_and_reported():
-    sleeps: List[float] = []
+    sleeps: list[float] = []
     client = FakeClient(
         [
             Response({"objectIds": [1]}),
@@ -179,7 +185,7 @@ def test_retry_and_batch_error_are_bounded_and_reported():
     assert sleeps == [0.1]
 
 
-async def _record_sleep(sleeps: List[float], delay: float) -> None:
+async def _record_sleep(sleeps: list[float], delay: float) -> None:
     sleeps.append(delay)
 
 
@@ -190,15 +196,28 @@ def test_checkpoint_rejects_registry_or_inventory_change():
     )
     client = FakeClient([Response({"objectIds": [2]})])
     with pytest.raises(PlanningSnapshotError, match="different inventory"):
-        run(client, specs=(spec(40),), checkpoint=checkpoint, config=PlanningIngestionConfig(fetch_layer_metadata=False))
+        run(
+            client, specs=(spec(40),), checkpoint=checkpoint, config=PlanningIngestionConfig(fetch_layer_metadata=False)
+        )
     client = FakeClient([])
     with pytest.raises(PlanningSnapshotError, match="different canonical planning registry"):
-        run(client, specs=(spec(41),), checkpoint=checkpoint, config=PlanningIngestionConfig(fetch_layer_metadata=False))
+        run(
+            client, specs=(spec(41),), checkpoint=checkpoint, config=PlanningIngestionConfig(fetch_layer_metadata=False)
+        )
 
 
 def test_cli_parser_and_dispatch_are_dependency_injected():
     parsed = parse_planning_snapshot_args(
-        ["build-planning", "--database", "data/planning.sqlite", "--batch-size", "100", "--checkpoint", "run.json", "--json"]
+        [
+            "build-planning",
+            "--database",
+            "data/planning.sqlite",
+            "--batch-size",
+            "100",
+            "--checkpoint",
+            "run.json",
+            "--json",
+        ]
     )
     assert parsed["database"] == Path("data/planning.sqlite")
     assert parsed["resume"] == Path("run.json")
@@ -342,7 +361,7 @@ def test_response_payload_guards_classify_protocol_failures():
 
 
 def test_request_retry_guards_cover_http_generic_and_nonretryable_failures():
-    sleeps: List[float] = []
+    sleeps: list[float] = []
 
     async def sleep(delay: float) -> None:
         sleeps.append(delay)

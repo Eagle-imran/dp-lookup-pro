@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import fields, replace
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any
 
 from dp_lookup.application.contracts import ParcelContext
 from dp_lookup.authority.selection import (
@@ -29,7 +30,7 @@ def _value(record: Any, *names: str, default: Any = None) -> Any:
     return default
 
 
-def _active_records(store: Any, village: str, cts_no: str, purpose: str) -> Tuple[Any, ...]:
+def _active_records(store: Any, village: str, cts_no: str, purpose: str) -> tuple[Any, ...]:
     """Read only the store's explicit active selection boundary.
 
     A store implementation may expose either ``active`` or
@@ -63,7 +64,7 @@ def _active_records(store: Any, village: str, cts_no: str, purpose: str) -> Tupl
     if isinstance(result, Mapping) and not any(key in result for key in ("source_type", "status", "record_id", "id")):
         selected = result.get(store_purpose)
         return (selected,) if selected is not None else ()
-    if isinstance(result, Mapping) or isinstance(result, (str, bytes)):
+    if isinstance(result, (Mapping, str, bytes)):
         return (result,)
     try:
         return tuple(result)
@@ -71,7 +72,7 @@ def _active_records(store: Any, village: str, cts_no: str, purpose: str) -> Tupl
         return (result,)
 
 
-def _rings(record: Any) -> Optional[List[List[List[float]]]]:
+def _rings(record: Any) -> list[list[list[float]]] | None:
     value = _value(
         record,
         "normalized_epsg3857_rings",
@@ -104,13 +105,13 @@ def _crs(record: Any) -> int:
         return 102100
 
 
-def _to_mercator(rings: List[List[List[float]]], crs: int) -> List[List[List[float]]]:
+def _to_mercator(rings: list[list[list[float]]], crs: int) -> list[list[list[float]]]:
     if crs not in {4326, 4269}:
         return rings
     import math
 
     radius = 20037508.342789244
-    converted: List[List[List[float]]] = []
+    converted: list[list[list[float]]] = []
     for ring in rings:
         converted.append(
             [
@@ -124,7 +125,7 @@ def _to_mercator(rings: List[List[List[float]]], crs: int) -> List[List[List[flo
     return converted
 
 
-def _area(record: Any) -> Optional[float]:
+def _area(record: Any) -> float | None:
     value = _value(record, "area_sqm", "recorded_area_sqm", "calculated_area_sqm", "area", "plot_area_sqm")
     try:
         value = float(value)
@@ -141,7 +142,7 @@ def _label(record: Any) -> str:
     return source_type_label(source_type)
 
 
-def _record_dict(record: Any) -> Dict[str, Any]:
+def _record_dict(record: Any) -> dict[str, Any]:
     if isinstance(record, Mapping):
         return dict(record)
     to_dict = getattr(record, "to_dict", None)
@@ -156,21 +157,21 @@ def _record_dict(record: Any) -> Dict[str, Any]:
 
 
 def _working_assessment(
-    baseline: Optional[AreaAssessment],
-    calculated: Optional[float],
-    selected: Optional[float],
+    baseline: AreaAssessment | None,
+    calculated: float | None,
+    selected: float | None,
     *,
-    area_source: Optional[Any],
-    geometry_source: Optional[Any],
+    area_source: Any | None,
+    geometry_source: Any | None,
     area_applied: bool,
     geometry_applied: bool,
-) -> Optional[AreaAssessment]:
+) -> AreaAssessment | None:
     """Recalculate the assessment while keeping MCGM recorded area intact."""
     if baseline is None:
         return None
     difference = None
     difference_percent = None
-    thresholds: Tuple[int, ...] = ()
+    thresholds: tuple[int, ...] = ()
     flags = [flag for flag in baseline.flags if not flag.code.startswith("area_difference_over_")]
     if baseline.recorded_area_sqm is not None and calculated is not None:
         difference = calculated - baseline.recorded_area_sqm
@@ -339,9 +340,9 @@ def _apply(
 def apply_authority_selection(
     parcel: ParcelContext,
     *,
-    area_resolution: Optional[AuthorityResolution] = None,
-    geometry_resolution: Optional[AuthorityResolution] = None,
-    planning_resolution: Optional[AuthorityResolution] = None,
+    area_resolution: AuthorityResolution | None = None,
+    geometry_resolution: AuthorityResolution | None = None,
+    planning_resolution: AuthorityResolution | None = None,
 ) -> ParcelContext:
     """Apply only active selections; recommendations are deliberately ignored."""
 

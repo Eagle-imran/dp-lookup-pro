@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import sqlite3
 import time
-from datetime import datetime, timezone
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence
+from typing import Any
 
 from shapely.geometry.base import BaseGeometry
 
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.spatial_store import SnapshotStore, SpatialStoreError
 
-LiveParcelFetcher = Callable[[Any, str, str], Awaitable[Optional[Dict[str, Any]]]]
+LiveParcelFetcher = Callable[[Any, str, str], Awaitable[dict[str, Any] | None]]
 DEFAULT_MAX_SNAPSHOT_AGE_DAYS = 210.0
 
 
@@ -21,18 +22,15 @@ class LocalParcelError(RuntimeError):
     """A requested local snapshot could not provide trustworthy parcel data."""
 
 
-def _rings(row: Mapping[str, Any]) -> List[Any]:
+def _rings(row: Mapping[str, Any]) -> list[Any]:
     geometry = row.get("geometry")
-    if isinstance(geometry, Mapping):
-        rings = geometry.get("rings")
-    else:
-        rings = row.get("rings")
+    rings = geometry.get("rings") if isinstance(geometry, Mapping) else row.get("rings")
     if not isinstance(rings, list) or not rings:
         raise LocalParcelError(f"local parcel ObjectID {row.get('objectid')} has no polygon rings")
     return rings
 
 
-def merge_local_features(rows: Sequence[Mapping[str, Any]]) -> Optional[Dict[str, Any]]:
+def merge_local_features(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
     """Return one pipeline feature while preserving every same-identity part.
 
     Layer 13 contains thousands of village/CTS identities represented by more
@@ -42,8 +40,8 @@ def merge_local_features(rows: Sequence[Mapping[str, Any]]) -> Optional[Dict[str
     if not rows:
         return None
     ordered = sorted(rows, key=lambda row: int(row["objectid"]))
-    combined_rings: List[Any] = []
-    unique_geometries: List[BaseGeometry] = []
+    combined_rings: list[Any] = []
+    unique_geometries: list[BaseGeometry] = []
     duplicate_geometry_count = 0
     for row in ordered:
         row_rings = _rings(row)
@@ -94,10 +92,10 @@ class LocalParcelFetcher:
         self,
         database: Path,
         *,
-        fallback: Optional[LiveParcelFetcher] = None,
+        fallback: LiveParcelFetcher | None = None,
         max_snapshot_age_days: float = DEFAULT_MAX_SNAPSHOT_AGE_DAYS,
-        snapshot_id: Optional[int] = None,
-        store: Optional[SnapshotStore] = None,
+        snapshot_id: int | None = None,
+        store: SnapshotStore | None = None,
     ) -> None:
         if max_snapshot_age_days <= 0:
             raise ValueError("max_snapshot_age_days must be positive")
@@ -107,7 +105,7 @@ class LocalParcelFetcher:
         self.snapshot_id = snapshot_id
         self.store = store
 
-    async def _fallback_feature(self, client: Any, village: str, cts_no: str, reason: str) -> Optional[Dict[str, Any]]:
+    async def _fallback_feature(self, client: Any, village: str, cts_no: str, reason: str) -> dict[str, Any] | None:
         if self.fallback is None:
             return None
         feature = await self.fallback(client, village, cts_no)
@@ -118,12 +116,12 @@ class LocalParcelFetcher:
             return copied
         return feature
 
-    async def __call__(self, client: Any, village: str, cts_no: str) -> Optional[Dict[str, Any]]:
+    async def __call__(self, client: Any, village: str, cts_no: str) -> dict[str, Any] | None:
         try:
             if not self.database.is_file():
                 raise LocalParcelError(f"local parcel database does not exist: {self.database}")
 
-            def read(store: SnapshotStore) -> tuple[Optional[Dict[str, Any]], Any, float]:
+            def read(store: SnapshotStore) -> tuple[dict[str, Any] | None, Any, float]:
                 active_snapshot_id = store.active_snapshot_id()
                 if active_snapshot_id is None:
                     raise LocalParcelError("local parcel database has no active snapshot")
@@ -150,7 +148,7 @@ class LocalParcelFetcher:
             feature["attributes"]["_DP_SNAPSHOT_ID"] = snapshot.snapshot_id
             feature["attributes"]["_DP_SNAPSHOT_FINALIZED_AT"] = snapshot.finalized_at
             feature["attributes"]["_DP_SNAPSHOT_FINALIZED_AT_ISO"] = datetime.fromtimestamp(
-                float(snapshot.finalized_at), timezone.utc
+                float(snapshot.finalized_at), UTC
             ).isoformat()
             feature["attributes"]["_DP_SNAPSHOT_AGE_DAYS"] = round(snapshot_age_days, 3)
             if snapshot_age_days > self.max_snapshot_age_days:

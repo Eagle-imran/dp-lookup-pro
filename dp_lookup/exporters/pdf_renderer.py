@@ -1,7 +1,7 @@
 """ReportLab implementation of the two-page DP remark PDF dossier."""
 
 import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 from xml.sax.saxutils import escape as xml_escape
 from xml.sax.saxutils import quoteattr
 
@@ -30,7 +30,7 @@ def _build_pdf_doc_values(
     status_badge: str,
     status_summary: str,
     village: str,
-    attrs: Dict[str, Any],
+    attrs: dict[str, Any],
     cts_number: str,
     zone: str,
     des_desc: str,
@@ -45,13 +45,13 @@ def _build_pdf_doc_values(
     qr_bytes: Any,
     map_link: str,
     sat_snapshot_path: str,
-    neighbors: List[Dict[str, Any]],
+    neighbors: list[dict[str, Any]],
     area_source_label: str = "MCGM cadastral parcel record",
     *,
     res_code: str = "None",
     res_type: str = "None",
-    reservations: Optional[List[Dict[str, Any]]] = None,
-    designations: Optional[List[Dict[str, Any]]] = None,
+    reservations: list[dict[str, Any]] | None = None,
+    designations: list[dict[str, Any]] | None = None,
     encumbered_percent: float = 0.0,
     encumbered_area_sqm: float = 0.0,
     net_unencumbered_sqm: float = 0.0,
@@ -253,7 +253,9 @@ def _build_pdf_doc_values(
         else "None"
     )
     if modification_document.startswith(("https://", "http://")):
-        modification_text += f'<br/><a href={quoteattr(modification_document)} color="blue">Open source notification</a>'
+        modification_text += (
+            f'<br/><a href={quoteattr(modification_document)} color="blue">Open source notification</a>'
+        )
     table_data += [
         [
             Paragraph("DP Modification", body_style),
@@ -434,7 +436,7 @@ def build_pdf_doc(
     status_badge: str,
     status_summary: str,
     village: str,
-    attrs: Dict[str, Any],
+    attrs: dict[str, Any],
     cts_number: str,
     zone: str,
     des_desc: str,
@@ -449,13 +451,13 @@ def build_pdf_doc(
     qr_bytes: Any,
     map_link: str,
     sat_snapshot_path: str,
-    neighbors: List[Dict[str, Any]],
+    neighbors: list[dict[str, Any]],
     area_source_label: str = "MCGM cadastral parcel record",
     *,
     res_code: str = "None",
     res_type: str = "None",
-    reservations: Optional[List[Dict[str, Any]]] = None,
-    designations: Optional[List[Dict[str, Any]]] = None,
+    reservations: list[dict[str, Any]] | None = None,
+    designations: list[dict[str, Any]] | None = None,
     encumbered_percent: float = 0.0,
     encumbered_area_sqm: float = 0.0,
     net_unencumbered_sqm: float = 0.0,

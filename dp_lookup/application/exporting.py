@@ -7,8 +7,9 @@ edge, instead of leaking their long positional signatures into orchestration.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Protocol, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Protocol
 
 from dp_lookup.application.contracts import (
     ArtifactContext,
@@ -22,7 +23,7 @@ from dp_lookup.exporters.contracts import ExcelRegisterData, PlotReportData
 if TYPE_CHECKING:
     from dp_lookup.application.dependencies import LookupDependencies
 
-Rings = List[List[List[float]]]
+Rings = list[list[list[float]]]
 RoadGeometry = Sequence[Sequence[Sequence[float]]]
 
 
@@ -37,10 +38,10 @@ class RichVectorWriter(Protocol):
         properties: ExportData,
         output_path: str,
         *,
-        neighbors: List[Dict[str, Any]],
+        neighbors: list[dict[str, Any]],
         roads: RoadGeometry,
-        reservations: List[Dict[str, Any]],
-        designations: List[Dict[str, Any]],
+        reservations: list[dict[str, Any]],
+        designations: list[dict[str, Any]],
     ) -> None: ...
 
 
@@ -97,7 +98,7 @@ class ExcelDataWriter(Protocol):
 
 
 def _plot_report_data(
-    request: Union[PdfReportRequest, ExcelRegisterRequest],
+    request: PdfReportRequest | ExcelRegisterRequest,
     output_path: str,
 ) -> PlotReportData:
     artifact = request.context.artifact
@@ -310,9 +311,9 @@ class ExcelArtifactExporter:
         return request.output_path
 
 
-def registered_artifact_exporters(dependencies: LookupDependencies) -> Tuple[ArtifactExporter, ...]:
+def registered_artifact_exporters(dependencies: LookupDependencies) -> tuple[ArtifactExporter, ...]:
     """Resolve built-ins plus caller-supplied plug-ins without editing orchestration."""
-    built_ins: Tuple[ArtifactExporter, ...] = (
+    built_ins: tuple[ArtifactExporter, ...] = (
         SimpleVectorExporter("GeoJSON", "autocad_geojson", "geojson", dependencies.geojson_writer),
         RichVectorExporter("DXF", "autocad_dxf", "dxf", dependencies.dxf_writer),
         SimpleVectorExporter("KML", "google_earth_kml", "kml", dependencies.kml_writer),
@@ -321,7 +322,7 @@ def registered_artifact_exporters(dependencies: LookupDependencies) -> Tuple[Art
     return built_ins + tuple(dependencies.artifact_exporters)
 
 
-def registered_report_artifact_exporters(dependencies: LookupDependencies) -> Tuple[ReportArtifactExporter, ...]:
+def registered_report_artifact_exporters(dependencies: LookupDependencies) -> tuple[ReportArtifactExporter, ...]:
     """Resolve typed PDF/register adapters plus optional report-stage plug-ins."""
     if dependencies.pdf_report_writer is not None:
         pdf_writer: PdfReportWriter = dependencies.pdf_report_writer
@@ -336,7 +337,7 @@ def registered_report_artifact_exporters(dependencies: LookupDependencies) -> Tu
         excel_writer = LegacyExcelRegisterWriter(dependencies.excel_writer)
     else:
         excel_writer = TypedExcelRegisterWriter(dependencies.excel_data_writer)
-    built_ins: Tuple[ReportArtifactExporter, ...] = (
+    built_ins: tuple[ReportArtifactExporter, ...] = (
         PdfArtifactExporter(pdf_writer),
         ExcelArtifactExporter(excel_writer),
     )

@@ -1,11 +1,13 @@
 """Lookup command runner, independent from parsing and adapter composition."""
+
 from __future__ import annotations
 
 import asyncio
 import json
 import os
 import time
-from typing import Any, Callable, Coroutine, Mapping
+from collections.abc import Callable, Coroutine, Mapping
+from typing import Any
 
 from dp_lookup.application.lookup_service import lookup_plot_pro
 from dp_lookup.cli_bootstrap import LookupRuntime, compose_lookup_runtime, local_snapshot_selection
@@ -105,7 +107,11 @@ def execute_lookup(
         meta = result.get("metadata", {})
         files = result.get("export_files") or {}
         bundle_f_count = len(
-            [path for key, path in files.items() if key not in ("bundle_folder", "master_excel_register") and path and os.path.exists(path)]
+            [
+                path
+                for key, path in files.items()
+                if key not in ("bundle_folder", "master_excel_register") and path and os.path.exists(path)
+            ]
         )
         print(f"  Done in {meta.get('execution_time_ms', 0) / 1000:.1f}s - all {bundle_f_count} files written.")
         for warning in meta.get("warnings") or []:

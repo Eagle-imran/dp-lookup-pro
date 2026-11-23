@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, List, Optional, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 
 
 def run_artifact(
     label: str,
-    warnings: List[str],
+    warnings: list[str],
     writer: Callable[..., Any],
     *args: Any,
     **kwargs: Any,
@@ -26,11 +27,11 @@ def run_artifact(
 
 def run_artifact_result(
     label: str,
-    warnings: List[str],
+    warnings: list[str],
     writer: Callable[..., T],
     *args: Any,
     **kwargs: Any,
-) -> Optional[T]:
+) -> T | None:
     """Run one artifact writer while retaining its typed success value."""
     try:
         return writer(*args, **kwargs)
@@ -41,7 +42,7 @@ def run_artifact_result(
 
 async def run_artifact_in_thread(
     label: str,
-    warnings: List[str],
+    warnings: list[str],
     writer: Callable[..., Any],
     *args: Any,
     **kwargs: Any,

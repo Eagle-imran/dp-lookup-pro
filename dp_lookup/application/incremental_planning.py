@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, Mapping, Tuple, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from dp_lookup.application.planning_database_services import _atomic_json_write, _manifest_summary
 from dp_lookup.application.planning_snapshot import (
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
 
 def _fingerprints(
     report: Mapping[str, Any], base_id: int, layer_ids: set[int], refresh_ids: set[int]
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     planning = report.get("planning")
     if not isinstance(planning, Mapping):
         raise PlanningSnapshotError("incremental refresh requires a complete upstream planning check")
@@ -111,7 +112,7 @@ async def build_incremental_planning(
             fetched_count = 0
 
             async def accept_inventory(
-                spec: LayerSpec, expected_ids: Tuple[int, ...], context: Mapping[str, Any]
+                spec: LayerSpec, expected_ids: tuple[int, ...], context: Mapping[str, Any]
             ) -> Iterable[int]:
                 store.register_layer(
                     snapshot_id,
@@ -131,7 +132,7 @@ async def build_incremental_planning(
                 store.set_layer_inventory(snapshot_id, spec.layer_id, expected_ids)
                 return cast(Iterable[int], store.object_ids(snapshot_id, spec.layer_id))
 
-            async def accept_batch(spec: LayerSpec, features: Tuple[PlanningFeature, ...]) -> None:
+            async def accept_batch(spec: LayerSpec, features: tuple[PlanningFeature, ...]) -> None:
                 nonlocal fetched_count
                 store.insert_batch(snapshot_id, spec.layer_id, features)
                 fetched_count += len(features)

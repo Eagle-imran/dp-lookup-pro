@@ -4,12 +4,14 @@ The frontend deliberately knows nothing about the database format.  A caller
 supplies a :class:`DatabaseServices` implementation; this keeps command-line
 parsing and output testable while the storage/ingestion implementation evolves.
 """
+
 from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Protocol, Sequence, TextIO
+from typing import Any, Protocol, TextIO
 
 EXIT_SUCCESS = 0
 EXIT_ERROR = 1
@@ -48,7 +50,7 @@ class _MissingServices:
         return unavailable
 
 
-def parse_database_args(argv: Sequence[str]) -> Dict[str, Any]:
+def parse_database_args(argv: Sequence[str]) -> dict[str, Any]:
     """Parse the isolated ``database`` grammar without terminating the host."""
     tokens = list(argv)
     if not tokens or tokens[0] != "database":
@@ -58,7 +60,7 @@ def parse_database_args(argv: Sequence[str]) -> Dict[str, Any]:
         raise ValueError(f"expected one of: {', '.join(COMMANDS)} (got '{got}')")
 
     command = tokens[1]
-    database: Optional[Path] = None
+    database: Path | None = None
     as_json = False
     index = 2
     while index < len(tokens):
@@ -97,7 +99,14 @@ def _json_safe(value: Any) -> Any:
 
 def _emit(value: Any, command: str, database: Path, as_json: bool, out: TextIO) -> None:
     if as_json:
-        print(json.dumps({"command": command, "database": str(database), "result": _json_safe(value)}, sort_keys=True, default=str), file=out)
+        print(
+            json.dumps(
+                {"command": command, "database": str(database), "result": _json_safe(value)},
+                sort_keys=True,
+                default=str,
+            ),
+            file=out,
+        )
         return
     if command == "health" and isinstance(value, Mapping):
         status = str(value.get("overall_status", "unknown")).upper()
@@ -135,7 +144,9 @@ def _emit(value: Any, command: str, database: Path, as_json: bool, out: TextIO) 
         print(f"  {value}", file=out)
 
 
-def main(argv: Optional[Sequence[str]] = None, *, services: Optional[DatabaseServices] = None, out: Optional[TextIO] = None) -> int:
+def main(
+    argv: Sequence[str] | None = None, *, services: DatabaseServices | None = None, out: TextIO | None = None
+) -> int:
     """Dispatch a database command and return a process-compatible exit code."""
     output = out or sys.stdout
     try:
@@ -150,7 +161,13 @@ def main(argv: Optional[Sequence[str]] = None, *, services: Optional[DatabaseSer
         _emit(result, parsed["command"], parsed["database"], parsed["json"], output)
     except Exception as exc:
         if parsed["json"]:
-            print(json.dumps({"command": parsed["command"], "database": str(parsed["database"]), "error": str(exc)}, sort_keys=True), file=output)
+            print(
+                json.dumps(
+                    {"command": parsed["command"], "database": str(parsed["database"]), "error": str(exc)},
+                    sort_keys=True,
+                ),
+                file=output,
+            )
         else:
             print(f"Error: database {parsed['command']} failed: {exc}", file=output)
         return EXIT_ERROR

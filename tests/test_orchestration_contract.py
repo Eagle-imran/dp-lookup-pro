@@ -6,7 +6,7 @@ import asyncio
 import io
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import httpx
 from PIL import Image
@@ -21,7 +21,7 @@ from dp_lookup.planning_evidence import EvidenceMode, PlanningEvidenceReport
 class FakeResponse:
     def __init__(
         self,
-        payload: Optional[Dict[str, Any]] = None,
+        payload: dict[str, Any] | None = None,
         *,
         content: bytes = b"",
         content_type: str = "application/json",
@@ -32,7 +32,7 @@ class FakeResponse:
         self.status_code = status_code
         self.headers = {"content-type": content_type}
 
-    def json(self) -> Dict[str, Any]:
+    def json(self) -> dict[str, Any]:
         if self._payload is None:
             raise ValueError("not JSON")
         return self._payload

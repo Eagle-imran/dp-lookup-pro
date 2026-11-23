@@ -13,9 +13,10 @@ import asyncio
 import hashlib
 import json
 from collections import Counter
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 
@@ -26,7 +27,7 @@ RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _canonical_json(value: Any) -> bytes:
@@ -57,9 +58,9 @@ class PlanningLayerCheckpoint:
     """Durable progress for one layer and one exact source inventory."""
 
     layer_id: int
-    expected_ids: Tuple[int, ...]
-    completed_ids: Tuple[int, ...] = ()
-    rejected_ids: Tuple[int, ...] = ()
+    expected_ids: tuple[int, ...]
+    completed_ids: tuple[int, ...] = ()
+    rejected_ids: tuple[int, ...] = ()
     updated_at: str = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
@@ -67,7 +68,7 @@ class PlanningLayerCheckpoint:
         object.__setattr__(self, "completed_ids", tuple(sorted(set(int(item) for item in self.completed_ids))))
         object.__setattr__(self, "rejected_ids", tuple(sorted(set(int(item) for item in self.rejected_ids))))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "layer_id": self.layer_id,
             "expected_ids": list(self.expected_ids),
@@ -77,7 +78,7 @@ class PlanningLayerCheckpoint:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "PlanningLayerCheckpoint":
+    def from_dict(cls, payload: Mapping[str, Any]) -> PlanningLayerCheckpoint:
         """Restore a checkpoint written by :meth:`to_dict`."""
 
         return cls(
@@ -93,18 +94,18 @@ class PlanningLayerCheckpoint:
 class PlanningSnapshotCheckpoint:
     """Serializable checkpoint for all canonical layers in a build."""
 
-    layers: Tuple[PlanningLayerCheckpoint, ...] = ()
-    registry_layer_ids: Tuple[int, ...] = ()
+    layers: tuple[PlanningLayerCheckpoint, ...] = ()
+    registry_layer_ids: tuple[int, ...] = ()
     updated_at: str = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "layers", tuple(self.layers))
         object.__setattr__(self, "registry_layer_ids", tuple(int(item) for item in self.registry_layer_ids))
 
-    def for_layer(self, layer_id: int) -> Optional[PlanningLayerCheckpoint]:
+    def for_layer(self, layer_id: int) -> PlanningLayerCheckpoint | None:
         return next((item for item in self.layers if item.layer_id == layer_id), None)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "registry_layer_ids": list(self.registry_layer_ids),
             "layers": [item.to_dict() for item in self.layers],
@@ -112,7 +113,7 @@ class PlanningSnapshotCheckpoint:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "PlanningSnapshotCheckpoint":
+    def from_dict(cls, payload: Mapping[str, Any]) -> PlanningSnapshotCheckpoint:
         """Restore a checkpoint written by :meth:`to_dict`."""
 
         raw_layers = payload.get("layers", ())
@@ -166,17 +167,17 @@ class PlanningLayerManifest:
     source_url: str
     object_id_field: str
     geometry_type: str
-    out_fields: Tuple[str, ...]
-    expected_ids: Tuple[int, ...]
-    received_ids: Tuple[int, ...]
-    missing_ids: Tuple[int, ...]
-    duplicate_ids: Tuple[int, ...] = ()
-    rejected_ids: Tuple[int, ...] = ()
-    extra_ids: Tuple[int, ...] = ()
+    out_fields: tuple[str, ...]
+    expected_ids: tuple[int, ...]
+    received_ids: tuple[int, ...]
+    missing_ids: tuple[int, ...]
+    duplicate_ids: tuple[int, ...] = ()
+    rejected_ids: tuple[int, ...] = ()
+    extra_ids: tuple[int, ...] = ()
     invalid_feature_count: int = 0
     non_spatial_feature_count: int = 0
-    inventory_error: Optional[str] = None
-    batch_errors: Tuple[str, ...] = ()
+    inventory_error: str | None = None
+    batch_errors: tuple[str, ...] = ()
     schema_metadata: Mapping[str, Any] = field(default_factory=dict)
     source_metadata: Mapping[str, Any] = field(default_factory=dict)
     fetched_at: str = field(default_factory=utc_now)
@@ -188,7 +189,7 @@ class PlanningLayerManifest:
             self.inventory_error or self.missing_ids or self.rejected_ids or self.extra_ids or self.batch_errors
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "layer_id": self.layer_id,
             "name": self.name,
@@ -219,11 +220,11 @@ class PlanningSnapshotManifest:
     """Top-level audit manifest for a canonical planning snapshot."""
 
     service_url: str
-    registry_layer_ids: Tuple[int, ...]
-    layers: Tuple[PlanningLayerManifest, ...]
+    registry_layer_ids: tuple[int, ...]
+    layers: tuple[PlanningLayerManifest, ...]
     retrieved_at: str = field(default_factory=utc_now)
     registry_hash: str = ""
-    warnings: Tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
 
     @property
     def complete(self) -> bool:
@@ -234,7 +235,7 @@ class PlanningSnapshotManifest:
         payload = [item.content_hash for item in self.layers]
         return _sha256_json(payload) if all(payload) else ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "service_url": self.service_url,
             "registry_layer_ids": list(self.registry_layer_ids),
@@ -251,7 +252,7 @@ class PlanningSnapshotManifest:
 class PlanningSnapshotResult:
     """Accepted features, audit manifest, and resume checkpoint."""
 
-    features: Tuple[PlanningFeature, ...]
+    features: tuple[PlanningFeature, ...]
     manifest: PlanningSnapshotManifest
     checkpoint: PlanningSnapshotCheckpoint
 
@@ -260,8 +261,8 @@ class PlanningSnapshotResult:
         return self.manifest.complete
 
 
-InventoryConsumer = Callable[[LayerSpec, Tuple[int, ...], Mapping[str, Any]], Any]
-BatchConsumer = Callable[[LayerSpec, Tuple[PlanningFeature, ...]], Any]
+InventoryConsumer = Callable[[LayerSpec, tuple[int, ...], Mapping[str, Any]], Any]
+BatchConsumer = Callable[[LayerSpec, tuple[PlanningFeature, ...]], Any]
 
 
 async def _maybe_await(value: Any) -> Any:
@@ -271,11 +272,11 @@ async def _maybe_await(value: Any) -> Any:
 
 
 def canonical_planning_specs(
-    specs: Optional[Iterable[LayerSpec]] = None,
+    specs: Iterable[LayerSpec] | None = None,
     *,
-    context: Optional[EvidenceContext] = None,
+    context: EvidenceContext | None = None,
     include_layer13: bool = False,
-) -> Tuple[LayerSpec, ...]:
+) -> tuple[LayerSpec, ...]:
     """Return one spec per canonical planning source, in registry order.
 
     Layer 13 is the cadastral identity anchor and has its own mature builder;
@@ -283,7 +284,7 @@ def canonical_planning_specs(
     exists for callers building a combined source archive.
     """
 
-    selected: Tuple[LayerSpec, ...] = deduplicate_layer_specs(tuple(LAYER_SPECS if specs is None else specs))
+    selected: tuple[LayerSpec, ...] = deduplicate_layer_specs(tuple(LAYER_SPECS if specs is None else specs))
     if not include_layer13:
         selected = tuple(spec for spec in selected if spec.layer_id != 13)
     if context is not None:
@@ -291,7 +292,7 @@ def canonical_planning_specs(
     return selected
 
 
-def _int_id(value: Any) -> Optional[int]:
+def _int_id(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
     try:
@@ -301,11 +302,11 @@ def _int_id(value: Any) -> Optional[int]:
     return parsed if parsed >= 0 and str(value).strip() not in {"", "None", "null"} else None
 
 
-def _sorted_ids(values: Iterable[Any]) -> Tuple[int, ...]:
+def _sorted_ids(values: Iterable[Any]) -> tuple[int, ...]:
     return tuple(sorted({parsed for parsed in (_int_id(value) for value in values) if parsed is not None}))
 
 
-def _chunks(values: Sequence[int], size: int) -> Iterable[Tuple[int, ...]]:
+def _chunks(values: Sequence[int], size: int) -> Iterable[tuple[int, ...]]:
     for offset in range(0, len(values), size):
         yield tuple(values[offset : offset + size])
 
@@ -350,9 +351,9 @@ async def _get_json(
     sleep: Callable[[float], Awaitable[Any]],
     *,
     post_form: bool = False,
-    required_list_field: Optional[str] = None,
+    required_list_field: str | None = None,
 ) -> Mapping[str, Any]:
-    last_error: Optional[BaseException] = None
+    last_error: BaseException | None = None
     for attempt in range(1, config.max_attempts + 1):
         response: Any = None
         try:
@@ -407,9 +408,9 @@ def _feature_from_raw(
     spec: LayerSpec,
     raw_feature: Any,
     *,
-    object_id_field: Optional[str] = None,
-    geometry_type: Optional[str] = None,
-) -> Tuple[Optional[PlanningFeature], Optional[str]]:
+    object_id_field: str | None = None,
+    geometry_type: str | None = None,
+) -> tuple[PlanningFeature | None, str | None]:
     if not isinstance(raw_feature, Mapping):
         return None, "feature is not an object"
     attrs = raw_feature.get("attributes")
@@ -454,12 +455,12 @@ def planning_registry_hash(specs: Sequence[LayerSpec]) -> str:
 async def ingest_planning_snapshot(
     client: Any,
     *,
-    specs: Optional[Iterable[LayerSpec]] = None,
-    context: Optional[EvidenceContext] = None,
-    config: Optional[PlanningIngestionConfig] = None,
-    checkpoint: Optional[PlanningSnapshotCheckpoint] = None,
-    on_inventory: Optional[InventoryConsumer] = None,
-    on_batch: Optional[BatchConsumer] = None,
+    specs: Iterable[LayerSpec] | None = None,
+    context: EvidenceContext | None = None,
+    config: PlanningIngestionConfig | None = None,
+    checkpoint: PlanningSnapshotCheckpoint | None = None,
+    on_inventory: InventoryConsumer | None = None,
+    on_batch: BatchConsumer | None = None,
     retain_features: bool = True,
     sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
 ) -> PlanningSnapshotResult:
@@ -478,10 +479,10 @@ async def ingest_planning_snapshot(
     if checkpoint is not None and checkpoint.registry_layer_ids and checkpoint.registry_layer_ids != selected_ids:
         raise PlanningSnapshotError("resume checkpoint belongs to a different canonical planning registry")
 
-    received_features: Dict[Tuple[int, int], PlanningFeature] = {}
-    layer_manifests: List[PlanningLayerManifest] = []
-    layer_checkpoints: List[PlanningLayerCheckpoint] = []
-    warnings: List[str] = []
+    received_features: dict[tuple[int, int], PlanningFeature] = {}
+    layer_manifests: list[PlanningLayerManifest] = []
+    layer_checkpoints: list[PlanningLayerCheckpoint] = []
+    warnings: list[str] = []
 
     for spec in selected_specs:
         layer_url = f"{SERVER_URL}/{spec.layer_id}"
@@ -492,18 +493,18 @@ async def ingest_planning_snapshot(
             "f": "json",
         }
         previous = checkpoint.for_layer(spec.layer_id) if checkpoint is not None else None
-        expected_ids: Tuple[int, ...] = ()
+        expected_ids: tuple[int, ...] = ()
         completed: set[int] = set()
         rejected: set[int] = set(previous.rejected_ids if previous else ())
         duplicates: set[int] = set()
         extras: set[int] = set()
         invalid_count = 0
         non_spatial_count = 0
-        batch_errors: List[str] = []
-        inventory_error: Optional[str] = None
+        batch_errors: list[str] = []
+        inventory_error: str | None = None
         observed_fields: set[str] = set()
-        observed_geometry: Optional[str] = None
-        source_metadata: Dict[str, Any] = {
+        observed_geometry: str | None = None
+        source_metadata: dict[str, Any] = {
             "service_url": SERVER_URL,
             "layer_id": spec.layer_id,
             "inventory_request": inventory_params,
@@ -518,7 +519,7 @@ async def ingest_planning_snapshot(
         metadata: Mapping[str, Any] = {}
         resolved_object_id_field = spec.object_id_field
         resolved_geometry_type = spec.geometry_type
-        raw_for_hash: List[Mapping[str, Any]] = []
+        raw_for_hash: list[Mapping[str, Any]] = []
         try:
             inventory = await _get_json(
                 client, f"{layer_url}/query", inventory_params, cfg, sleep, required_list_field="objectIds"
@@ -611,7 +612,7 @@ async def ingest_planning_snapshot(
                     batch_errors.append(f"objectIds={','.join(map(str, batch))}: missing features list")
                     rejected.update(batch)
                     continue
-                accepted: List[PlanningFeature] = []
+                accepted: list[PlanningFeature] = []
                 for raw_feature in features:
                     parsed, feature_warning = _feature_from_raw(
                         spec,

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Sequence, Tuple, cast
+from collections.abc import Iterable, Sequence
+from typing import Any, cast
 
 from shapely.geometry import MultiPolygon, Polygon, mapping
 from shapely.geometry.base import BaseGeometry
@@ -10,14 +11,14 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 
-def _clean_ring(ring: Iterable[Sequence[float]]) -> List[Tuple[float, float]]:
+def _clean_ring(ring: Iterable[Sequence[float]]) -> list[tuple[float, float]]:
     points = [(float(point[0]), float(point[1])) for point in ring if len(point) >= 2]
     if points and points[0] != points[-1]:
         points.append(points[0])
     return points
 
 
-def geometry_with_repair_status(rings: Sequence[Sequence[Sequence[float]]]) -> Tuple[BaseGeometry, bool]:
+def geometry_with_repair_status(rings: Sequence[Sequence[Sequence[float]]]) -> tuple[BaseGeometry, bool]:
     """Build a Polygon/MultiPolygon without assuming that ``rings[0]`` is all of it.
 
     ArcGIS normally communicates shell/hole semantics through winding order, but
@@ -25,7 +26,7 @@ def geometry_with_repair_status(rings: Sequence[Sequence[Sequence[float]]]) -> T
     used instead: even-depth rings are shells and odd-depth rings are holes.
     """
     repaired = False
-    candidates: List[Tuple[Any, List[Tuple[float, float]]]] = []
+    candidates: list[tuple[Any, list[tuple[float, float]]]] = []
     for raw_ring in rings:
         points = _clean_ring(raw_ring)
         if len(points) < 4:
@@ -49,8 +50,8 @@ def geometry_with_repair_status(rings: Sequence[Sequence[Sequence[float]]]) -> T
     candidates.sort(key=lambda item: item[0].area, reverse=True)
     polygons = [candidate[0] for candidate in candidates]
     tree = STRtree(polygons)
-    containers_by_ring: List[List[int]] = []
-    depths: List[int] = []
+    containers_by_ring: list[list[int]] = []
+    depths: list[int] = []
     for index, polygon in enumerate(polygons):
         containers = [
             int(candidate_index)
@@ -60,7 +61,7 @@ def geometry_with_repair_status(rings: Sequence[Sequence[Sequence[float]]]) -> T
         containers_by_ring.append(containers)
         depths.append(len(containers))
 
-    holes_by_shell: Dict[int, List[List[Tuple[float, float]]]] = {
+    holes_by_shell: dict[int, list[list[tuple[float, float]]]] = {
         index: [] for index, depth in enumerate(depths) if depth % 2 == 0
     }
     for index, depth in enumerate(depths):
@@ -75,7 +76,7 @@ def geometry_with_repair_status(rings: Sequence[Sequence[Sequence[float]]]) -> T
             parent = min(direct_shells, key=lambda candidate_index: polygons[candidate_index].area)
             holes_by_shell[parent].append(candidates[index][1])
 
-    shells: List[Any] = []
+    shells: list[Any] = []
     for index, (_polygon, shell_points) in enumerate(candidates):
         if depths[index] % 2:
             continue
@@ -103,9 +104,9 @@ def arcgis_rings_to_geometry(rings: Sequence[Sequence[Sequence[float]]]) -> Base
     return geometry_with_repair_status(rings)[0]
 
 
-def rings_to_geojson_geometry(rings: Sequence[Sequence[Sequence[float]]]) -> Dict[str, Any]:
+def rings_to_geojson_geometry(rings: Sequence[Sequence[Sequence[float]]]) -> dict[str, Any]:
     """Return an RFC 7946-compatible Polygon or MultiPolygon geometry object."""
     geometry = arcgis_rings_to_geometry(rings)
     if geometry.is_empty:
         return {"type": "Polygon", "coordinates": []}
-    return cast(Dict[str, Any], mapping(geometry))
+    return cast(dict[str, Any], mapping(geometry))

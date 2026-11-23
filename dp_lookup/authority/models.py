@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any
 
 
 class SourceType(str, Enum):
@@ -19,7 +20,7 @@ class SourceType(str, Enum):
     OTHER_OFFICIAL_DOCUMENT = "other_official_document"
 
     @classmethod
-    def parse(cls, value: object) -> "SourceType":
+    def parse(cls, value: object) -> SourceType:
         if isinstance(value, cls):
             return value
         normalized = str(value).strip().casefold().replace("-", "_").replace(" ", "_")
@@ -56,7 +57,7 @@ class SelectionPurpose(str, Enum):
     PLANNING = "planning"
 
     @classmethod
-    def parse(cls, value: object) -> "SelectionPurpose":
+    def parse(cls, value: object) -> SelectionPurpose:
         if isinstance(value, cls):
             return value
         try:
@@ -65,11 +66,11 @@ class SelectionPurpose(str, Enum):
             raise ValueError("purpose must be area, geometry, or planning") from exc
 
 
-def _mapping(value: Optional[Mapping[str, Any]]) -> Mapping[str, Any]:
+def _mapping(value: Mapping[str, Any] | None) -> Mapping[str, Any]:
     return MappingProxyType(dict(value or {}))
 
 
-def _rings(value: Any) -> Tuple[Tuple[Tuple[float, float], ...], ...]:
+def _rings(value: Any) -> tuple[tuple[tuple[float, float], ...], ...]:
     if value is None:
         return ()
     return tuple(tuple((float(point[0]), float(point[1])) for point in ring) for ring in value)
@@ -89,21 +90,21 @@ class AuthorityManifest:
     source_type: SourceType
     source_uri: str
     source_sha256: str
-    issuer: Optional[str] = None
-    reference_no: Optional[str] = None
-    issue_date: Optional[str] = None
-    survey_date: Optional[str] = None
-    mime_type: Optional[str] = None
-    byte_size: Optional[int] = None
-    ward: Optional[str] = None
-    recorded_area_sqm: Optional[float] = None
+    issuer: str | None = None
+    reference_no: str | None = None
+    issue_date: str | None = None
+    survey_date: str | None = None
+    mime_type: str | None = None
+    byte_size: int | None = None
+    ward: str | None = None
+    recorded_area_sqm: float | None = None
     original_geometry: Any = None
-    original_crs: Optional[int] = None
+    original_crs: int | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
-    version: Optional[int] = None
-    supersedes_id: Optional[int] = None
-    created_by: Optional[str] = None
-    record_checksum: Optional[str] = None
+    version: int | None = None
+    supersedes_id: int | None = None
+    created_by: str | None = None
+    record_checksum: str | None = None
 
     def __post_init__(self) -> None:
         village = str(self.village).strip().upper()
@@ -120,7 +121,7 @@ class AuthorityManifest:
         object.__setattr__(self, "metadata", _mapping(self.metadata))
 
     @classmethod
-    def from_mapping(cls, value: Mapping[str, Any]) -> "AuthorityManifest":
+    def from_mapping(cls, value: Mapping[str, Any]) -> AuthorityManifest:
         """Build a manifest from a JSON-shaped mapping with friendly aliases."""
         data = dict(value)
         aliases = {
@@ -164,27 +165,27 @@ class AuthorityRecord:
     source_type: SourceType
     status: SourceStatus
     version: int
-    issuer: Optional[str]
-    reference_no: Optional[str]
-    issue_date: Optional[str]
-    survey_date: Optional[str]
+    issuer: str | None
+    reference_no: str | None
+    issue_date: str | None
+    survey_date: str | None
     source_uri: str
     source_sha256: str
-    mime_type: Optional[str]
-    byte_size: Optional[int]
-    ward: Optional[str]
-    recorded_area_sqm: Optional[float]
+    mime_type: str | None
+    byte_size: int | None
+    ward: str | None
+    recorded_area_sqm: float | None
     original_geometry: Any
-    original_crs: Optional[int]
-    normalized_epsg3857_rings: Tuple[Tuple[Tuple[float, float], ...], ...]
-    geometry_sha256: Optional[str]
-    calculated_area_sqm: Optional[float]
-    supersedes_id: Optional[int]
+    original_crs: int | None
+    normalized_epsg3857_rings: tuple[tuple[tuple[float, float], ...], ...]
+    geometry_sha256: str | None
+    calculated_area_sqm: float | None
+    supersedes_id: int | None
     metadata: Mapping[str, Any]
-    created_by: Optional[str]
-    reviewed_by: Optional[str]
+    created_by: str | None
+    reviewed_by: str | None
     created_at: str
-    reviewed_at: Optional[str]
+    reviewed_at: str | None
     updated_at: str
     record_checksum: str
 
@@ -199,17 +200,17 @@ class AuthorityRecord:
         return bool(self.normalized_epsg3857_rings) and self.calculated_area_sqm is not None
 
     @property
-    def geometry(self) -> Optional[Dict[str, Any]]:
+    def geometry(self) -> dict[str, Any] | None:
         if not self.normalized_epsg3857_rings:
             return None
         return {"rings": [[[x, y] for x, y in ring] for ring in self.normalized_epsg3857_rings]}
 
     @property
-    def geometry_crs(self) -> Optional[int]:
+    def geometry_crs(self) -> int | None:
         return 3857 if self.normalized_epsg3857_rings else None
 
     @property
-    def area_sqm(self) -> Optional[float]:
+    def area_sqm(self) -> float | None:
         return self.recorded_area_sqm if self.recorded_area_sqm is not None else self.calculated_area_sqm
 
     @property
@@ -217,14 +218,14 @@ class AuthorityRecord:
         return self.record_checksum
 
     @property
-    def effective_date(self) -> Optional[str]:
+    def effective_date(self) -> str | None:
         return self.issue_date or self.survey_date
 
     @property
-    def verification_date(self) -> Optional[str]:
+    def verification_date(self) -> str | None:
         return self.reviewed_at
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "record_id": self.record_id,
             "village": self.village,

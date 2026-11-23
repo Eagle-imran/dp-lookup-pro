@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Any, List, Mapping, Optional, Tuple
+from collections.abc import Mapping
+from typing import Any
 
 from dp_lookup.planning_snapshot.models import canonical_json
 
@@ -29,7 +30,7 @@ def canonical_value(value: Any, field: str) -> str:
         raise ValueError(f"{field} cannot be encoded as canonical JSON") from exc
 
 
-def bbox(geometry: Any) -> Optional[Tuple[float, float, float, float]]:
+def bbox(geometry: Any) -> tuple[float, float, float, float] | None:
     if geometry is None or isinstance(geometry, (str, bytes)):
         return None
     if isinstance(geometry, Mapping):
@@ -37,7 +38,9 @@ def bbox(geometry: Any) -> Optional[Tuple[float, float, float, float]]:
             geometry = [[geometry["x"], geometry["y"]]]
         elif "point" in geometry:
             point = geometry["point"]
-            geometry = [[point["x"], point["y"]]] if isinstance(point, Mapping) and "x" in point and "y" in point else point
+            geometry = (
+                [[point["x"], point["y"]]] if isinstance(point, Mapping) and "x" in point and "y" in point else point
+            )
         if isinstance(geometry, Mapping) and "rings" in geometry:
             geometry = geometry["rings"]
         elif isinstance(geometry, Mapping) and "coordinates" in geometry:
@@ -48,7 +51,7 @@ def bbox(geometry: Any) -> Optional[Tuple[float, float, float, float]]:
             geometry = geometry["points"]
         elif isinstance(geometry, Mapping):
             return None
-    points: List[Tuple[float, float]] = []
+    points: list[tuple[float, float]] = []
 
     def walk(value: Any) -> None:
         if isinstance(value, (list, tuple)):

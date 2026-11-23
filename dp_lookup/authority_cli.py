@@ -9,8 +9,9 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, TextIO
+from typing import Any, TextIO
 
 from dp_lookup.authority.store import AuthorityStore
 
@@ -36,7 +37,7 @@ def _required_value(tokens: Sequence[str], index: int, option: str) -> tuple[str
     return tokens[index + 1], index + 1
 
 
-def parse_authority_args(argv: Sequence[str]) -> Dict[str, Any]:
+def parse_authority_args(argv: Sequence[str]) -> dict[str, Any]:
     """Parse the isolated ``sources`` grammar without terminating the host."""
 
     tokens = list(argv)
@@ -47,7 +48,7 @@ def parse_authority_args(argv: Sequence[str]) -> Dict[str, Any]:
         raise ValueError(f"expected one of: {', '.join(COMMANDS)} (got '{got}')")
     command = tokens[1]
     positionals: list[str] = []
-    options: Dict[str, Any] = {"json": False}
+    options: dict[str, Any] = {"json": False}
     value_options = {
         "--database": "database",
         "--actor": "actor",
@@ -116,7 +117,7 @@ def parse_authority_args(argv: Sequence[str]) -> Dict[str, Any]:
     return options
 
 
-def _load_manifest(path: Path) -> list[Dict[str, Any]]:
+def _load_manifest(path: Path) -> list[dict[str, Any]]:
     """Load either one source object or ``{manifest_version: 1, items: []}``."""
 
     try:
@@ -131,7 +132,7 @@ def _load_manifest(path: Path) -> list[Dict[str, Any]]:
         raise ValueError("manifest must be a JSON object")
     if not isinstance(items, list) or not items:
         raise ValueError("manifest must contain at least one source item")
-    normalized: list[Dict[str, Any]] = []
+    normalized: list[dict[str, Any]] = []
     for number, item in enumerate(items, 1):
         if not isinstance(item, Mapping):
             raise ValueError(f"manifest item {number} must be an object")
@@ -259,7 +260,7 @@ def _human(command: str, result: Any) -> str:
     return f"sources {command}: {result}"
 
 
-def main(argv: Optional[Sequence[str]] = None, *, out: Optional[TextIO] = None) -> int:
+def main(argv: Sequence[str] | None = None, *, out: TextIO | None = None) -> int:
     output = out or sys.stdout
     try:
         parsed = parse_authority_args(list(sys.argv[1:] if argv is None else argv))

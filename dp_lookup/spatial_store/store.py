@@ -14,9 +14,10 @@ import json
 import os
 import sqlite3
 import time
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple, Union
+from typing import Any
 
 from dp_lookup.spatial_store.codecs import canonical_json_value as _canonical_json_value
 from dp_lookup.spatial_store.codecs import identity_text as _identity_text
@@ -52,11 +53,11 @@ class SnapshotValidationError(SpatialStoreError):
 class Snapshot:
     snapshot_id: int
     state: str
-    source: Optional[str]
-    expected_count: Optional[int]
+    source: str | None
+    expected_count: int | None
     received_count: int
     created_at: float
-    finalized_at: Optional[float]
+    finalized_at: float | None
 
 
 def _now() -> float:
@@ -71,15 +72,15 @@ class SnapshotStore:
     The lifecycle methods make it impossible to mutate a ready/active snapshot.
     """
 
-    def __init__(self, connection: sqlite3.Connection, path: Union[str, os.PathLike[str]]) -> None:
+    def __init__(self, connection: sqlite3.Connection, path: str | os.PathLike[str]) -> None:
         self.connection = connection
         self.path = Path(path)
         self.rtree_available = self._has_rtree()
 
     @classmethod
-    def open(cls, path: Union[str, os.PathLike[str]]) -> "SnapshotStore":
+    def open(cls, path: str | os.PathLike[str]) -> SnapshotStore:
         path_obj = Path(path)
-        connection: Optional[sqlite3.Connection] = None
+        connection: sqlite3.Connection | None = None
         try:
             path_obj.parent.mkdir(parents=True, exist_ok=True)
             connection = sqlite3.connect(str(path_obj), timeout=30.0)
@@ -114,15 +115,20 @@ class SnapshotStore:
                 "INSERT INTO meta(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO NOTHING",
                 (str(SCHEMA_VERSION),),
             )
-            connection.execute("INSERT INTO meta(key,value) VALUES('created_at',?) ON CONFLICT(key) DO NOTHING", (str(_now()),))
+            connection.execute(
+                "INSERT INTO meta(key,value) VALUES('created_at',?) ON CONFLICT(key) DO NOTHING", (str(_now()),)
+            )
             try:
                 connection.execute(
-                    "CREATE VIRTUAL TABLE IF NOT EXISTS parcel_bbox USING rtree(" \
-                    "bbox_id, min_x, max_x, min_y, max_y)"
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS parcel_bbox USING rtree(bbox_id, min_x, max_x, min_y, max_y)"
                 )
-                connection.execute("INSERT INTO meta(key,value) VALUES('rtree_available','1') ON CONFLICT(key) DO UPDATE SET value='1'")
+                connection.execute(
+                    "INSERT INTO meta(key,value) VALUES('rtree_available','1') ON CONFLICT(key) DO UPDATE SET value='1'"
+                )
             except sqlite3.OperationalError:
-                connection.execute("INSERT INTO meta(key,value) VALUES('rtree_available','0') ON CONFLICT(key) DO UPDATE SET value='0'")
+                connection.execute(
+                    "INSERT INTO meta(key,value) VALUES('rtree_available','0') ON CONFLICT(key) DO UPDATE SET value='0'"
+                )
             connection.commit()
         except StoreCorruptError:
             connection.rollback()
@@ -132,14 +138,15 @@ class SnapshotStore:
             raise StoreCorruptError(f"could not initialize schema: {exc}") from exc
 
     def _has_rtree(self) -> bool:
-        return self.connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='parcel_bbox'"
-        ).fetchone() is not None
+        return (
+            self.connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='parcel_bbox'").fetchone()
+            is not None
+        )
 
     def close(self) -> None:
         self.connection.close()
 
-    def __enter__(self) -> "SnapshotStore":
+    def __enter__(self) -> SnapshotStore:
         return self
 
     def __exit__(self, *_: Any) -> None:
@@ -163,9 +170,9 @@ class SnapshotStore:
     def begin_snapshot(
         self,
         *,
-        source: Optional[str] = None,
-        expected_count: Optional[int] = None,
-        metadata: Optional[Mapping[str, Any]] = None,
+        source: str | None = None,
+        expected_count: int | None = None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> int:
         if expected_count is not None and expected_count < 0:
             raise ValueError("expected_count cannot be negative")
@@ -213,10 +220,10 @@ class SnapshotStore:
         snapshot_id: int,
         records: Iterable[Mapping[str, Any]],
         *,
-        ingestion_run_id: Optional[int] = None,
+        ingestion_run_id: int | None = None,
     ) -> int:
         self._building(snapshot_id)
-        prepared: List[Tuple[Any, ...]] = []
+        prepared: list[tuple[Any, ...]] = []
         for record in records:
             objectid = self._field(record, "objectid", "OBJECTID")
             if objectid is None:
@@ -236,11 +243,29 @@ class SnapshotStore:
             cts_no = _identity_text(self._field(record, "cts_no", "cts", "CTS_CS_NO"), uppercase=True)
             ward = _identity_text(self._field(record, "ward", "WARD"), uppercase=True)
             type_ = self._field(record, "type", "type_", "TYPE")
-            area = _number(self._field(record, "area_app_sqm", "area_app_sqmtrs", "AREA_APP_SQ_MTRS"), field="area_app_sqm")
+            area = _number(
+                self._field(record, "area_app_sqm", "area_app_sqmtrs", "AREA_APP_SQ_MTRS"), field="area_app_sqm"
+            )
             min_x, max_x, min_y, max_y = bbox or (None, None, None, None)
-            prepared.append((snapshot_id, objectid, village, cts_no,
-                             ward, None if type_ is None else str(type_).strip(), area, raw_json, raw_feature_json,
-                             geometry, geom_format, min_x, max_x, min_y, max_y))
+            prepared.append(
+                (
+                    snapshot_id,
+                    objectid,
+                    village,
+                    cts_no,
+                    ward,
+                    None if type_ is None else str(type_).strip(),
+                    area,
+                    raw_json,
+                    raw_feature_json,
+                    geometry,
+                    geom_format,
+                    min_x,
+                    max_x,
+                    min_y,
+                    max_y,
+                )
+            )
         if not prepared:
             return 0
         with self.transaction() as conn:
@@ -271,14 +296,21 @@ class SnapshotStore:
                         (snapshot_id, objectid),
                     )
                     bbox_id = conn.execute(
-                        "SELECT bbox_id FROM parcel_bbox_map WHERE snapshot_id=? AND objectid=?", (snapshot_id, objectid)
+                        "SELECT bbox_id FROM parcel_bbox_map WHERE snapshot_id=? AND objectid=?",
+                        (snapshot_id, objectid),
                     ).fetchone()[0]
                     conn.execute("DELETE FROM parcel_bbox WHERE bbox_id=?", (bbox_id,))
                     conn.execute("INSERT INTO parcel_bbox VALUES(?,?,?,?,?)", (bbox_id, min_x, max_x, min_y, max_y))
             count = len(prepared)
-            conn.execute("UPDATE snapshots SET received_count=(SELECT COUNT(*) FROM parcels WHERE snapshot_id=?) WHERE snapshot_id=?", (snapshot_id, snapshot_id))
+            conn.execute(
+                "UPDATE snapshots SET received_count=(SELECT COUNT(*) FROM parcels WHERE snapshot_id=?) WHERE snapshot_id=?",
+                (snapshot_id, snapshot_id),
+            )
             if ingestion_run_id is not None:
-                conn.execute("UPDATE ingestion_runs SET received_count=(SELECT COUNT(*) FROM parcels WHERE snapshot_id=?) WHERE run_id=?", (snapshot_id, ingestion_run_id))
+                conn.execute(
+                    "UPDATE ingestion_runs SET received_count=(SELECT COUNT(*) FROM parcels WHERE snapshot_id=?) WHERE run_id=?",
+                    (snapshot_id, ingestion_run_id),
+                )
         return count
 
     def set_inventory(self, snapshot_id: int, objectids: Iterable[int]) -> int:
@@ -293,9 +325,7 @@ class SnapshotStore:
             if existing:
                 existing_ids = tuple(int(row[0]) for row in existing)
                 if existing_ids != normalized:
-                    raise SnapshotStateError(
-                        f"snapshot {snapshot_id} inventory differs from its persisted checkpoint"
-                    )
+                    raise SnapshotStateError(f"snapshot {snapshot_id} inventory differs from its persisted checkpoint")
                 return len(existing_ids)
             conn.executemany(
                 "INSERT INTO snapshot_inventory(snapshot_id,objectid) VALUES(?,?)",
@@ -314,9 +344,9 @@ class SnapshotStore:
         message: str,
         *,
         severity: str = "error",
-        objectid: Optional[int] = None,
-        run_id: Optional[int] = None,
-        details: Optional[Mapping[str, Any]] = None,
+        objectid: int | None = None,
+        run_id: int | None = None,
+        details: Mapping[str, Any] | None = None,
     ) -> int:
         self._building(snapshot_id)
         if severity not in {"warning", "error"}:
@@ -324,13 +354,22 @@ class SnapshotStore:
         with self.transaction() as conn:
             cur = conn.execute(
                 "INSERT INTO ingestion_issues(snapshot_id,run_id,objectid,severity,issue_type,message,details_json,created_at) VALUES(?,?,?,?,?,?,?,?)",
-                (snapshot_id, run_id, objectid, severity, issue_type, message, _json_value(details or {}, field="details"), _now()),
+                (
+                    snapshot_id,
+                    run_id,
+                    objectid,
+                    severity,
+                    issue_type,
+                    message,
+                    _json_value(details or {}, field="details"),
+                    _now(),
+                ),
             )
             if cur.lastrowid is None:
                 raise SpatialStoreError("SQLite did not return an issue ID")
             return int(cur.lastrowid)
 
-    def validate_snapshot(self, snapshot_id: int) -> Dict[str, Any]:
+    def validate_snapshot(self, snapshot_id: int) -> dict[str, Any]:
         return _validate_snapshot(
             self.connection,
             snapshot_id,
@@ -357,11 +396,23 @@ class SnapshotStore:
         failed = not report["ok"]
         with self.transaction() as conn:
             if failed:
-                conn.execute("UPDATE snapshots SET state='failed',validation_json=?,finalized_at=? WHERE snapshot_id=?", (_json_value(report, field="validation"), now, snapshot_id))
-                conn.execute("UPDATE ingestion_runs SET state='failed',finished_at=?,error=? WHERE snapshot_id=? AND state='running'", (now, "snapshot validation failed", snapshot_id))
+                conn.execute(
+                    "UPDATE snapshots SET state='failed',validation_json=?,finalized_at=? WHERE snapshot_id=?",
+                    (_json_value(report, field="validation"), now, snapshot_id),
+                )
+                conn.execute(
+                    "UPDATE ingestion_runs SET state='failed',finished_at=?,error=? WHERE snapshot_id=? AND state='running'",
+                    (now, "snapshot validation failed", snapshot_id),
+                )
             else:
-                conn.execute("UPDATE snapshots SET state='ready',received_count=?,validation_json=?,finalized_at=? WHERE snapshot_id=?", (report["count"], _json_value(report, field="validation"), now, snapshot_id))
-                conn.execute("UPDATE ingestion_runs SET state='complete',finished_at=?,received_count=? WHERE snapshot_id=? AND state='running'", (now, report["count"], snapshot_id))
+                conn.execute(
+                    "UPDATE snapshots SET state='ready',received_count=?,validation_json=?,finalized_at=? WHERE snapshot_id=?",
+                    (report["count"], _json_value(report, field="validation"), now, snapshot_id),
+                )
+                conn.execute(
+                    "UPDATE ingestion_runs SET state='complete',finished_at=?,received_count=? WHERE snapshot_id=? AND state='running'",
+                    (now, report["count"], snapshot_id),
+                )
         if failed:
             raise SnapshotValidationError("snapshot validation failed: " + "; ".join(report["errors"]))
         self.optimize_for_reads()
@@ -369,9 +420,17 @@ class SnapshotStore:
 
     def snapshot(self, snapshot_id: int) -> Snapshot:
         row = self._snapshot_row(snapshot_id)
-        return Snapshot(int(row["snapshot_id"]), row["state"], row["source"], row["expected_count"], int(row["received_count"]), float(row["created_at"]), row["finalized_at"])
+        return Snapshot(
+            int(row["snapshot_id"]),
+            row["state"],
+            row["source"],
+            row["expected_count"],
+            int(row["received_count"]),
+            float(row["created_at"]),
+            row["finalized_at"],
+        )
 
-    def snapshot_metadata(self, snapshot_id: int) -> Dict[str, Any]:
+    def snapshot_metadata(self, snapshot_id: int) -> dict[str, Any]:
         row = self._snapshot_row(snapshot_id)
         try:
             value = json.loads(row["metadata_json"] or "{}")
@@ -387,7 +446,7 @@ class SnapshotStore:
                 (_json_value(metadata, field="metadata"), snapshot_id),
             )
 
-    def object_ids(self, snapshot_id: int) -> Tuple[int, ...]:
+    def object_ids(self, snapshot_id: int) -> tuple[int, ...]:
         self._snapshot_row(snapshot_id)
         return tuple(
             int(row[0])
@@ -396,7 +455,7 @@ class SnapshotStore:
             )
         )
 
-    def find_resumable_snapshot(self, *, source: str, expected_count: int, inventory_hash: str) -> Optional[int]:
+    def find_resumable_snapshot(self, *, source: str, expected_count: int, inventory_hash: str) -> int | None:
         rows = self.connection.execute(
             "SELECT snapshot_id,metadata_json FROM snapshots WHERE state='building' AND source=? AND expected_count=? ORDER BY snapshot_id DESC",
             (source, expected_count),
@@ -452,35 +511,50 @@ class SnapshotStore:
             conn.execute("UPDATE snapshot_activations SET deactivated_at=? WHERE deactivated_at IS NULL", (now,))
             conn.execute("UPDATE snapshots SET state='active' WHERE snapshot_id=?", (snapshot_id,))
             conn.execute("INSERT INTO snapshot_activations(snapshot_id,activated_at) VALUES(?,?)", (snapshot_id, now))
-            conn.execute("INSERT INTO meta(key,value) VALUES('active_snapshot_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(snapshot_id),))
+            conn.execute(
+                "INSERT INTO meta(key,value) VALUES('active_snapshot_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (str(snapshot_id),),
+            )
         return self.snapshot(snapshot_id)
 
     activate_snapshot = activate
     set_active_snapshot = activate
 
-    def rollback(self, snapshot_id: Optional[int] = None) -> Snapshot:
+    def rollback(self, snapshot_id: int | None = None) -> Snapshot:
         if snapshot_id is None:
             active = self.active_snapshot_id()
-            rows = self.connection.execute("SELECT snapshot_id FROM snapshot_activations WHERE snapshot_id<>? ORDER BY activation_id DESC", (active or -1,)).fetchall()
+            rows = self.connection.execute(
+                "SELECT snapshot_id FROM snapshot_activations WHERE snapshot_id<>? ORDER BY activation_id DESC",
+                (active or -1,),
+            ).fetchall()
             if not rows:
                 raise SnapshotStateError("no previous snapshot is available for rollback")
             snapshot_id = int(rows[0][0])
         return self.activate(snapshot_id)
 
-    def active_snapshot_id(self) -> Optional[int]:
+    def active_snapshot_id(self) -> int | None:
         row = self.connection.execute("SELECT value FROM meta WHERE key='active_snapshot_id'").fetchone()
         return int(row[0]) if row else None
 
-    def status(self, snapshot_id: Optional[int] = None) -> Dict[str, Any]:
-        snapshots = [self._snapshot_summary(row) for row in self.connection.execute("SELECT * FROM snapshots ORDER BY snapshot_id")]
-        result: Dict[str, Any] = {"path": str(self.path), "schema_version": SCHEMA_VERSION, "rtree_available": self.rtree_available, "active_snapshot_id": self.active_snapshot_id(), "snapshots": snapshots}
+    def status(self, snapshot_id: int | None = None) -> dict[str, Any]:
+        snapshots = [
+            self._snapshot_summary(row)
+            for row in self.connection.execute("SELECT * FROM snapshots ORDER BY snapshot_id")
+        ]
+        result: dict[str, Any] = {
+            "path": str(self.path),
+            "schema_version": SCHEMA_VERSION,
+            "rtree_available": self.rtree_available,
+            "active_snapshot_id": self.active_snapshot_id(),
+            "snapshots": snapshots,
+        }
         if snapshot_id is not None:
             result["snapshot"] = self._snapshot_summary(self._snapshot_row(snapshot_id))
             result["count"] = self.count(snapshot_id)
         return result
 
     @staticmethod
-    def _snapshot_summary(row: sqlite3.Row) -> Dict[str, Any]:
+    def _snapshot_summary(row: sqlite3.Row) -> dict[str, Any]:
         result = dict(row)
         metadata_raw = result.pop("metadata_json", None)
         validation_raw = result.pop("validation_json", None)
@@ -498,18 +572,22 @@ class SnapshotStore:
 
     get_status = status
 
-    def count(self, snapshot_id: Optional[int] = None) -> int:
+    def count(self, snapshot_id: int | None = None) -> int:
         snapshot_id = snapshot_id if snapshot_id is not None else self.active_snapshot_id()
         if snapshot_id is None:
             return 0
-        return int(self.connection.execute("SELECT COUNT(*) FROM parcels WHERE snapshot_id=?", (snapshot_id,)).fetchone()[0])
+        return int(
+            self.connection.execute("SELECT COUNT(*) FROM parcels WHERE snapshot_id=?", (snapshot_id,)).fetchone()[0]
+        )
 
-    def list_parcels(self, snapshot_id: Optional[int] = None, *, limit: Optional[int] = None, offset: int = 0) -> List[Dict[str, Any]]:
+    def list_parcels(
+        self, snapshot_id: int | None = None, *, limit: int | None = None, offset: int = 0
+    ) -> list[dict[str, Any]]:
         snapshot_id = snapshot_id if snapshot_id is not None else self.active_snapshot_id()
         if snapshot_id is None:
             return []
         sql = "SELECT * FROM parcels WHERE snapshot_id=? ORDER BY objectid"
-        params: List[Any] = [snapshot_id]
+        params: list[Any] = [snapshot_id]
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
@@ -517,15 +595,15 @@ class SnapshotStore:
 
     def search_parcels(
         self,
-        snapshot_id: Optional[int] = None,
+        snapshot_id: int | None = None,
         *,
-        village: Optional[str] = None,
-        ward: Optional[str] = None,
-        min_area_sqm: Optional[float] = None,
-        max_area_sqm: Optional[float] = None,
-        limit: Optional[int] = 100,
+        village: str | None = None,
+        ward: str | None = None,
+        min_area_sqm: float | None = None,
+        max_area_sqm: float | None = None,
+        limit: int | None = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return parcels matching structured, SQL-backed filters.
 
         Results are ordered by ObjectID for repeatability.  This is deliberately
@@ -540,13 +618,12 @@ class SnapshotStore:
         max_area = _number(max_area_sqm, field="max_area_sqm")
         if min_area is not None and max_area is not None and min_area > max_area:
             raise ValueError("min_area_sqm cannot exceed max_area_sqm")
-        if limit is not None:
-            if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
-                raise ValueError("limit must be a non-negative integer or None")
+        if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit < 0):
+            raise ValueError("limit must be a non-negative integer or None")
         if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
             raise ValueError("offset must be a non-negative integer")
         clauses = ["snapshot_id=?"]
-        params: List[Any] = [snapshot_id]
+        params: list[Any] = [snapshot_id]
         if village is not None:
             if not isinstance(village, str):
                 raise ValueError("village must be a string")
@@ -574,7 +651,7 @@ class SnapshotStore:
 
     search = search_parcels
 
-    def lookup(self, village: str, cts_no: str, *, snapshot_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    def lookup(self, village: str, cts_no: str, *, snapshot_id: int | None = None) -> list[dict[str, Any]]:
         snapshot_id = snapshot_id if snapshot_id is not None else self.active_snapshot_id()
         if snapshot_id is None:
             return []
@@ -586,7 +663,7 @@ class SnapshotStore:
 
     lookup_exact = lookup
 
-    def duplicate_identity_groups(self, snapshot_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    def duplicate_identity_groups(self, snapshot_id: int | None = None) -> list[dict[str, Any]]:
         """List village/CTS groups containing more than one source feature."""
         snapshot_id = snapshot_id if snapshot_id is not None else self.active_snapshot_id()
         if snapshot_id is None:
@@ -604,13 +681,21 @@ class SnapshotStore:
                ORDER BY village, cts_no""",
             (snapshot_id,),
         )
-        result: List[Dict[str, Any]] = []
+        result: list[dict[str, Any]] = []
         for group in grouped:
             objectids = [int(value) for value in str(group["objectids"]).split(",")]
-            result.append({"snapshot_id": snapshot_id, "village": group["village"], "cts_no": group["cts_no"], "feature_count": int(group["feature_count"]), "objectids": objectids})
+            result.append(
+                {
+                    "snapshot_id": snapshot_id,
+                    "village": group["village"],
+                    "cts_no": group["cts_no"],
+                    "feature_count": int(group["feature_count"]),
+                    "objectids": objectids,
+                }
+            )
         return result
 
-    def diff_snapshots(self, old_id: int, new_id: int) -> Dict[str, Any]:
+    def diff_snapshots(self, old_id: int, new_id: int) -> dict[str, Any]:
         """Compare source features between two snapshots by ObjectID.
 
         ObjectID is used only as the source feature key.  Identity fields are
@@ -619,14 +704,20 @@ class SnapshotStore:
         """
         self._snapshot_row(old_id)
         self._snapshot_row(new_id)
-        added = [int(row[0]) for row in self.connection.execute(
-            "SELECT objectid FROM parcels WHERE snapshot_id=? EXCEPT SELECT objectid FROM parcels WHERE snapshot_id=? ORDER BY objectid",
-            (new_id, old_id),
-        )]
-        removed = [int(row[0]) for row in self.connection.execute(
-            "SELECT objectid FROM parcels WHERE snapshot_id=? EXCEPT SELECT objectid FROM parcels WHERE snapshot_id=? ORDER BY objectid",
-            (old_id, new_id),
-        )]
+        added = [
+            int(row[0])
+            for row in self.connection.execute(
+                "SELECT objectid FROM parcels WHERE snapshot_id=? EXCEPT SELECT objectid FROM parcels WHERE snapshot_id=? ORDER BY objectid",
+                (new_id, old_id),
+            )
+        ]
+        removed = [
+            int(row[0])
+            for row in self.connection.execute(
+                "SELECT objectid FROM parcels WHERE snapshot_id=? EXCEPT SELECT objectid FROM parcels WHERE snapshot_id=? ORDER BY objectid",
+                (old_id, new_id),
+            )
+        ]
         changed = [
             int(row[0])
             for row in self.connection.execute(
@@ -680,19 +771,27 @@ class SnapshotStore:
 
     diff = diff_snapshots
 
-    def parcels_in_bbox(self, min_x: float, max_x: float, min_y: float, max_y: float, *, snapshot_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    def parcels_in_bbox(
+        self, min_x: float, max_x: float, min_y: float, max_y: float, *, snapshot_id: int | None = None
+    ) -> list[dict[str, Any]]:
         snapshot_id = snapshot_id if snapshot_id is not None else self.active_snapshot_id()
         if snapshot_id is None:
             return []
         if self.rtree_available:
-            rows = self.connection.execute("""SELECT p.* FROM parcels p JOIN parcel_bbox_map m ON m.snapshot_id=p.snapshot_id AND m.objectid=p.objectid
-                JOIN parcel_bbox b ON b.bbox_id=m.bbox_id WHERE p.snapshot_id=? AND b.max_x>=? AND b.min_x<=? AND b.max_y>=? AND b.min_y<=? ORDER BY p.objectid""", (snapshot_id, min_x, max_x, min_y, max_y))
+            rows = self.connection.execute(
+                """SELECT p.* FROM parcels p JOIN parcel_bbox_map m ON m.snapshot_id=p.snapshot_id AND m.objectid=p.objectid
+                JOIN parcel_bbox b ON b.bbox_id=m.bbox_id WHERE p.snapshot_id=? AND b.max_x>=? AND b.min_x<=? AND b.max_y>=? AND b.min_y<=? ORDER BY p.objectid""",
+                (snapshot_id, min_x, max_x, min_y, max_y),
+            )
         else:
-            rows = self.connection.execute("SELECT * FROM parcels WHERE snapshot_id=? AND max_x>=? AND min_x<=? AND max_y>=? AND min_y<=? ORDER BY objectid", (snapshot_id, min_x, max_x, min_y, max_y))
+            rows = self.connection.execute(
+                "SELECT * FROM parcels WHERE snapshot_id=? AND max_x>=? AND min_x<=? AND max_y>=? AND min_y<=? ORDER BY objectid",
+                (snapshot_id, min_x, max_x, min_y, max_y),
+            )
         return [self._parcel_dict(row) for row in rows]
 
     @staticmethod
-    def _parcel_dict(row: sqlite3.Row) -> Dict[str, Any]:
+    def _parcel_dict(row: sqlite3.Row) -> dict[str, Any]:
         result = dict(row)
         try:
             result["raw_attrs"] = json.loads(result["raw_attrs_json"])
@@ -712,14 +811,14 @@ class SnapshotStore:
         return result
 
     @staticmethod
-    def _json_safe_parcel(parcel: Dict[str, Any]) -> Dict[str, Any]:
+    def _json_safe_parcel(parcel: dict[str, Any]) -> dict[str, Any]:
         result = dict(parcel)
         for key, value in list(result.items()):
             if isinstance(value, bytes):
                 result[key] = value.hex()
         return result
 
-    def integrity_check(self, snapshot_id: Optional[int] = None) -> Dict[str, Any]:
+    def integrity_check(self, snapshot_id: int | None = None) -> dict[str, Any]:
         return _integrity_check(
             self.connection,
             rtree_available=self.rtree_available,
@@ -727,7 +826,7 @@ class SnapshotStore:
         )
 
 
-def open_store(path: Union[str, os.PathLike[str]]) -> SnapshotStore:
+def open_store(path: str | os.PathLike[str]) -> SnapshotStore:
     return SnapshotStore.open(path)
 
 

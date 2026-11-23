@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
 
 from dp_lookup.application.contracts import NeighbourContext, ParcelContext
 from dp_lookup.application.neighbour_normalization import (
@@ -22,7 +21,7 @@ class LocalNeighbourProvider:
         *,
         tolerance_m: float = ADJACENCY_TOLERANCE_M,
         min_shared_boundary_m: float = MIN_SHARED_BOUNDARY_M,
-        store: Optional[SnapshotStore] = None,
+        store: SnapshotStore | None = None,
     ) -> None:
         if tolerance_m < 0 or min_shared_boundary_m < 0:
             raise ValueError("adjacency tolerances must be non-negative")
@@ -31,7 +30,7 @@ class LocalNeighbourProvider:
         self.min_shared_boundary_m = min_shared_boundary_m
         self.store = store
 
-    def __call__(self, parcel: ParcelContext) -> Optional[NeighbourContext]:
+    def __call__(self, parcel: ParcelContext) -> NeighbourContext | None:
         if parcel.attrs.get("_DP_PARCEL_SOURCE") != "local_snapshot":
             return None
         subject = arcgis_rings_to_geometry(parcel.rings)
@@ -75,9 +74,9 @@ class LocalNeighbourProvider:
         )
 
 
-def parcel_source_notes(parcel: ParcelContext) -> List[str]:
+def parcel_source_notes(parcel: ParcelContext) -> list[str]:
     """Explain local selection, fallback, staleness, and multipart semantics."""
-    notes: List[str] = []
+    notes: list[str] = []
     fallback_reason = parcel.attrs.get("_DP_LOCAL_FALLBACK_REASON")
     if fallback_reason:
         notes.append(f"Local parcel database was unavailable; live Layer 13 was used ({fallback_reason}).")

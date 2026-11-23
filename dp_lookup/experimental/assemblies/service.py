@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable, Sequence
 from itertools import combinations
-from typing import Dict, Iterable, List, Sequence, Set, Tuple, cast
+from typing import cast
 
 from shapely.geometry import Polygon
 from shapely.geometry.base import BaseGeometry
@@ -27,11 +28,11 @@ _AREA_EPSILON_SQM = 1e-6
 _LENGTH_EPSILON_M = 1e-6
 
 
-def _project_rings_to_utm43n(rings: ArcGISRings) -> List[List[List[float]]]:
+def _project_rings_to_utm43n(rings: ArcGISRings) -> list[list[list[float]]]:
     """Project immutable Web Mercator source coordinates to local ground metres."""
-    projected: List[List[List[float]]] = []
+    projected: list[list[list[float]]] = []
     for ring in rings:
-        projected_ring: List[List[float]] = []
+        projected_ring: list[list[float]] = []
         for x, y in ring:
             longitude, latitude = mercator_to_wgs84(x, y, precision=10)
             easting, northing = wgs84_to_utm43n(longitude, latitude, precision=None)
@@ -58,7 +59,7 @@ def _raw_geometry_requires_repair(parcel: ParcelAssemblyInput) -> bool:
     return False
 
 
-def _identity_duplicates(parcels: Sequence[ParcelAssemblyInput]) -> Tuple[str, ...]:
+def _identity_duplicates(parcels: Sequence[ParcelAssemblyInput]) -> tuple[str, ...]:
     seen = set()
     duplicates = []
     for parcel in parcels:
@@ -69,7 +70,7 @@ def _identity_duplicates(parcels: Sequence[ParcelAssemblyInput]) -> Tuple[str, .
     return tuple(duplicates)
 
 
-def _objectid_duplicates(parcels: Iterable[ParcelAssemblyInput]) -> Tuple[int, ...]:
+def _objectid_duplicates(parcels: Iterable[ParcelAssemblyInput]) -> tuple[int, ...]:
     seen = set()
     duplicates = set()
     for parcel in parcels:
@@ -117,10 +118,12 @@ def _graph_is_connected(count: int, relations: Sequence[PairwiseParcelRelation],
     """Check graph connectivity without confusing point contact with usable adjacency."""
     if count < 2:
         return False
-    linked: Dict[int, Set[int]] = {index: set() for index in range(count)}
-    identity_indexes: Dict[str, int] = {}
+    linked: dict[int, set[int]] = {index: set() for index in range(count)}
+    identity_indexes: dict[str, int] = {}
     for index, identity in enumerate(
-        sorted({relation.first_identity for relation in relations} | {relation.second_identity for relation in relations})
+        sorted(
+            {relation.first_identity for relation in relations} | {relation.second_identity for relation in relations}
+        )
     ):
         identity_indexes[identity] = index
     for relation in relations:
@@ -149,7 +152,7 @@ def _status_and_warnings(
     relations: Sequence[PairwiseParcelRelation],
     missing_recorded_area: bool,
     repaired_source_identities: Sequence[str],
-) -> Tuple[AssemblySuitabilityStatus, Tuple[AssemblyWarning, ...]]:
+) -> tuple[AssemblySuitabilityStatus, tuple[AssemblyWarning, ...]]:
     warnings = [
         AssemblyWarning(
             code="experimental_screening_only",
@@ -250,7 +253,13 @@ def analyze_plot_assembly(
     geometries = tuple(_geometry_for(parcel) for parcel in selected)
     repaired_sources = tuple(parcel.identity_key for parcel in selected if _raw_geometry_requires_repair(parcel))
     relations = tuple(
-        _relation(selected[first_index], geometries[first_index], selected[second_index], geometries[second_index], gap_tolerance_m)
+        _relation(
+            selected[first_index],
+            geometries[first_index],
+            selected[second_index],
+            geometries[second_index],
+            gap_tolerance_m,
+        )
         for first_index, second_index in combinations(range(len(selected)), 2)
     )
     combined = unary_union(geometries)

@@ -22,8 +22,8 @@ import re
 import subprocess
 import sys
 import tokenize
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE_PATH = ROOT / "tools" / "comment_baseline.json"
@@ -36,11 +36,11 @@ PYTHON_DIRECTIVE = re.compile(r"#\s*(noqa\b|type:|pragma:|fmt:|ruff:|mypy:|pyrig
 ENCODING_COOKIE = re.compile(r"^#.*coding[:=]")
 VERSION_TAG = re.compile(r"^#\s*v?\d+(\.\d+)+\s*$")
 
-Comment = Tuple[int, str]
+Comment = tuple[int, str]
 
 
-def _python_comments(text: str) -> List[Comment]:
-    found: List[Comment] = []
+def _python_comments(text: str) -> list[Comment]:
+    found: list[Comment] = []
     for token in tokenize.generate_tokens(io.StringIO(text).readline):
         if token.type != tokenize.COMMENT:
             continue
@@ -55,8 +55,8 @@ def _python_comments(text: str) -> List[Comment]:
     return found
 
 
-def _hash_comment_start(line: str) -> Optional[int]:
-    quote: Optional[str] = None
+def _hash_comment_start(line: str) -> int | None:
+    quote: str | None = None
     for index, char in enumerate(line):
         if quote:
             if char == quote:
@@ -68,8 +68,8 @@ def _hash_comment_start(line: str) -> Optional[int]:
     return None
 
 
-def _hash_comments(text: str) -> List[Comment]:
-    found: List[Comment] = []
+def _hash_comments(text: str) -> list[Comment]:
+    found: list[Comment] = []
     for number, line in enumerate(text.splitlines(), start=1):
         start = _hash_comment_start(line)
         if start is None:
@@ -81,8 +81,8 @@ def _hash_comments(text: str) -> List[Comment]:
     return found
 
 
-def _js_comments(text: str) -> List[Comment]:
-    found: List[Comment] = []
+def _js_comments(text: str) -> list[Comment]:
+    found: list[Comment] = []
     for number, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
         if stripped.startswith(("//", "/*")) or (" //" in line and "://" not in line):
@@ -90,11 +90,11 @@ def _js_comments(text: str) -> List[Comment]:
     return found
 
 
-def _marker_comments(text: str, marker: str) -> List[Comment]:
+def _marker_comments(text: str, marker: str) -> list[Comment]:
     return [(number, line.strip()) for number, line in enumerate(text.splitlines(), start=1) if marker in line]
 
 
-def scan(path: str, text: str) -> List[Comment]:
+def scan(path: str, text: str) -> list[Comment]:
     """Return ``(line, text)`` for every banned comment in one file."""
     suffix = Path(path).suffix
     if suffix == ".py" or path in EXTRA_PYTHON_FILES:
@@ -110,7 +110,7 @@ def scan(path: str, text: str) -> List[Comment]:
     return []
 
 
-def tracked_files(root: Path = ROOT) -> List[str]:
+def tracked_files(root: Path = ROOT) -> list[str]:
     listed = subprocess.run(
         ["git", "ls-files"], cwd=root, check=True, capture_output=True, text=True
     ).stdout.splitlines()
@@ -123,8 +123,8 @@ def tracked_files(root: Path = ROOT) -> List[str]:
     )
 
 
-def collect(root: Path = ROOT, paths: Optional[Iterable[str]] = None) -> Dict[str, List[Comment]]:
-    found: Dict[str, List[Comment]] = {}
+def collect(root: Path = ROOT, paths: Iterable[str] | None = None) -> dict[str, list[Comment]]:
+    found: dict[str, list[Comment]] = {}
     for path in tracked_files(root) if paths is None else paths:
         comments = scan(path, (root / path).read_text(encoding="utf-8"))
         if comments:
@@ -132,7 +132,7 @@ def collect(root: Path = ROOT, paths: Optional[Iterable[str]] = None) -> Dict[st
     return found
 
 
-def load_baseline(path: Path = BASELINE_PATH) -> Dict[str, int]:
+def load_baseline(path: Path = BASELINE_PATH) -> dict[str, int]:
     if not path.exists():
         return {}
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -140,8 +140,8 @@ def load_baseline(path: Path = BASELINE_PATH) -> Dict[str, int]:
 
 
 def compare(
-    current: Dict[str, List[Comment]], baseline: Dict[str, int]
-) -> Tuple[Dict[str, List[Comment]], Dict[str, int]]:
+    current: dict[str, list[Comment]], baseline: dict[str, int]
+) -> tuple[dict[str, list[Comment]], dict[str, int]]:
     """Split the result into files over their allowance and lowered baseline entries."""
     over = {path: comments for path, comments in current.items() if len(comments) > baseline.get(path, 0)}
     lowered = {
@@ -150,12 +150,12 @@ def compare(
     return over, lowered
 
 
-def write_baseline(baseline: Dict[str, int], path: Path = BASELINE_PATH) -> None:
+def write_baseline(baseline: dict[str, int], path: Path = BASELINE_PATH) -> None:
     cleaned = {key: value for key, value in sorted(baseline.items()) if value > 0}
     path.write_text(json.dumps(cleaned, indent=2) + "\n", encoding="utf-8")
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Fail when code comments are added (ratchet).")
     parser.add_argument("--update", action="store_true", help="lower the baseline to the current counts")
     args = parser.parse_args(argv)

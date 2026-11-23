@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, Mapping, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def canonical_json(value: Any) -> bytes:
@@ -33,8 +34,8 @@ class PlanningFeature:
     object_id: int
     attributes: Mapping[str, Any]
     geometry: Any
-    raw_feature: Optional[Any] = None
-    source_layer_id: Optional[int] = None
+    raw_feature: Any | None = None
+    source_layer_id: int | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.object_id, bool) or int(self.object_id) < 0:
@@ -43,7 +44,7 @@ class PlanningFeature:
         if not isinstance(self.attributes, Mapping):
             raise ValueError("attributes must be a mapping")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "attributes": dict(self.attributes),
             "geometry": self.geometry,
@@ -56,15 +57,15 @@ class PlanningLayerSnapshot:
     layer_id: int
     canonical_layer_id: int
     name: str
-    geometry_type: Optional[str]
+    geometry_type: str | None
     object_id_field: str
-    expected_count: Optional[int]
+    expected_count: int | None
     received_count: int
     content_hash: str
     complete: bool
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "snapshot_id": self.snapshot_id,
             "layer_id": self.layer_id,
@@ -85,15 +86,15 @@ class PlanningSnapshot:
     snapshot_id: int
     version: int
     state: str
-    source_url: Optional[str]
+    source_url: str | None
     created_at: str
-    finalized_at: Optional[str]
+    finalized_at: str | None
     content_hash: str
     complete: bool
-    layers: Tuple[PlanningLayerSnapshot, ...] = ()
+    layers: tuple[PlanningLayerSnapshot, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "snapshot_id": self.snapshot_id,
             "version": self.version,

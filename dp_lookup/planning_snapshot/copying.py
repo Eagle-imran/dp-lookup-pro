@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from typing import Iterable, Tuple
+from collections.abc import Iterable
 
 from dp_lookup.planning_snapshot.models import PlanningSnapshotStateError
 
@@ -16,7 +16,7 @@ def copy_layers(
     layer_ids: Iterable[int],
     *,
     rtree_available: bool,
-) -> Tuple[int, ...]:
+) -> tuple[int, ...]:
     """Run inside the store transaction; preserve every archived JSON byte."""
     copied = []
     for layer_id in sorted(set(layer_ids)):

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 
 from dp_lookup.intelligence.models import ALGORITHM_VERSION
 
@@ -14,7 +15,7 @@ def source_fingerprint(
     parcel_metadata: Mapping[str, Any],
     planning_snapshot_id: int,
     planning_hash: str,
-    authority_revision: Optional[int],
+    authority_revision: int | None,
     *,
     algorithm_version: str = ALGORITHM_VERSION,
 ) -> str:

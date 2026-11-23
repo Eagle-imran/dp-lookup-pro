@@ -1,11 +1,12 @@
 """Typed payloads shared by exporter implementations and their adapters."""
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Sequence, Union
+from typing import Any
 
 from dp_lookup.core.models import ExportData
 
-ExportPayload = Union[ExportData, Mapping[str, Any]]
+ExportPayload = ExportData | Mapping[str, Any]
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,7 @@ class ExcelRegisterData:
     artifact_filenames: Mapping[str, str]
 
 
-def legacy_export_properties(payload: ExportPayload) -> Dict[str, Any]:
+def legacy_export_properties(payload: ExportPayload) -> dict[str, Any]:
     """Return the historical mapping shape at the renderer implementation edge."""
     if isinstance(payload, ExportData):
         return payload.to_legacy_dict()

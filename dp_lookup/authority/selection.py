@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any
 
 AUTHORITY_POLICY_VERSION = "authority-policy/1.0"
 
-_RANKS: Dict[str, Dict[str, int]] = {
+_RANKS: dict[str, dict[str, int]] = {
     "area_reconciliation": {
         "reconciliation": 110,
         "certified_survey_reconciliation": 110,
@@ -111,7 +112,7 @@ def source_type_label(value: Any) -> str:
     return _SOURCE_LABELS.get(normalized, normalized.replace("_", " ").title() or "Authority source")
 
 
-def _record_dict(record: Any) -> Dict[str, Any]:
+def _record_dict(record: Any) -> dict[str, Any]:
     if isinstance(record, Mapping):
         return dict(record)
     to_dict = getattr(record, "to_dict", None)
@@ -125,7 +126,7 @@ def _record_dict(record: Any) -> Dict[str, Any]:
         return {"value": str(record)}
 
 
-def _record_id(record: Any) -> Union[int, str]:
+def _record_id(record: Any) -> int | str:
     value = _value(record, "version_id", "source_version_id", "record_id", "source_id", "id")
     if isinstance(value, int) and not isinstance(value, bool):
         return value
@@ -151,17 +152,17 @@ def _checksum(record: Any) -> str:
     ).hexdigest()
 
 
-def _date_key(value: Any) -> Tuple[int, str]:
+def _date_key(value: Any) -> tuple[int, str]:
     if value is None:
         return (0, "")
     text = str(getattr(value, "isoformat", lambda: value)())
     try:
-        return (1, datetime.fromisoformat(text.replace("Z", "+00:00")).isoformat())
+        return (1, datetime.fromisoformat(text).isoformat())
     except ValueError:
         return (1, text)
 
 
-def _area(record: Any, purpose: Optional[str] = None) -> Optional[float]:
+def _area(record: Any, purpose: str | None = None) -> float | None:
     names = (
         ("calculated_area_sqm", "area_sqm", "recorded_area_sqm", "area", "plot_area_sqm")
         if purpose == "geometry_reconciliation"
@@ -201,7 +202,7 @@ def _geometry_checksum(record: Any) -> str:
     ).hexdigest()
 
 
-def _identity_matches(record: Any, village: Optional[str], cts_no: Optional[str]) -> bool:
+def _identity_matches(record: Any, village: str | None, cts_no: str | None) -> bool:
     if village is None and cts_no is None:
         return True
     returned_village = str(_value(record, "village", "village_name", default="") or "").strip().casefold()
@@ -211,7 +212,7 @@ def _identity_matches(record: Any, village: Optional[str], cts_no: Optional[str]
     )
 
 
-def _eligible(record: Any, village: Optional[str], cts_no: Optional[str]) -> Tuple[bool, str]:
+def _eligible(record: Any, village: str | None, cts_no: str | None) -> tuple[bool, str]:
     if not _identity_matches(record, village, cts_no):
         return False, "identity does not exactly match the requested village/CTS"
     status = _enum_value(_value(record, "status", "record_status", default=""))
@@ -229,19 +230,19 @@ class AuthorityCandidate:
     """Explainable normalized view of one registry record."""
 
     record: Any
-    record_id: Union[int, str]
+    record_id: int | str
     source_type: str
     purpose: str
     rank: int
-    area_sqm: Optional[float]
+    area_sqm: float | None
     geometry_checksum: str
     checksum: str
-    effective_date: Optional[str]
-    verification_date: Optional[str]
+    effective_date: str | None
+    verification_date: str | None
     eligible: bool
     eligibility_reason: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "record_id": self.record_id,
             "source_type": self.source_type,
@@ -257,7 +258,7 @@ class AuthorityCandidate:
             "record": _record_dict(self.record),
         }
 
-    def to_ref(self, *, selection_reason: str = "") -> Dict[str, Any]:
+    def to_ref(self, *, selection_reason: str = "") -> dict[str, Any]:
         """Return the compact source reference used by result provenance."""
         issue_date = _value(self.record, "issue_date", "issued_date", "effective_date", "document_date")
         fallback_label = source_type_label(_value(self.record, "source_type", default=self.source_type))
@@ -286,21 +287,21 @@ class AuthorityResolution:
 
     purpose: str
     policy_version: str
-    selected: Optional[AuthorityCandidate]
+    selected: AuthorityCandidate | None
     candidates: Sequence[AuthorityCandidate] = field(default_factory=tuple)
     conflict: bool = False
     reason: str = "No eligible authority source was found."
     active: bool = False
     village: str = ""
     cts_no: str = ""
-    baseline_area_assessment: Optional[Mapping[str, Any]] = None
+    baseline_area_assessment: Mapping[str, Any] | None = None
     applied_to_working_result: bool = False
 
     @property
     def has_selection(self) -> bool:
         return self.selected is not None and not self.conflict
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         selected_ref = self.selected.to_ref(selection_reason=self.reason) if self.selected is not None else None
         status = "conflict" if self.conflict else ("selected" if selected_ref else "no_selection")
         planning = [selected_ref] if selected_ref and self.purpose == "planning" else []
@@ -322,7 +323,7 @@ class AuthorityResolution:
         }
 
 
-def _candidate(record: Any, purpose: str, village: Optional[str], cts_no: Optional[str]) -> AuthorityCandidate:
+def _candidate(record: Any, purpose: str, village: str | None, cts_no: str | None) -> AuthorityCandidate:
     source_type = normalize_source_type(_value(record, "source_type", "type", "kind", default=""))
     purpose_value = normalize_purpose(_value(record, "purpose", "selection_purpose", default=purpose))
     rank = _RANKS.get(purpose, {}).get(source_type, 0)
@@ -355,10 +356,10 @@ def recommend_authority_sources(
     records: Iterable[Any],
     purpose: Any,
     *,
-    village: Optional[str] = None,
-    cts_no: Optional[str] = None,
+    village: str | None = None,
+    cts_no: str | None = None,
     active: bool = False,
-    baseline_area_assessment: Optional[Mapping[str, Any]] = None,
+    baseline_area_assessment: Mapping[str, Any] | None = None,
     applied_to_working_result: bool = False,
 ) -> AuthorityResolution:
     """Rank records deterministically without applying the recommendation."""
@@ -433,7 +434,7 @@ def recommend_authority_sources(
     )
 
 
-def recommend_authority(store: Any, village: str, cts_no: str) -> Dict[str, Any]:
+def recommend_authority(store: Any, village: str, cts_no: str) -> dict[str, Any]:
     """Return JSON-safe, field-specific recommendations for the CLI."""
     list_method = getattr(store, "list", None) or getattr(store, "records", None)
     if not callable(list_method):

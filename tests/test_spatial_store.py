@@ -44,9 +44,7 @@ def test_schema_is_idempotent_and_wal_foreign_keys(tmp_path):
 def test_snapshot_round_trip_and_duplicate_cts_returns_all(tmp_path):
     with SnapshotStore.open(tmp_path / "db.sqlite") as store:
         sid = make_ready(store, [parcel(1), parcel(2, cts="733")])
-        assert store.connection.execute(
-            "SELECT 1 FROM sqlite_stat1 WHERE idx='parcels_lookup'"
-        ).fetchone()
+        assert store.connection.execute("SELECT 1 FROM sqlite_stat1 WHERE idx='parcels_lookup'").fetchone()
         store.activate(sid)
         matches = store.lookup("WORLI", "733")
         assert [row["objectid"] for row in matches] == [1, 2]
@@ -155,7 +153,9 @@ def test_diff_snapshots_reports_add_remove_change_and_identity_change(tmp_path):
         assert report["added_objectids"] == [3]
         assert report["removed_objectids"] == [1]
         assert report["changed_objectids"] == [2]
-        assert report["identity_changes"] == [{"objectid": 2, "old": {"village": "WORLI", "cts_no": "2"}, "new": {"village": "WORLI", "cts_no": "9"}}]
+        assert report["identity_changes"] == [
+            {"objectid": 2, "old": {"village": "WORLI", "cts_no": "2"}, "new": {"village": "WORLI", "cts_no": "9"}}
+        ]
         json.dumps(report)
 
 

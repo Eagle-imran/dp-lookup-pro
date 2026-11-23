@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, Optional, Sequence
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 from dp_lookup.application.planning_snapshot import canonical_planning_specs, planning_registry_hash
@@ -21,7 +22,7 @@ _SEVERITY = {"healthy": 0, "not_configured": 0, "attention": 1, "critical": 2}
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _connect_read_only(path: Path) -> sqlite3.Connection:
@@ -45,20 +46,20 @@ def _loads(value: Any, default: Any) -> Any:
     return decoded
 
 
-def _age_days(value: Any, checked_at: datetime) -> Optional[float]:
+def _age_days(value: Any, checked_at: datetime) -> float | None:
     if value is None:
         return None
     try:
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             timestamp = float(value)
         else:
-            timestamp = datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+            timestamp = datetime.fromisoformat(str(value)).timestamp()
     except (TypeError, ValueError, OverflowError):
         return None
     return round(max(0.0, (checked_at.timestamp() - timestamp) / 86_400.0), 3)
 
 
-def _section(status: str, **values: Any) -> Dict[str, Any]:
+def _section(status: str, **values: Any) -> dict[str, Any]:
     return {"status": status, **values}
 
 
@@ -66,11 +67,11 @@ def _max_status(statuses: Iterable[str]) -> str:
     return max(statuses, key=lambda value: _SEVERITY.get(value, 2), default="healthy")
 
 
-def _finding(findings: list[Dict[str, str]], severity: str, code: str, message: str) -> None:
+def _finding(findings: list[dict[str, str]], severity: str, code: str, message: str) -> None:
     findings.append({"severity": severity, "code": code, "message": message})
 
 
-def _sqlite_health(connection: sqlite3.Connection, findings: list[Dict[str, str]]) -> Dict[str, Any]:
+def _sqlite_health(connection: sqlite3.Connection, findings: list[dict[str, str]]) -> dict[str, Any]:
     integrity_rows = [str(row[0]) for row in connection.execute("PRAGMA integrity_check")]
     foreign_keys = [tuple(row) for row in connection.execute("PRAGMA foreign_key_check")]
     integrity_ok = integrity_rows == ["ok"]
@@ -95,8 +96,8 @@ def _parcel_health(
     connection: sqlite3.Connection,
     tables: set[str],
     checked_at: datetime,
-    findings: list[Dict[str, str]],
-) -> Dict[str, Any]:
+    findings: list[dict[str, str]],
+) -> dict[str, Any]:
     required = {"meta", "snapshots", "parcels", "snapshot_inventory"}
     if not required.issubset(tables):
         _finding(findings, "critical", "parcel_schema_missing", "Parcel snapshot tables are missing")
@@ -263,8 +264,8 @@ def _planning_health(
     connection: sqlite3.Connection,
     tables: set[str],
     checked_at: datetime,
-    findings: list[Dict[str, str]],
-) -> Dict[str, Any]:
+    findings: list[dict[str, str]],
+) -> dict[str, Any]:
     required = {
         "planning_meta",
         "planning_snapshots",
@@ -422,10 +423,10 @@ def _planning_health(
 def _intelligence_health(
     connection: sqlite3.Connection,
     tables: set[str],
-    parcel_snapshot_id: Optional[int],
-    planning_snapshot_id: Optional[int],
-    findings: list[Dict[str, str]],
-) -> Dict[str, Any]:
+    parcel_snapshot_id: int | None,
+    planning_snapshot_id: int | None,
+    findings: list[dict[str, str]],
+) -> dict[str, Any]:
     required = {"intelligence_meta", "intelligence_builds", "plot_intelligence", "intelligence_activations"}
     if not required.issubset(tables):
         return _section("not_configured", configured=False, active_build_id=None)
@@ -551,7 +552,7 @@ def _intelligence_health(
     )
 
 
-def _local_source_path(source_uri: str) -> Optional[Path]:
+def _local_source_path(source_uri: str) -> Path | None:
     parsed = urlparse(source_uri)
     if parsed.scheme == "file":
         return Path(unquote(parsed.path))
@@ -563,8 +564,8 @@ def _local_source_path(source_uri: str) -> Optional[Path]:
 def _enrichment_health(
     connection: sqlite3.Connection,
     tables: set[str],
-    findings: list[Dict[str, str]],
-) -> Dict[str, Any]:
+    findings: list[dict[str, str]],
+) -> dict[str, Any]:
     required = {"authority_meta", "authority_records", "authority_selections", "authority_events"}
     if not required.issubset(tables):
         return _section("not_configured", configured=False, record_count=0)
@@ -622,11 +623,11 @@ def _enrichment_health(
     )
 
 
-def database_health(database: Path, *, checked_at: Optional[datetime] = None) -> Dict[str, Any]:
+def database_health(database: Path, *, checked_at: datetime | None = None) -> dict[str, Any]:
     """Return one stable health envelope without changing the SQLite file."""
     path = Path(database).expanduser()
     timestamp = checked_at or _now()
-    findings: list[Dict[str, str]] = []
+    findings: list[dict[str, str]] = []
     if not path.is_file():
         return {
             "health_policy_version": "database-health/1.0",

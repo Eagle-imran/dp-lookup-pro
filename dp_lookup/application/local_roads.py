@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, List, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
 from shapely.geometry import LineString, MultiLineString
 from shapely.geometry.base import BaseGeometry
@@ -13,10 +14,10 @@ from dp_lookup.core.constants import GENERIC_ROAD_NAMES
 from dp_lookup.core.geometry import mercator_to_wgs84
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
-ROAD_LAYER_IDS: Tuple[int, ...] = (193, 194, 44, 45, 2224)
+ROAD_LAYER_IDS: tuple[int, ...] = (193, 194, 44, 45, 2224)
 
 
-def _text(attributes: Mapping[str, Any], names: Sequence[str]) -> Optional[str]:
+def _text(attributes: Mapping[str, Any], names: Sequence[str]) -> str | None:
     for name in names:
         value = attributes.get(name)
         if value is None:
@@ -27,7 +28,7 @@ def _text(attributes: Mapping[str, Any], names: Sequence[str]) -> Optional[str]:
     return None
 
 
-def _road_identity(attributes: Mapping[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+def _road_identity(attributes: Mapping[str, Any]) -> tuple[str | None, str | None]:
     name = _text(
         attributes,
         (
@@ -69,11 +70,11 @@ def _source_geometry(geometry: Any) -> Any:
     return None
 
 
-def _wgs_parts(geometry: Any) -> List[List[List[float]]]:
+def _wgs_parts(geometry: Any) -> list[list[list[float]]]:
     if not isinstance(geometry, Mapping):
         return []
     raw_parts = geometry.get("paths") or geometry.get("rings") or []
-    result: List[List[List[float]]] = []
+    result: list[list[list[float]]] = []
     if not isinstance(raw_parts, list):
         return result
     for part in raw_parts:
@@ -91,9 +92,9 @@ class _Candidate:
     layer_id: int
     object_id: int
     distance_m: float
-    name: Optional[str]
-    width: Optional[str]
-    geometries: List[List[List[float]]]
+    name: str | None
+    width: str | None
+    geometries: list[list[list[float]]]
 
     @property
     def quality(self) -> int:
@@ -110,10 +111,10 @@ class LocalRoadProvider:
 
     def __init__(
         self,
-        store: Optional[Any],
+        store: Any | None,
         *,
         search_distance_m: float = 30.0,
-        snapshot_id: Optional[int] = None,
+        snapshot_id: int | None = None,
         include_geometry: bool = True,
     ) -> None:
         if search_distance_m <= 0:
@@ -123,7 +124,7 @@ class LocalRoadProvider:
         self.snapshot_id = snapshot_id
         self.include_geometry = include_geometry
 
-    def __call__(self, parcel: ParcelContext) -> Optional[RoadContext]:
+    def __call__(self, parcel: ParcelContext) -> RoadContext | None:
         if parcel.attrs.get("_DP_PARCEL_SOURCE") != "local_snapshot":
             return None
         if self.store is None:
@@ -139,7 +140,7 @@ class LocalRoadProvider:
             raise ValueError("subject parcel geometry is empty")
         min_x, min_y, max_x, max_y = subject.bounds
         pad = self.search_distance_m
-        candidates: List[_Candidate] = []
+        candidates: list[_Candidate] = []
         feature_reader = getattr(self.store, "compact_features_in_bbox", self.store.features_in_bbox)
         for layer_id in ROAD_LAYER_IDS:
             rows = feature_reader(

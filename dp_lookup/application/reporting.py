@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from typing import List, Optional
 
 from dp_lookup.application.artifacts import run_artifact, run_artifact_in_thread, run_artifact_result
 from dp_lookup.application.contracts import ArtifactContext, MapFetchContext, ReportArtifactContext
@@ -20,7 +19,7 @@ from dp_lookup.application.image_artifacts import MapImageArtifactExporter
 def export_vector_artifacts(
     context: ArtifactContext,
     dependencies: LookupDependencies,
-    warnings: List[str],
+    warnings: list[str],
 ) -> None:
     """Export synchronous bundle artifacts through their common plug-in contract."""
     seen_keys = set()
@@ -56,7 +55,7 @@ async def render_report_artifacts(
     context: ArtifactContext,
     fetched: MapFetchContext,
     dependencies: LookupDependencies,
-    warnings: List[str],
+    warnings: list[str],
 ) -> None:
     """Build visual assets, then hand them to typed report-stage exporters."""
     maps = await MapImageArtifactExporter(dependencies).export(context, fetched, warnings)
@@ -75,7 +74,7 @@ async def render_report_artifacts(
 async def _export_report_artifact(
     exporter: ReportArtifactExporter,
     context: ReportArtifactContext,
-    warnings: List[str],
+    warnings: list[str],
 ) -> None:
     """Run a costly report exporter in a worker and retain failure isolation."""
     output_path = await _run_report_exporter(exporter, context, warnings)
@@ -86,9 +85,9 @@ async def _export_report_artifact(
 async def _run_report_exporter(
     exporter: ReportArtifactExporter,
     context: ReportArtifactContext,
-    warnings: List[str],
-) -> Optional[str]:
-    completed: List[str] = []
+    warnings: list[str],
+) -> str | None:
+    completed: list[str] = []
 
     def export() -> None:
         completed.append(_canonical_path(exporter.export(context)))

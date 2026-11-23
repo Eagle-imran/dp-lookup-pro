@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
 import httpx
 from shapely.geometry.base import BaseGeometry
@@ -41,7 +42,7 @@ def _normalised_cts(value: Any) -> str:
     return str(value or "").strip().casefold()
 
 
-def _positive_area(value: Any) -> Optional[float]:
+def _positive_area(value: Any) -> float | None:
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -49,7 +50,7 @@ def _positive_area(value: Any) -> Optional[float]:
     return number if math.isfinite(number) and number > 0 else None
 
 
-def _objectid(feature: ArcGISFeature) -> Optional[int]:
+def _objectid(feature: ArcGISFeature) -> int | None:
     value = feature.attributes.get("OBJECTID")
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         return None
@@ -59,7 +60,7 @@ def _objectid(feature: ArcGISFeature) -> Optional[int]:
         return None
 
 
-def _merge_live_matches(matches: Sequence[ArcGISFeature], *, prefix_fallback: bool) -> Dict[str, Any]:
+def _merge_live_matches(matches: Sequence[ArcGISFeature], *, prefix_fallback: bool) -> dict[str, Any]:
     """Combine every same-identity Layer 13 part, matching the local adapter.
 
     A village/CTS identity can be stored as several source features. Using
@@ -72,8 +73,8 @@ def _merge_live_matches(matches: Sequence[ArcGISFeature], *, prefix_fallback: bo
     if len(known_ids) == len(matches):
         ordered = [match for _, match in sorted(zip(known_ids, matches, strict=True), key=lambda item: item[0])]
 
-    combined_rings: List[Any] = []
-    unique_geometries: List[BaseGeometry] = []
+    combined_rings: list[Any] = []
+    unique_geometries: list[BaseGeometry] = []
     duplicate_geometry_count = 0
     for match in ordered:
         rings = match.geometry.get("rings")
@@ -116,7 +117,7 @@ def _merge_live_matches(matches: Sequence[ArcGISFeature], *, prefix_fallback: bo
     return copied
 
 
-def not_found_result(village: str, cts_no: str) -> Dict[str, Any]:
+def not_found_result(village: str, cts_no: str) -> dict[str, Any]:
     """Explain an exact parcel miss without confusing it with source failure."""
     if village in MCGM_VILLAGES:
         message = (
@@ -129,7 +130,7 @@ def not_found_result(village: str, cts_no: str) -> Dict[str, Any]:
     return {"error": message, "suggestions": suggest_villages(village)}
 
 
-async def fetch_parcel_feature(client: Any, village: str, cts_no: str) -> Optional[Dict[str, Any]]:
+async def fetch_parcel_feature(client: Any, village: str, cts_no: str) -> dict[str, Any] | None:
     """Fetch every exact Layer 13 part; a prefix retry may only fix spacing/case."""
     query_params = {
         "where": f"VILLAGE='{village}' AND CTS_CS_NO='{cts_no}'",
@@ -176,7 +177,7 @@ async def fetch_parcel_feature(client: Any, village: str, cts_no: str) -> Option
     raise ParcelIdentityMismatchError(village, cts_no, candidates)
 
 
-def build_parcel_context(feature: Dict[str, Any], village: str, cts_no: str) -> Tuple[ParcelContext, Optional[str]]:
+def build_parcel_context(feature: dict[str, Any], village: str, cts_no: str) -> tuple[ParcelContext, str | None]:
     """Validate and normalize one Layer 13 feature into the stage contract."""
     try:
         attrs = dict(feature["attributes"])

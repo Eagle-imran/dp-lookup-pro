@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 from dataclasses import dataclass
-from typing import Any, List
+from typing import Any
 
 import qrcode
 from PIL import Image
@@ -66,10 +66,10 @@ class MapImageArtifactExporter:
         self,
         context: ArtifactContext,
         fetched: MapFetchContext,
-        warnings: List[str],
+        warnings: list[str],
     ) -> RenderedMapAssets:
-        dp_warnings: List[str] = []
-        satellite_warnings: List[str] = []
+        dp_warnings: list[str] = []
+        satellite_warnings: list[str] = []
         dp_image, satellite_image = await asyncio.gather(
             asyncio.to_thread(self._render_dp_image, context, fetched, dp_warnings),
             asyncio.to_thread(
@@ -92,7 +92,7 @@ class MapImageArtifactExporter:
         self,
         context: ArtifactContext,
         fetched: MapFetchContext,
-        warnings: List[str],
+        warnings: list[str],
     ) -> Image.Image:
         response = fetched.dp_response
         dp_map_ok = (
@@ -117,7 +117,7 @@ class MapImageArtifactExporter:
                 "status": context.planning.status_badge[:30],
             },
         )
-        image: List[Image.Image] = []
+        image: list[Image.Image] = []
         adapter = LegacyDpMapRenderer(self.dependencies.dp_map_renderer)
         run_artifact("DP map rendering", warnings, lambda: image.append(adapter.render(request)))
         return image[0] if image else Image.new("RGB", fetched.size, "white")
@@ -126,7 +126,7 @@ class MapImageArtifactExporter:
         self,
         context: ArtifactContext,
         fetched: MapFetchContext,
-        warnings: List[str],
+        warnings: list[str],
     ) -> Image.Image:
         tiles = _normalised_tiles(fetched, warnings)
         half_dimension = fetched.grid_dimension // 2
@@ -154,7 +154,7 @@ class MapImageArtifactExporter:
                 "neighbours": len(context.neighbours.plots),
             },
         )
-        image: List[Image.Image] = []
+        image: list[Image.Image] = []
         adapter = LegacySatelliteRenderer(self.dependencies.satellite_renderer)
         run_artifact("satellite rendering", warnings, lambda: image.append(adapter.render(request)))
         fallback_size = (fetched.grid_dimension * 256, fetched.grid_dimension * 256)
@@ -165,7 +165,7 @@ class MapImageArtifactExporter:
         context: ArtifactContext,
         dp_image: Image.Image,
         satellite_image: Image.Image,
-        warnings: List[str],
+        warnings: list[str],
     ) -> None:
         def save() -> None:
             dp_image.convert("RGB").save(context.paths.dp_map, "PNG", compress_level=1)
@@ -174,7 +174,7 @@ class MapImageArtifactExporter:
         await run_artifact_in_thread(self.name, warnings, save)
 
     @staticmethod
-    def _render_qr(context: ArtifactContext, warnings: List[str]) -> io.BytesIO:
+    def _render_qr(context: ArtifactContext, warnings: list[str]) -> io.BytesIO:
         qr_bytes = io.BytesIO()
 
         def render() -> None:
@@ -191,7 +191,7 @@ class MapImageArtifactExporter:
         return qr_bytes
 
 
-def _normalised_tiles(fetched: MapFetchContext, warnings: List[str]) -> List[Any]:
+def _normalised_tiles(fetched: MapFetchContext, warnings: list[str]) -> list[Any]:
     tiles = [] if isinstance(fetched.satellite_tiles, Exception) else list(fetched.satellite_tiles)
     missing = (
         len(fetched.satellite_coordinates)

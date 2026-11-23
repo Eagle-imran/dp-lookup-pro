@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Mapping, Tuple
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 from dp_lookup.application.contracts import RoadContext
 from dp_lookup.clients.arcgis_models import decode_arcgis_response
@@ -11,7 +12,7 @@ from dp_lookup.core.models import EvidenceState
 from dp_lookup.core.planning_status import select_road
 
 
-def _road_attributes(attributes: Mapping[str, Any]) -> Tuple[Any, Any]:
+def _road_attributes(attributes: Mapping[str, Any]) -> tuple[Any, Any]:
     name = (
         attributes.get("ROAD_NAME")
         or attributes.get("Roadname")
@@ -26,8 +27,8 @@ def _road_attributes(attributes: Mapping[str, Any]) -> Tuple[Any, Any]:
 
 def parse_road_responses(responses: Any, expected_count: int) -> RoadContext:
     """Normalize repeated road probes and retain source-quality state."""
-    road_map: Dict[str, Dict[str, Any]] = {}
-    geometries: List[List[List[float]]] = []
+    road_map: dict[str, dict[str, Any]] = {}
+    geometries: list[list[list[float]]] = []
     failures = 0
     if isinstance(responses, Exception) or not isinstance(responses, (list, tuple)):
         failures = expected_count

@@ -2,7 +2,7 @@
 
 import asyncio
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import httpx
 from shapely.geometry.base import BaseGeometry
@@ -28,9 +28,9 @@ from dp_lookup.core.topology import arcgis_rings_to_geometry
 
 def _overlap(
     parcel: BaseGeometry,
-    feature: Dict[str, Any],
+    feature: dict[str, Any],
     threshold: float,
-) -> Tuple[Optional[BaseGeometry], Optional[BaseGeometry]]:
+) -> tuple[BaseGeometry | None, BaseGeometry | None]:
     geometry = feature.get("geometry") or {}
     rings = geometry.get("rings")
     if not rings:
@@ -43,7 +43,7 @@ def _overlap(
     return (intersection if intersection.area > threshold else None), polygon
 
 
-def _wgs_rings(feature: Dict[str, Any]) -> List[List[List[float]]]:
+def _wgs_rings(feature: dict[str, Any]) -> list[list[list[float]]]:
     rings = (feature.get("geometry") or {}).get("rings") or []
     return [[mercator_to_wgs84(point[0], point[1]) for point in ring] for ring in rings]
 
@@ -51,14 +51,14 @@ def _wgs_rings(feature: Dict[str, Any]) -> List[List[List[float]]]:
 async def _fetch_layers(
     client: httpx.AsyncClient,
     bbox: str,
-    layer_ids: List[int],
-) -> Tuple[Dict[int, List[Dict[str, Any]]], List[str]]:
+    layer_ids: list[int],
+) -> tuple[dict[int, list[dict[str, Any]]], list[str]]:
     responses = await asyncio.gather(
         *[client.post(f"{SERVER_URL}/{layer_id}/query", data=spatial_query_payload(bbox)) for layer_id in layer_ids],
         return_exceptions=True,
     )
-    features_by_layer: Dict[int, List[Dict[str, Any]]] = {}
-    warnings: List[str] = []
+    features_by_layer: dict[int, list[dict[str, Any]]] = {}
+    warnings: list[str] = []
     for layer_id, response in zip(layer_ids, responses, strict=False):
         if isinstance(response, Exception):
             features_by_layer[layer_id] = []
@@ -80,12 +80,12 @@ async def _fetch_layers(
 
 def build_spatial_planning_result(
     parcel: Any,
-    by_layer: Dict[int, List[Dict[str, Any]]],
-    warnings: List[str],
+    by_layer: dict[int, list[dict[str, Any]]],
+    warnings: list[str],
     *,
-    provenance: Optional[Dict[str, Any]] = None,
+    provenance: dict[str, Any] | None = None,
     area_scale: float = 1.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build the stable planning result from already spatially-selected records.
 
     Live ArcGIS and local snapshot adapters both use this function. Keeping
@@ -283,8 +283,8 @@ def build_spatial_planning_result(
 
 async def query_spatial_planning_layers(
     client: httpx.AsyncClient,
-    rings: List[List[List[float]]],
-) -> Dict[str, Any]:
+    rings: list[list[list[float]]],
+) -> dict[str, Any]:
     """Query all planning layers and compute exact parcel intersections."""
     parcel = arcgis_rings_to_geometry(rings)
     if parcel.is_empty or parcel.area <= 0:

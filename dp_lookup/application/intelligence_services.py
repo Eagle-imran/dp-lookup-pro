@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
 from dp_lookup.application.intelligence_builder import (
     PlotIntelligenceBuilder,
@@ -19,20 +20,20 @@ from dp_lookup.planning_snapshot import PlanningSnapshotStore
 from dp_lookup.spatial_store import SnapshotStore
 
 
-def _age_days(value: Any) -> Optional[float]:
+def _age_days(value: Any) -> float | None:
     if value is None:
         return None
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         timestamp = float(value)
     else:
         try:
-            timestamp = datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+            timestamp = datetime.fromisoformat(str(value)).timestamp()
         except ValueError:
             return None
     return round(max(0.0, (time.time() - timestamp) / 86_400.0), 3)
 
 
-def _summary(record: Mapping[str, Any]) -> Dict[str, Any]:
+def _summary(record: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "village": record["village"],
         "cts_no": record["cts_no"],
@@ -52,7 +53,7 @@ def _summary(record: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _dossier(record: Mapping[str, Any], build: Mapping[str, Any]) -> Dict[str, Any]:
+def _dossier(record: Mapping[str, Any], build: Mapping[str, Any]) -> dict[str, Any]:
     evidence_summary = record["evidence_summary"]
     assessment = evidence_summary.get("area_assessment") if isinstance(evidence_summary, Mapping) else None
     return {
@@ -119,7 +120,7 @@ def _dossier(record: Mapping[str, Any], build: Mapping[str, Any]) -> Dict[str, A
 
 
 class PlotIntelligenceServices:
-    def _require_current_build(self, database: Path, build_id: Optional[int]) -> None:
+    def _require_current_build(self, database: Path, build_id: int | None) -> None:
         if build_id is not None:
             return
         check = self.check(database)
@@ -134,12 +135,12 @@ class PlotIntelligenceServices:
         self,
         database: Path,
         *,
-        limit: Optional[int] = None,
+        limit: int | None = None,
         offset: int = 0,
         include_neighbours: bool = True,
         evidence_mode: str = "full",
-        parcel_snapshot_id: Optional[int] = None,
-        planning_snapshot_id: Optional[int] = None,
+        parcel_snapshot_id: int | None = None,
+        planning_snapshot_id: int | None = None,
         workers: int = 1,
     ) -> Mapping[str, Any]:
         return PlotIntelligenceBuilder(database).build(
@@ -156,7 +157,7 @@ class PlotIntelligenceServices:
         with IntelligenceStore.open(database) as store:
             return store.status()
 
-    def verify(self, database: Path, *, build_id: Optional[int] = None) -> Mapping[str, Any]:
+    def verify(self, database: Path, *, build_id: int | None = None) -> Mapping[str, Any]:
         with IntelligenceStore.open(database) as store:
             selected = build_id
             if selected is None:
@@ -167,7 +168,7 @@ class PlotIntelligenceServices:
                 selected = int(builds[-1]["build_id"])
             return store.verify(selected)
 
-    def activate(self, database: Path, *, build_id: Optional[int] = None) -> Mapping[str, Any]:
+    def activate(self, database: Path, *, build_id: int | None = None) -> Mapping[str, Any]:
         with (
             IntelligenceStore.open(database) as store,
             SnapshotStore.open(database) as parcels,
@@ -203,7 +204,7 @@ class PlotIntelligenceServices:
         village: str,
         cts_no: str,
         *,
-        build_id: Optional[int] = None,
+        build_id: int | None = None,
     ) -> Mapping[str, Any]:
         self._require_current_build(database, build_id)
         with IntelligenceStore.open(database) as store:
@@ -227,9 +228,9 @@ class PlotIntelligenceServices:
     def compare(
         self,
         database: Path,
-        identities: Sequence[Tuple[str, str]],
+        identities: Sequence[tuple[str, str]],
         *,
-        build_id: Optional[int] = None,
+        build_id: int | None = None,
     ) -> Mapping[str, Any]:
         self._require_current_build(database, build_id)
         with IntelligenceStore.open(database) as store:

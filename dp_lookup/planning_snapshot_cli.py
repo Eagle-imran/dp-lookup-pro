@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Protocol, Sequence, TextIO
+from typing import Any, Protocol, TextIO
 
 from dp_lookup.application.planning_snapshot import PlanningIngestionConfig
 
@@ -49,7 +50,7 @@ class _MissingServices:
         return unavailable
 
 
-def parse_planning_snapshot_args(argv: Sequence[str]) -> Dict[str, Any]:
+def parse_planning_snapshot_args(argv: Sequence[str]) -> dict[str, Any]:
     """Parse the isolated planning snapshot grammar without terminating."""
 
     tokens = list(argv)
@@ -57,10 +58,10 @@ def parse_planning_snapshot_args(argv: Sequence[str]) -> Dict[str, Any]:
         got = tokens[0] if tokens else ""
         raise ValueError(f"expected one of: {', '.join(COMMANDS)} (got '{got}')")
     command = tokens[0]
-    database: Optional[Path] = None
-    manifest: Optional[Path] = None
-    resume: Optional[Path] = None
-    layer_ids: Optional[tuple[int, ...]] = None
+    database: Path | None = None
+    manifest: Path | None = None
+    resume: Path | None = None
+    layer_ids: tuple[int, ...] | None = None
     as_json = False
     batch_size = PlanningIngestionConfig().batch_size
     max_attempts = PlanningIngestionConfig().max_attempts
@@ -123,7 +124,7 @@ def parse_planning_snapshot_args(argv: Sequence[str]) -> Dict[str, Any]:
                 batch_size = numeric_value
             else:
                 max_attempts = numeric_value
-        elif token.startswith("--batch-size=") or token.startswith("--max-attempts="):
+        elif token.startswith(("--batch-size=", "--max-attempts=")):
             name, raw = token.split("=", 1)
             try:
                 numeric_value = int(raw)
@@ -165,10 +166,10 @@ def _json_safe(value: Any) -> Any:
 
 
 def main(
-    argv: Optional[Sequence[str]] = None,
+    argv: Sequence[str] | None = None,
     *,
-    services: Optional[PlanningSnapshotServices] = None,
-    out: Optional[TextIO] = None,
+    services: PlanningSnapshotServices | None = None,
+    out: TextIO | None = None,
 ) -> int:
     """Dispatch a planning snapshot command and return a process exit code."""
 

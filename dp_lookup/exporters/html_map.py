@@ -10,9 +10,10 @@ Net Developable buildable envelope, and measure tool.
 import json
 import math
 import re
+from collections.abc import Mapping, Sequence
 from html import escape as _escape_html
 from importlib import resources
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any
 
 from shapely.geometry import mapping
 from shapely.ops import unary_union
@@ -50,7 +51,7 @@ def _render_asset_template(name: str, values: Sequence[str]) -> str:
     return _render_resource_template(name, _ASSET_TOKEN_RE, values)
 
 
-def _finite_number(value: Any) -> Optional[float]:
+def _finite_number(value: Any) -> float | None:
     if value is None or isinstance(value, bool):
         return None
     try:
@@ -117,7 +118,7 @@ def _area_presentation(properties: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _area_value_text(value: Optional[float]) -> str:
+def _area_value_text(value: float | None) -> str:
     return f"{value:,.2f} m²" if value is not None else "Not available"
 
 
@@ -171,13 +172,13 @@ def _reliability_css_class(status: str) -> str:
 
 
 def export_html_map(
-    wgs_rings: List[List[List[float]]],
+    wgs_rings: list[list[list[float]]],
     properties: ExportPayload,
     output_path: str,
-    neighbors: Optional[List[Dict[str, Any]]] = None,
-    roads: Optional[Sequence[Sequence[Sequence[float]]]] = None,
-    reservations: Optional[List[Dict[str, Any]]] = None,
-    designations: Optional[List[Dict[str, Any]]] = None,
+    neighbors: list[dict[str, Any]] | None = None,
+    roads: Sequence[Sequence[Sequence[float]]] | None = None,
+    reservations: list[dict[str, Any]] | None = None,
+    designations: list[dict[str, Any]] | None = None,
 ) -> None:
     """
     Generates a streamlined, clean HTML Map Dossier (.html)
@@ -223,7 +224,7 @@ def export_html_map(
         },
     }
 
-    net_plot_geojson: Dict[str, Any] = {
+    net_plot_geojson: dict[str, Any] = {
         "type": "Feature",
         "geometry": mapping(net_geometry),
         "properties": {

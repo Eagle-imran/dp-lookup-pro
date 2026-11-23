@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import io
 import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
 from dp_lookup.core.models import AreaAssessment, ExportData
 
@@ -14,9 +15,9 @@ from dp_lookup.core.models import AreaAssessment, ExportData
 class ParcelContext:
     village: str
     cts_no: str
-    attrs: Dict[str, Any]
-    rings: List[List[List[float]]]
-    wgs_rings: List[List[List[float]]]
+    attrs: dict[str, Any]
+    rings: list[list[list[float]]]
+    wgs_rings: list[list[list[float]]]
     area_sqm: float
     area_source: str
     latitude: float
@@ -25,33 +26,33 @@ class ParcelContext:
     cy: float
     mcx: float
     mcy: float
-    xs: List[float]
-    ys: List[float]
+    xs: list[float]
+    ys: list[float]
     window_radius: float
-    area_assessment: Optional[AreaAssessment] = None
-    authority_resolution: Optional[Mapping[str, Any]] = None
+    area_assessment: AreaAssessment | None = None
+    authority_resolution: Mapping[str, Any] | None = None
 
 
 @dataclass
 class RoadContext:
     name: str
     width: str
-    geometries: List[List[List[float]]] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    geometries: list[list[list[float]]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     evidence_state: str = "confirmed"
     method: str = "boundary_probe"
-    source_layer_ids: List[int] = field(default_factory=list)
-    source_object_ids: List[int] = field(default_factory=list)
-    distance_m: Optional[float] = None
-    snapshot_id: Optional[int] = None
-    selected_source_layer_id: Optional[int] = None
-    selected_source_object_id: Optional[int] = None
+    source_layer_ids: list[int] = field(default_factory=list)
+    source_object_ids: list[int] = field(default_factory=list)
+    distance_m: float | None = None
+    snapshot_id: int | None = None
+    selected_source_layer_id: int | None = None
+    selected_source_object_id: int | None = None
 
 
 @dataclass
 class NeighbourContext:
-    plots: List[Dict[str, Any]] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    plots: list[dict[str, Any]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     evidence_state: str = "confirmed"
     method: str = "probe"
 
@@ -60,9 +61,9 @@ class NeighbourContext:
 class PlanningContext:
     zone: str
     zones: Sequence[Mapping[str, Any]]
-    reservations: List[Dict[str, Any]]
-    designations: List[Dict[str, Any]]
-    modifications: List[Dict[str, Any]]
+    reservations: list[dict[str, Any]]
+    designations: list[dict[str, Any]]
+    modifications: list[dict[str, Any]]
     metro_buffer: str
     crz_status: str
     encumbered_area_sqm: float
@@ -71,8 +72,8 @@ class PlanningContext:
     net_unencumbered_percent: float
     status_badge: str
     status_summary: str
-    warnings: List[str] = field(default_factory=list)
-    evidence: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+    evidence: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @property
     def reservation_code(self) -> str:
@@ -116,7 +117,7 @@ class OutputPaths:
     html_map: str
 
     @property
-    def filenames(self) -> Dict[str, str]:
+    def filenames(self) -> dict[str, str]:
         return {
             "pdf": os.path.basename(self.pdf),
             "dp_map": os.path.basename(self.dp_map),
@@ -137,16 +138,16 @@ class ArtifactContext:
     map_link: str
     export_data: ExportData
     nearest_roads: Sequence[Sequence[Sequence[float]]]
-    artifact_outputs: Dict[str, str] = field(default_factory=dict)
+    artifact_outputs: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
 class MapFetchContext:
     dp_response: Any
     satellite_tiles: Any
-    satellite_coordinates: List[Tuple[int, int]]
-    bbox: Tuple[float, float, float, float]
-    size: Tuple[int, int]
+    satellite_coordinates: list[tuple[int, int]]
+    bbox: tuple[float, float, float, float]
+    size: tuple[int, int]
     tile_x: int
     tile_y: int
     zoom: int
@@ -157,10 +158,10 @@ class MapFetchContext:
 class DpMapRenderRequest:
     """Everything needed to render the Development Plan image."""
 
-    base_png: Optional[bytes]
-    rings: List[List[List[float]]]
-    bbox: Tuple[float, float, float, float]
-    size: Tuple[int, int]
+    base_png: bytes | None
+    rings: list[list[list[float]]]
+    bbox: tuple[float, float, float, float]
+    size: tuple[int, int]
     labels: Mapping[str, Any]
 
 
@@ -168,11 +169,11 @@ class DpMapRenderRequest:
 class SatelliteRenderRequest:
     """Everything needed to stitch and annotate the satellite image."""
 
-    tiles: List[Any]
-    coordinates: List[Tuple[int, int]]
+    tiles: list[Any]
+    coordinates: list[tuple[int, int]]
     grid_dimension: int
-    wgs_rings: List[List[List[float]]]
-    bounds: Tuple[float, float, float, float]
+    wgs_rings: list[list[list[float]]]
+    bounds: tuple[float, float, float, float]
     labels: Mapping[str, Any]
 
 

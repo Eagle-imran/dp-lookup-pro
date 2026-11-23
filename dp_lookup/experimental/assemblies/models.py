@@ -9,13 +9,13 @@ are never changed by the analytical service.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, Sequence, Tuple
 
-Coordinate = Tuple[float, float]
-ArcGISRing = Tuple[Coordinate, ...]
-ArcGISRings = Tuple[ArcGISRing, ...]
+Coordinate = tuple[float, float]
+ArcGISRing = tuple[Coordinate, ...]
+ArcGISRings = tuple[ArcGISRing, ...]
 
 
 def _normalise_rings(raw_rings: Sequence[Sequence[Sequence[float]]]) -> ArcGISRings:
@@ -51,8 +51,8 @@ class ParcelAssemblyInput:
     cts_no: str
     objectids: Sequence[int]
     raw_arcgis_rings: Sequence[Sequence[Sequence[float]]]
-    recorded_area_sqm: Optional[float]
-    ward: Optional[str] = None
+    recorded_area_sqm: float | None
+    ward: str | None = None
     source_label: str = "MCGM cadastral parcel record"
 
     def __post_init__(self) -> None:
@@ -136,10 +136,10 @@ class AssemblyAnalysis:
     amalgamation plan.
     """
 
-    selected_parcels: Tuple[ParcelAssemblyInput, ...]
+    selected_parcels: tuple[ParcelAssemblyInput, ...]
     analysis_crs: str
     gap_tolerance_m: float
-    gross_recorded_area_sqm: Optional[float]
+    gross_recorded_area_sqm: float | None
     known_recorded_area_sqm: float
     recorded_area_complete: bool
     calculated_input_boundary_area_sqm: float
@@ -149,7 +149,7 @@ class AssemblyAnalysis:
     overlap_or_duplicate_area_sqm: float
     is_strictly_connected: bool
     is_connected_within_tolerance: bool
-    pairwise_relations: Tuple[PairwiseParcelRelation, ...]
+    pairwise_relations: tuple[PairwiseParcelRelation, ...]
     suitability_status: AssemblySuitabilityStatus
-    warnings: Tuple[AssemblyWarning, ...] = field(default_factory=tuple)
-    combined_boundary_wkt: Optional[str] = None
+    warnings: tuple[AssemblyWarning, ...] = field(default_factory=tuple)
+    combined_boundary_wkt: str | None = None

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, Iterable, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
 import httpx
 
@@ -25,8 +26,8 @@ from dp_lookup.core.topology import arcgis_rings_to_geometry
 
 RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
-InventoryConsumer = Callable[[Tuple[int, ...], Mapping[str, Any]], Awaitable[Iterable[int]]]
-BatchConsumer = Callable[[Tuple[SnapshotFeature, ...]], Awaitable[Any]]
+InventoryConsumer = Callable[[tuple[int, ...], Mapping[str, Any]], Awaitable[Iterable[int]]]
+BatchConsumer = Callable[[tuple[SnapshotFeature, ...]], Awaitable[Any]]
 
 
 @dataclass(frozen=True)
@@ -98,7 +99,7 @@ async def _get_json(
     *,
     post_form: bool = False,
 ) -> Mapping[str, Any]:
-    last_error: Optional[BaseException] = None
+    last_error: BaseException | None = None
     for attempt in range(1, config.max_attempts + 1):
         response: Any = None
         try:
@@ -134,7 +135,7 @@ async def _get_json(
     raise SnapshotIngestionError("Layer 13 request failed without a response.") from last_error
 
 
-def _int_id(value: Any) -> Optional[int]:
+def _int_id(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
     try:
@@ -144,12 +145,12 @@ def _int_id(value: Any) -> Optional[int]:
     return integer if integer >= 0 and str(value).strip() not in {"", "None", "null"} else None
 
 
-def _sorted_ids(values: Iterable[Any]) -> Tuple[int, ...]:
+def _sorted_ids(values: Iterable[Any]) -> tuple[int, ...]:
     parsed = [_int_id(value) for value in values]
     return tuple(sorted({value for value in parsed if value is not None}))
 
 
-def _chunks(values: Sequence[int], size: int) -> Iterable[Tuple[int, ...]]:
+def _chunks(values: Sequence[int], size: int) -> Iterable[tuple[int, ...]]:
     for offset in range(0, len(values), size):
         yield tuple(values[offset : offset + size])
 
@@ -168,11 +169,11 @@ def _usable_polygon(geometry: Mapping[str, Any]) -> bool:
 async def ingest_layer13_snapshot(
     client: Any,
     *,
-    config: Optional[SnapshotIngestionConfig] = None,
-    checkpoint: Optional[SnapshotCheckpoint] = None,
-    prior_features: Optional[Mapping[int, SnapshotFeature]] = None,
-    on_inventory: Optional[InventoryConsumer] = None,
-    on_batch: Optional[BatchConsumer] = None,
+    config: SnapshotIngestionConfig | None = None,
+    checkpoint: SnapshotCheckpoint | None = None,
+    prior_features: Mapping[int, SnapshotFeature] | None = None,
+    on_inventory: InventoryConsumer | None = None,
+    on_batch: BatchConsumer | None = None,
     retain_features: bool = True,
     sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
 ) -> SnapshotIngestionResult:
@@ -210,7 +211,7 @@ async def ingest_layer13_snapshot(
         layer_metadata = await _get_json(client, LAYER13_URL, {"f": "json"}, cfg, sleep)
     object_id_field = resolve_object_id_field(layer_metadata)
     if on_inventory is not None:
-        source_context: Dict[str, Any] = {
+        source_context: dict[str, Any] = {
             "source_url": LAYER13_URL,
             "layer_id": LAYER13_ID,
             "object_id_field": object_id_field,
@@ -223,7 +224,7 @@ async def ingest_layer13_snapshot(
         completed.update(persisted_ids)
 
     received_ids_set = set(completed) | {oid for oid in prior if oid in expected_id_set}
-    received: Dict[int, SnapshotFeature] = (
+    received: dict[int, SnapshotFeature] = (
         {oid: feature for oid, feature in prior.items() if oid in expected_id_set} if retain_features else {}
     )
     duplicates: set[int] = set()
@@ -232,7 +233,7 @@ async def ingest_layer13_snapshot(
     batch_errors: list[str] = []
     invalid_count = 0
     observed_fields: set[str] = set()
-    observed_geometry: Optional[str] = None
+    observed_geometry: str | None = None
 
     pending = [oid for oid in expected_ids if oid not in received_ids_set]
     for batch in _chunks(pending, cfg.batch_size):
@@ -307,7 +308,7 @@ async def ingest_layer13_snapshot(
     missing_ids = tuple(sorted(set(expected_ids) - set(received_ids)))
     rejected_ids = tuple(sorted(set(rejected) | rejected_this_run))
     raw_for_hash = [received[oid].raw_feature for oid in received_ids] if set(received) == set(received_ids) else []
-    schema_metadata: Dict[str, Any] = {
+    schema_metadata: dict[str, Any] = {
         "object_id_field": object_id_field,
         "fields_observed": sorted(observed_fields),
         "geometry_type_observed": observed_geometry,
@@ -315,7 +316,7 @@ async def ingest_layer13_snapshot(
     if layer_metadata:
         schema_metadata["layer_metadata"] = dict(layer_metadata)
     source_sr_value = inventory.get("spatialReference") or layer_metadata.get("spatialReference")
-    source_sr: Optional[Mapping[str, Any]] = source_sr_value if isinstance(source_sr_value, Mapping) else None
+    source_sr: Mapping[str, Any] | None = source_sr_value if isinstance(source_sr_value, Mapping) else None
     source_metadata = {
         "service_url": LAYER13_URL,
         "layer_id": LAYER13_ID,

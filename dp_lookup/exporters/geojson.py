@@ -3,7 +3,8 @@ GeoJSON Vector File Exporter with Multi-Layer Sub-Features.
 """
 
 import json
-from typing import Any, List, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from dp_lookup.core.topology import rings_to_geojson_geometry
 from dp_lookup.exporters.contracts import ExportPayload, legacy_export_properties
@@ -24,7 +25,7 @@ def _public_area_source(properties: Mapping[str, Any], assessment: Mapping[str, 
 
 
 def export_geojson(
-    wgs_rings: List[List[List[float]]],
+    wgs_rings: list[list[list[float]]],
     properties: ExportPayload,
     output_path: str,
 ) -> None:

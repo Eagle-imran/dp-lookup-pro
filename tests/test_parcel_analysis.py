@@ -26,7 +26,11 @@ def test_shared_edge_and_tolerance_gap_and_exclusion():
 
 
 def test_holes_and_multipart_union_area():
-    rings = [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]], [[2, 2], [2, 4], [4, 4], [4, 2], [2, 2]], [[20, 0], [22, 0], [22, 2], [20, 2], [20, 0]]]
+    rings = [
+        [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]],
+        [[2, 2], [2, 4], [4, 4], [4, 2], [2, 2]],
+        [[20, 0], [22, 0], [22, 2], [20, 2], [20, 0]],
+    ]
     result = amalgamate([ParcelGeometryRecord(9, "W", "9", 0, rings)])
     assert result.area_sqm == pytest.approx(100 - 4 + 4)
 
@@ -43,4 +47,7 @@ def test_filter_official_area_and_stable_sort():
     records = [parcel(3, 0, 30), parcel(1, 0, 100), parcel(2, 0, 50, "COLABA")]
     found = filter_parcels(records, SearchCriteria(village="worli", min_area_sqm=40, max_area_sqm=110))
     assert [r.objectid for r in found] == [1]
-    assert [r.objectid for r in filter_parcels(records, SearchCriteria(ward="A"), wards={1: "A", 2: "B", 3: "A"})] == [1, 3]
+    assert [r.objectid for r in filter_parcels(records, SearchCriteria(ward="A"), wards={1: "A", 2: "B", 3: "A"})] == [
+        1,
+        3,
+    ]

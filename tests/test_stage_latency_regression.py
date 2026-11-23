@@ -13,7 +13,7 @@ import io
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from PIL import Image
 
@@ -30,12 +30,12 @@ def _png_bytes() -> bytes:
 class _Response:
     status_code = 200
 
-    def __init__(self, payload: Optional[Dict[str, Any]] = None, content: bytes = b"") -> None:
+    def __init__(self, payload: dict[str, Any] | None = None, content: bytes = b"") -> None:
         self._payload = payload
         self.content = content
         self.headers = {"content-type": "image/png" if content else "application/json"}
 
-    def json(self) -> Dict[str, Any]:
+    def json(self) -> dict[str, Any]:
         if self._payload is None:
             raise ValueError("not JSON")
         return self._payload
@@ -45,7 +45,7 @@ class _DelayedClient:
     def __init__(self, delay_s: float) -> None:
         self.delay_s = delay_s
 
-    async def __aenter__(self) -> "_DelayedClient":
+    async def __aenter__(self) -> _DelayedClient:
         return self
 
     async def __aexit__(self, exc_type: Any, exc: Any, traceback: Any) -> bool:
@@ -61,7 +61,7 @@ class _DelayedClient:
             return _Response(content=_png_bytes())
         raise AssertionError(f"unexpected GET in latency harness: {url}")
 
-    async def post(self, url: str, *, data: Optional[Dict[str, Any]] = None) -> _Response:
+    async def post(self, url: str, *, data: dict[str, Any] | None = None) -> _Response:
         await asyncio.sleep(self.delay_s)
         if not url.endswith("/identify"):
             raise AssertionError(f"unexpected POST in latency harness: {url}")
@@ -71,7 +71,7 @@ class _DelayedClient:
         return _Response({"results": [{"layerId": 0, "attributes": {"Zone_Code2": "R"}}]})
 
 
-def _parcel() -> Dict[str, Any]:
+def _parcel() -> dict[str, Any]:
     return {
         "attributes": {
             "WARD": "G/S",
@@ -81,9 +81,15 @@ def _parcel() -> Dict[str, Any]:
             "AREA_APP_SQ_MTRS": 100.0,
         },
         "geometry": {
-            "rings": [[[8106500.0, 2151700.0], [8106510.0, 2151700.0],
-                        [8106510.0, 2151710.0], [8106500.0, 2151710.0],
-                        [8106500.0, 2151700.0]]]
+            "rings": [
+                [
+                    [8106500.0, 2151700.0],
+                    [8106510.0, 2151700.0],
+                    [8106510.0, 2151710.0],
+                    [8106500.0, 2151710.0],
+                    [8106500.0, 2151700.0],
+                ]
+            ]
         },
     }
 
@@ -93,11 +99,11 @@ def _dependencies(delay_s: float):
         del verify_tls
         return _DelayedClient(delay_s)
 
-    async def parcel_fetcher(_client: Any, _village: str, _cts: str) -> Dict[str, Any]:
+    async def parcel_fetcher(_client: Any, _village: str, _cts: str) -> dict[str, Any]:
         await asyncio.sleep(delay_s)
         return _parcel()
 
-    async def planning_query(_client: Any, _rings: Any) -> Dict[str, Any]:
+    async def planning_query(_client: Any, _rings: Any) -> dict[str, Any]:
         await asyncio.sleep(delay_s)
         return {
             "primary_zone": "R",

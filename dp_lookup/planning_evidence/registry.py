@@ -7,7 +7,7 @@ classify the returned evidence; they do not decide whether a parcel is legally
 developable.
 """
 
-from typing import Dict, Iterable, Optional, Sequence, Tuple
+from collections.abc import Iterable, Sequence
 
 from dp_lookup.planning_evidence.models import (
     EvidenceClass,
@@ -19,7 +19,7 @@ from dp_lookup.planning_evidence.models import (
 
 SERVER_URL = "https://agsmaps.mcgm.gov.in/server/rest/services/Development_Plan_2034/MapServer"
 
-CANONICAL_LAYER_IDS: Dict[int, int] = {
+CANONICAL_LAYER_IDS: dict[int, int] = {
     57: 61,
     2251: 2250,
     2252: 2250,
@@ -32,11 +32,11 @@ def _spec(
     evidence_class: EvidenceClass,
     role: str,
     *,
-    out_fields: Tuple[str, ...] = ("OBJECTID",),
+    out_fields: tuple[str, ...] = ("OBJECTID",),
     query_policy: QueryPolicy = QueryPolicy.ALWAYS,
     geometry_type: str = "esriGeometryPolygon",
     object_id_field: str = "OBJECTID",
-    canonical_id: Optional[int] = None,
+    canonical_id: int | None = None,
     audit_note: str = "Audited against the MCGM Development_Plan_2034 MapServer; spatial overlap is screening evidence only.",
 ) -> LayerSpec:
     return LayerSpec(
@@ -53,7 +53,8 @@ def _spec(
     )
 
 
-LAYER_SPECS: Tuple[LayerSpec, ...] = (
+# fmt: off
+LAYER_SPECS: tuple[LayerSpec, ...] = (
     _spec(13, "Global_Property_merge_v7", EvidenceClass.CONTEXTUAL, "CTS cadastral parcel", out_fields=("OBJECTID", "VILLAGE", "CTS_CS_NO", "WARD")),
     _spec(0, "REVISED PLU ZONES", EvidenceClass.REGULATORY, "DP zoning", out_fields=("OBJECTID", "ZONE_CODE2")),
     _spec(46, "PLU_RESERVATION", EvidenceClass.REGULATORY, "DP reservation", out_fields=("OBJECTID", "NEW_RES_CODE_31", "NEW_RES_MAINTYPE_31", "DISCRIPTION", "U_R_ID", "FINAL_RES_CODE", "FINAL_RES_MAINTYPE")),
@@ -138,18 +139,35 @@ LAYER_SPECS: Tuple[LayerSpec, ...] = (
     _spec(1126, "ExistingRoads", EvidenceClass.CONTEXTUAL, "Gorai-Manori existing road", query_policy=QueryPolicy.GORAI, out_fields=("OBJECTID", "REFERENCE", "WARD", "TYPE", "LOCATION", "DDP34_SHEET_NO_", "REMARK")),
     _spec(1127, "ProposedRoads", EvidenceClass.REGULATORY, "Gorai-Manori proposed road", query_policy=QueryPolicy.GORAI, out_fields=("OBJECTID", "WIDTH", "WARD", "TYPE", "ROADNAME", "SHEET_NO", "ROAD_TYPE2", "MOD_NO", "EP_NO", "FINAL_REMARK")),
 )
+# fmt: on
 
 
-CURRENT_CORE_LAYER_IDS: Tuple[int, ...] = (
-    13, 0, 46, 47, 192, 1550, 14, 1264, 1548, 193, 194, 44, 45, 2224
+CURRENT_CORE_LAYER_IDS: tuple[int, ...] = (13, 0, 46, 47, 192, 1550, 14, 1264, 1548, 193, 194, 44, 45, 2224)
+STANDARD_LAYER_IDS: tuple[int, ...] = (83, 2000, 92, 60, 61, 85, 81, 2250)
+FULL_ALWAYS_LAYER_IDS: tuple[int, ...] = (
+    77,
+    78,
+    79,
+    29,
+    30,
+    20,
+    19,
+    197,
+    16,
+    1149,
+    48,
+    49,
+    72,
+    1210,
+    1211,
+    2400,
+    112,
+    1524,
+    1502,
 )
-STANDARD_LAYER_IDS: Tuple[int, ...] = (83, 2000, 92, 60, 61, 85, 81, 2250)
-FULL_ALWAYS_LAYER_IDS: Tuple[int, ...] = (
-    77, 78, 79, 29, 30, 20, 19, 197, 16, 1149, 48, 49, 72, 1210, 1211, 2400, 112, 1524, 1502
-)
 
 
-LAYER_REGISTRY: Dict[int, LayerSpec] = {spec.layer_id: spec for spec in LAYER_SPECS}
+LAYER_REGISTRY: dict[int, LayerSpec] = {spec.layer_id: spec for spec in LAYER_SPECS}
 
 
 def canonical_layer_id(layer_id: int) -> int:
@@ -165,20 +183,20 @@ def canonical_layer_id(layer_id: int) -> int:
     return current
 
 
-def get_layer_spec(layer_id: int, *, canonical: bool = False) -> Optional[LayerSpec]:
+def get_layer_spec(layer_id: int, *, canonical: bool = False) -> LayerSpec | None:
     """Return a registered spec, optionally resolving aliases first."""
 
     source_id = canonical_layer_id(layer_id) if canonical else int(layer_id)
     return LAYER_REGISTRY.get(source_id)
 
 
-def get_canonical_spec(layer_id: int) -> Optional[LayerSpec]:
+def get_canonical_spec(layer_id: int) -> LayerSpec | None:
     """Return the canonical spec for a source ID or ``None`` if unregistered."""
 
     return get_layer_spec(layer_id, canonical=True)
 
 
-def deduplicate_layer_specs(specs: Iterable[LayerSpec]) -> Tuple[LayerSpec, ...]:
+def deduplicate_layer_specs(specs: Iterable[LayerSpec]) -> tuple[LayerSpec, ...]:
     """Canonicalise and de-duplicate specs while preserving input order."""
 
     result = []
@@ -195,12 +213,12 @@ def deduplicate_layer_specs(specs: Iterable[LayerSpec]) -> Tuple[LayerSpec, ...]
 def applicable_layer_specs(
     specs: Iterable[LayerSpec] = LAYER_SPECS,
     *,
-    context: Optional[EvidenceContext] = None,
+    context: EvidenceContext | None = None,
     coastal: bool = False,
     tps: bool = False,
     spa: bool = False,
     gorai: bool = False,
-) -> Tuple[LayerSpec, ...]:
+) -> tuple[LayerSpec, ...]:
     """Return canonical, de-duplicated specs applicable to parcel context."""
 
     active_context = context or EvidenceContext(coastal=coastal, tps=tps, spa=spa, gorai=gorai)
@@ -214,8 +232,8 @@ deduplicated_specs = deduplicate_layer_specs
 def specs_for_mode(
     mode: EvidenceMode,
     *,
-    context: Optional[EvidenceContext] = None,
-) -> Tuple[LayerSpec, ...]:
+    context: EvidenceContext | None = None,
+) -> tuple[LayerSpec, ...]:
     """Return the curated, canonical query set for a runtime evidence mode."""
 
     selected_mode = EvidenceMode.parse(mode)

@@ -9,4 +9,3 @@ def test_unrecognized_namespace_is_left_for_the_lookup_parser():
 
 def test_empty_args_are_left_for_the_lookup_parser():
     assert dispatch.dispatch_admin_command([]) is None
-

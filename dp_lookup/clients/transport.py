@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any
 
 import httpx
 
@@ -34,7 +35,7 @@ class RetryPolicy:
             raise ValueError("retry delays must not be negative")
 
 
-def arcgis_headers() -> Dict[str, str]:
+def arcgis_headers() -> dict[str, str]:
     return {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -56,8 +57,8 @@ class ArcGISClient:
         self,
         timeout_seconds: float,
         verify_tls: bool = True,
-        retry_policy: Optional[RetryPolicy] = None,
-        transport: Optional[httpx.AsyncBaseTransport] = None,
+        retry_policy: RetryPolicy | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
     ) -> None:
         limits = httpx.Limits(max_keepalive_connections=20, max_connections=30)
@@ -71,7 +72,7 @@ class ArcGISClient:
         self.retry_policy = retry_policy or RetryPolicy()
         self._sleep = sleep
 
-    async def __aenter__(self) -> "ArcGISClient":
+    async def __aenter__(self) -> ArcGISClient:
         await self._client.__aenter__()
         return self
 
@@ -81,7 +82,7 @@ class ArcGISClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    def _retry_delay(self, attempt: int, response: Optional[httpx.Response] = None) -> float:
+    def _retry_delay(self, attempt: int, response: httpx.Response | None = None) -> float:
         retry_after = response.headers.get("Retry-After") if response is not None else None
         if retry_after:
             try:
@@ -92,7 +93,7 @@ class ArcGISClient:
         return min(self.retry_policy.max_delay_seconds, exponential)
 
     async def request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
-        last_exception: Optional[Exception] = None
+        last_exception: Exception | None = None
         for attempt in range(1, self.retry_policy.max_attempts + 1):
             try:
                 response = await self._client.request(method, url, **kwargs)

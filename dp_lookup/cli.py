@@ -4,11 +4,13 @@ This module intentionally remains a compatibility facade.  Parsing,
 dependency composition, command execution, and terminal presentation live in
 focused modules so embedded callers can reuse each boundary independently.
 """
+
 from __future__ import annotations
 
 import sys
+from collections.abc import Sequence
 from importlib import metadata as importlib_metadata
-from typing import Any, Optional, Sequence
+from typing import Any
 
 from dp_lookup.application.dependencies import DEFAULT_DEPENDENCIES
 from dp_lookup.application.ingestion import fetch_parcel_feature
@@ -79,7 +81,7 @@ def _print_villages() -> None:
     print_villages(MCGM_VILLAGES)
 
 
-def _local_snapshot_selection(source_mode: str, database_path: str) -> tuple[str, Optional[int]]:
+def _local_snapshot_selection(source_mode: str, database_path: str) -> tuple[str, int | None]:
     """Compatibility wrapper used by cache-contract tests and callers."""
     return local_snapshot_selection(source_mode, database_path)
 
@@ -102,7 +104,7 @@ def _has_database_option(args: Sequence[str]) -> bool:
 
 def _compose_lookup_runtime(
     source_mode: str,
-    database_path: Optional[str],
+    database_path: str | None,
     evidence_mode: EvidenceMode,
     *,
     snapshot_selector: Any,
@@ -126,13 +128,15 @@ def _parse_cli_args(raw_args: list[str]) -> dict[str, Any]:
     return parse_cli_args(raw_args)
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Console entry point.  Returns a process-compatible exit code."""
     raw_args = list(sys.argv[1:] if argv is None else argv)
     if raw_args and raw_args[0] == "lookup":
         raw_args = raw_args[1:]
-    if raw_args and raw_args[0] in {"db", "database"} and (
-        len(raw_args) == 1 or any(token in {"--help", "-h"} for token in raw_args[1:])
+    if (
+        raw_args
+        and raw_args[0] in {"db", "database"}
+        and (len(raw_args) == 1 or any(token in {"--help", "-h"} for token in raw_args[1:]))
     ):
         print(DATABASE_HELP)
         return EXIT_SUCCESS

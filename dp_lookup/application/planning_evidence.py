@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from dp_lookup.planning_evidence.models import EvidenceMode, PlanningEvidenceReport
 
@@ -16,7 +17,7 @@ def evidence_cache_key(base_key: str, mode: EvidenceMode) -> str:
     return f"{base_key}:planning-evidence-v1:{mode.value}"
 
 
-def cache_suppression_warning(warnings: Sequence[str], planning_evidence: Optional[Mapping[str, Any]]) -> Optional[str]:
+def cache_suppression_warning(warnings: Sequence[str], planning_evidence: Mapping[str, Any] | None) -> str | None:
     """Explain why neither a degraded core nor evidence result may be cached."""
 
     if warnings:
@@ -29,7 +30,7 @@ def cache_suppression_warning(warnings: Sequence[str], planning_evidence: Option
 def normalize_evidence_stage(
     result: Any,
     mode: EvidenceMode,
-) -> Tuple[Optional[Dict[str, Any]], str, Dict[str, Any], Optional[str]]:
+) -> tuple[dict[str, Any] | None, str, dict[str, Any], str | None]:
     """Turn an optional analyzer result into nested metadata and telemetry."""
 
     if mode is EvidenceMode.BASIC:

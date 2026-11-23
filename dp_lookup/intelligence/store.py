@@ -5,9 +5,10 @@ from __future__ import annotations
 import contextlib
 import json
 import sqlite3
-from datetime import datetime, timezone
+from collections.abc import Iterator, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union, cast
+from typing import Any, cast
 
 from dp_lookup.intelligence.models import IntelligenceBuild, PlotIntelligence
 
@@ -19,7 +20,7 @@ class IntelligenceStateError(RuntimeError):
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _json(value: Any) -> str:
@@ -132,12 +133,12 @@ CREATE TABLE IF NOT EXISTS intelligence_activations (
 
 
 class IntelligenceStore:
-    def __init__(self, connection: sqlite3.Connection, path: Union[str, Path]) -> None:
+    def __init__(self, connection: sqlite3.Connection, path: str | Path) -> None:
         self.connection = connection
         self.path = Path(path)
 
     @classmethod
-    def open(cls, path: Union[str, Path]) -> "IntelligenceStore":
+    def open(cls, path: str | Path) -> IntelligenceStore:
         path_obj = Path(path)
         path_obj.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(str(path_obj), timeout=30.0)
@@ -160,7 +161,7 @@ class IntelligenceStore:
     def close(self) -> None:
         self.connection.close()
 
-    def __enter__(self) -> "IntelligenceStore":
+    def __enter__(self) -> IntelligenceStore:
         return self
 
     def __exit__(self, *_: Any) -> None:
@@ -186,7 +187,7 @@ class IntelligenceStore:
         source_fingerprint: str,
         scope: str = "full",
         resume: bool = True,
-        parameters: Optional[Mapping[str, Any]] = None,
+        parameters: Mapping[str, Any] | None = None,
     ) -> int:
         if scope not in {"full", "sample"}:
             raise ValueError("scope must be full or sample")
@@ -243,7 +244,7 @@ class IntelligenceStore:
             raise IntelligenceStateError(f"intelligence build {build_id} is {row['state']}, not building")
         return row
 
-    def completed_keys(self, build_id: int) -> Tuple[Tuple[str, str], ...]:
+    def completed_keys(self, build_id: int) -> tuple[tuple[str, str], ...]:
         self._build_row(build_id)
         return tuple(
             (str(row["village"]), str(row["cts_no"]))
@@ -345,7 +346,7 @@ class IntelligenceStore:
                 (build_id, village, cts_no, str(error), _now()),
             )
 
-    def verify(self, build_id: int) -> Dict[str, Any]:
+    def verify(self, build_id: int) -> dict[str, Any]:
         row = self._build_row(build_id)
         actual = int(
             self.connection.execute("SELECT COUNT(*) FROM plot_intelligence WHERE build_id=?", (build_id,)).fetchone()[
@@ -370,7 +371,7 @@ class IntelligenceStore:
                 "SELECT COUNT(*) FROM intelligence_issues WHERE build_id=?", (build_id,)
             ).fetchone()[0]
         )
-        errors: List[str] = []
+        errors: list[str] = []
         if actual != int(row["expected_count"]):
             errors.append(f"expected {row['expected_count']} plot records but found {actual}")
         if bad_hashes:
@@ -425,7 +426,7 @@ class IntelligenceStore:
             )
         return self.build(build_id)
 
-    def active_build_id(self) -> Optional[int]:
+    def active_build_id(self) -> int | None:
         row = self.connection.execute(
             "SELECT build_id FROM intelligence_activations WHERE deactivated_at IS NULL "
             "ORDER BY activation_id DESC LIMIT 1"
@@ -474,7 +475,7 @@ class IntelligenceStore:
             validation=cast(Mapping[str, Any], _loads(row["validation_json"], {})),
         )
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         return {
             "path": str(self.path),
             "schema_version": SCHEMA_VERSION,
@@ -485,7 +486,7 @@ class IntelligenceStore:
             ],
         }
 
-    def _selected_build(self, build_id: Optional[int]) -> int:
+    def _selected_build(self, build_id: int | None) -> int:
         selected = build_id if build_id is not None else self.active_build_id()
         if selected is None:
             raise IntelligenceStateError("no active plot-intelligence build is available")
@@ -493,7 +494,7 @@ class IntelligenceStore:
         return selected
 
     @staticmethod
-    def _plot(row: sqlite3.Row) -> Dict[str, Any]:
+    def _plot(row: sqlite3.Row) -> dict[str, Any]:
         result = dict(row)
         for key in (
             "source_objectids",
@@ -509,7 +510,7 @@ class IntelligenceStore:
             result[key] = _loads(result.pop(f"{key}_json"), [] if key != "evidence_summary" else {})
         return result
 
-    def get(self, village: str, cts_no: str, *, build_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    def get(self, village: str, cts_no: str, *, build_id: int | None = None) -> dict[str, Any] | None:
         selected = self._selected_build(build_id)
         row = self.connection.execute(
             "SELECT * FROM plot_intelligence WHERE build_id=? AND village=? AND cts_no=?",
@@ -547,24 +548,24 @@ class IntelligenceStore:
     def search(
         self,
         *,
-        build_id: Optional[int] = None,
-        village: Optional[str] = None,
-        ward: Optional[str] = None,
-        min_area_sqm: Optional[float] = None,
-        max_area_sqm: Optional[float] = None,
-        zone: Optional[str] = None,
-        reservations: Optional[bool] = None,
-        designations: Optional[bool] = None,
-        max_encumbered_percent: Optional[float] = None,
-        road_name: Optional[str] = None,
+        build_id: int | None = None,
+        village: str | None = None,
+        ward: str | None = None,
+        min_area_sqm: float | None = None,
+        max_area_sqm: float | None = None,
+        zone: str | None = None,
+        reservations: bool | None = None,
+        designations: bool | None = None,
+        max_encumbered_percent: float | None = None,
+        road_name: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         selected = self._selected_build(build_id)
         if limit < 1 or limit > 10_000 or offset < 0:
             raise ValueError("limit must be 1..10000 and offset must be non-negative")
         clauses = ["build_id=?"]
-        params: List[Any] = [selected]
+        params: list[Any] = [selected]
         filters = (
             (village, "village=?", lambda value: str(value).strip().upper()),
             (ward, "ward=?", lambda value: str(value).strip().upper()),
@@ -594,7 +595,7 @@ class IntelligenceStore:
         )
         return [self._plot(row) for row in rows]
 
-    def compare(self, identities: Sequence[Tuple[str, str]], *, build_id: Optional[int] = None) -> Dict[str, Any]:
+    def compare(self, identities: Sequence[tuple[str, str]], *, build_id: int | None = None) -> dict[str, Any]:
         if len(identities) < 2 or len(identities) > 20:
             raise ValueError("compare requires between 2 and 20 plots")
         selected = self._selected_build(build_id)

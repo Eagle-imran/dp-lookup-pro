@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Awaitable, Dict, List, Tuple, cast
+from collections.abc import Awaitable
+from typing import Any, cast
 
 from dp_lookup.application.contracts import NeighbourContext, ParcelContext
 from dp_lookup.application.neighbour_normalization import ADJACENCY_TOLERANCE_M, parse_live_neighbours
@@ -12,7 +13,7 @@ from dp_lookup.core.constants import ROAD_LAYERS, SERVER_URL
 from dp_lookup.core.geometry import road_probe_points
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
-ProbePoint = Tuple[float, float]
+ProbePoint = tuple[float, float]
 ProbeRequest = Awaitable[Any]
 
 
@@ -21,19 +22,19 @@ def build_live_road_queries(
     parcel: ParcelContext,
     *,
     has_local_road: bool,
-) -> Tuple[List[ProbePoint], List[ProbeRequest]]:
+) -> tuple[list[ProbePoint], list[ProbeRequest]]:
     """Create rate-limited road probes only when local data is absent."""
     semaphore = asyncio.Semaphore(6)
 
-    async def post_limited(data: Dict[str, Any]) -> Any:
+    async def post_limited(data: dict[str, Any]) -> Any:
         async with semaphore:
             return await client.post(f"{SERVER_URL}/identify", data=data)
 
     road_points = cast(
-        List[ProbePoint],
+        list[ProbePoint],
         [] if has_local_road else road_probe_points(parcel.rings[0], parcel.mcx, parcel.mcy, parcel.xs, parcel.ys),
     )
-    road_tasks: List[ProbeRequest] = [
+    road_tasks: list[ProbeRequest] = [
         post_limited(
             identify_payload(
                 x,

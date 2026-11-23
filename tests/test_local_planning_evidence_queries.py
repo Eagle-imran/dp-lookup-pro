@@ -1,7 +1,7 @@
 """Focused contracts for local-first STANDARD/FULL planning evidence."""
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -68,11 +68,9 @@ class _Store:
 def test_local_standard_uses_one_pinned_snapshot_and_matches_live_findings():
     rings = [_ring()]
     live = asyncio.run(collect_planning_evidence(_LiveClient(), rings, "COLABA", EvidenceMode.STANDARD))
-    store = _Store(datetime.now(timezone.utc))
+    store = _Store(datetime.now(UTC))
     local = asyncio.run(
-        LocalFirstPlanningEvidenceAnalyzer(store, mode="local")(
-            _LiveClient(), rings, "COLABA", EvidenceMode.STANDARD
-        )
+        LocalFirstPlanningEvidenceAnalyzer(store, mode="local")(_LiveClient(), rings, "COLABA", EvidenceMode.STANDARD)
     )
 
     assert local.complete is live.complete
@@ -84,7 +82,7 @@ def test_local_standard_uses_one_pinned_snapshot_and_matches_live_findings():
 
 
 def test_auto_falls_back_to_live_when_snapshot_is_older_than_biannual_limit():
-    old = datetime.now(timezone.utc) - timedelta(days=DEFAULT_MAX_PLANNING_EVIDENCE_AGE_DAYS + 1)
+    old = datetime.now(UTC) - timedelta(days=DEFAULT_MAX_PLANNING_EVIDENCE_AGE_DAYS + 1)
     store = _Store(old)
     report = asyncio.run(
         LocalFirstPlanningEvidenceAnalyzer(store, mode="auto")(
@@ -99,7 +97,7 @@ def test_auto_falls_back_to_live_when_snapshot_is_older_than_biannual_limit():
 
 
 def test_local_mode_surfaces_snapshot_failure_without_live_fallback():
-    store = _Store(datetime.now(timezone.utc))
+    store = _Store(datetime.now(UTC))
 
     def fail(*args):
         del args
@@ -120,17 +118,13 @@ def test_local_mode_surfaces_snapshot_failure_without_live_fallback():
 
 def test_basic_and_live_modes_bypass_local_snapshot_safely():
     basic = asyncio.run(
-        LocalFirstPlanningEvidenceAnalyzer(None, mode="local")(
-            _LiveClient(), [_ring()], "COLABA", EvidenceMode.BASIC
-        )
+        LocalFirstPlanningEvidenceAnalyzer(None, mode="local")(_LiveClient(), [_ring()], "COLABA", EvidenceMode.BASIC)
     )
     assert basic.complete is True
     assert basic.outcomes == ()
 
     live = asyncio.run(
-        LocalFirstPlanningEvidenceAnalyzer(None, mode="live")(
-            _LiveClient(), [_ring()], "COLABA", EvidenceMode.STANDARD
-        )
+        LocalFirstPlanningEvidenceAnalyzer(None, mode="live")(_LiveClient(), [_ring()], "COLABA", EvidenceMode.STANDARD)
     )
     assert live.provenance == {
         "source": "live_arcgis",
@@ -151,7 +145,7 @@ def test_constructor_and_snapshot_metadata_guards():
             )
         )
 
-    store = _Store(datetime.now(timezone.utc))
+    store = _Store(datetime.now(UTC))
     store.snapshot.snapshot_id = ""
     with pytest.raises(LocalPlanningEvidenceError, match="no valid snapshot ID"):
         asyncio.run(
@@ -160,7 +154,7 @@ def test_constructor_and_snapshot_metadata_guards():
             )
         )
 
-    store = _Store(datetime.now(timezone.utc))
+    store = _Store(datetime.now(UTC))
     store.snapshot.complete = False
     with pytest.raises(LocalPlanningEvidenceError, match="incomplete"):
         asyncio.run(
@@ -171,11 +165,11 @@ def test_constructor_and_snapshot_metadata_guards():
 
 
 def test_stale_strict_evidence_can_be_used_with_visible_warning():
-    old = datetime.now(timezone.utc) - timedelta(days=400)
+    old = datetime.now(UTC) - timedelta(days=400)
     report = asyncio.run(
-        LocalFirstPlanningEvidenceAnalyzer(
-            _Store(old), mode="local", allow_stale_local=True
-        )(_LiveClient(), [_ring()], "COLABA", EvidenceMode.STANDARD)
+        LocalFirstPlanningEvidenceAnalyzer(_Store(old), mode="local", allow_stale_local=True)(
+            _LiveClient(), [_ring()], "COLABA", EvidenceMode.STANDARD
+        )
     )
     assert report.provenance["snapshot_stale"] is True
     assert any("stale" in warning for warning in report.warnings)
@@ -198,7 +192,7 @@ def test_evidence_rejects_invalid_snapshot_timestamps(finalized_at, message):
 def test_evidence_store_shape_and_geometry_errors_are_not_hidden():
     class MissingQuery:
         def pin_active_snapshot(self):
-            return _Snapshot(datetime.now(timezone.utc))
+            return _Snapshot(datetime.now(UTC))
 
     with pytest.raises(LocalPlanningEvidenceError, match="no spatial layer query"):
         asyncio.run(
@@ -213,14 +207,14 @@ def test_evidence_store_shape_and_geometry_errors_are_not_hidden():
 
     with pytest.raises(LocalPlanningEvidenceError, match="malformed collection"):
         asyncio.run(
-            LocalFirstPlanningEvidenceAnalyzer(
-                MalformedStore(datetime.now(timezone.utc)), mode="local"
-            )(_LiveClient(), [_ring()], "COLABA", EvidenceMode.STANDARD)
+            LocalFirstPlanningEvidenceAnalyzer(MalformedStore(datetime.now(UTC)), mode="local")(
+                _LiveClient(), [_ring()], "COLABA", EvidenceMode.STANDARD
+            )
         )
 
     with pytest.raises(LocalPlanningEvidenceError, match="no valid polygon rings"):
         asyncio.run(
-            LocalFirstPlanningEvidenceAnalyzer(
-                _Store(datetime.now(timezone.utc)), mode="local"
-            )(_LiveClient(), [[]], "COLABA", EvidenceMode.STANDARD)
+            LocalFirstPlanningEvidenceAnalyzer(_Store(datetime.now(UTC)), mode="local")(
+                _LiveClient(), [[]], "COLABA", EvidenceMode.STANDARD
+            )
         )

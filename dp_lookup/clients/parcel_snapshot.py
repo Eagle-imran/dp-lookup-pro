@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, Mapping, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 from dp_lookup.core.constants import SERVER_URL
 
@@ -22,7 +23,7 @@ DEFAULT_OUT_SR = 102100
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def canonical_json(value: Any) -> bytes:
@@ -52,9 +53,9 @@ class SnapshotFeature:
 class SnapshotCheckpoint:
     """Serializable progress contract for resuming a partially fetched run."""
 
-    expected_ids: Tuple[int, ...]
-    completed_ids: Tuple[int, ...] = ()
-    rejected_ids: Tuple[int, ...] = ()
+    expected_ids: tuple[int, ...]
+    completed_ids: tuple[int, ...] = ()
+    rejected_ids: tuple[int, ...] = ()
     updated_at: str = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
@@ -62,7 +63,7 @@ class SnapshotCheckpoint:
         object.__setattr__(self, "completed_ids", tuple(sorted(set(int(i) for i in self.completed_ids))))
         object.__setattr__(self, "rejected_ids", tuple(sorted(set(int(i) for i in self.rejected_ids))))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "expected_ids": list(self.expected_ids),
             "completed_ids": list(self.completed_ids),
@@ -79,15 +80,15 @@ class SnapshotManifest:
     layer_id: int
     object_id_field: str
     requested_out_sr: int
-    source_spatial_reference: Optional[Mapping[str, Any]]
-    expected_ids: Tuple[int, ...]
-    received_ids: Tuple[int, ...]
-    missing_ids: Tuple[int, ...]
-    duplicate_ids: Tuple[int, ...]
-    rejected_ids: Tuple[int, ...]
-    extra_ids: Tuple[int, ...] = ()
+    source_spatial_reference: Mapping[str, Any] | None
+    expected_ids: tuple[int, ...]
+    received_ids: tuple[int, ...]
+    missing_ids: tuple[int, ...]
+    duplicate_ids: tuple[int, ...]
+    rejected_ids: tuple[int, ...]
+    extra_ids: tuple[int, ...] = ()
     invalid_feature_count: int = 0
-    batch_errors: Tuple[str, ...] = ()
+    batch_errors: tuple[str, ...] = ()
     schema_metadata: Mapping[str, Any] = field(default_factory=dict)
     source_metadata: Mapping[str, Any] = field(default_factory=dict)
     fetched_at: str = field(default_factory=utc_now)
@@ -98,7 +99,7 @@ class SnapshotManifest:
         """A snapshot is complete only when every inventory ID was received."""
         return not self.missing_ids and not self.rejected_ids and not self.batch_errors and not self.extra_ids
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "source_url": self.source_url,
             "layer_id": self.layer_id,
@@ -125,7 +126,7 @@ class SnapshotManifest:
 class SnapshotIngestionResult:
     """Accepted records plus a manifest and resume checkpoint."""
 
-    features: Tuple[SnapshotFeature, ...]
+    features: tuple[SnapshotFeature, ...]
     manifest: SnapshotManifest
     checkpoint: SnapshotCheckpoint
 

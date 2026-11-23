@@ -101,11 +101,14 @@ def test_json_output_has_stable_envelope_and_service_errors_are_failures():
             raise RuntimeError("database unavailable")
 
     stream = io.StringIO()
-    assert main(
-        ["experimental", "assembly", "analyze", "WORLI:733", "WORLI:734", "--json"],
-        service=Broken(),
-        out=stream,
-    ) == EXIT_ERROR
+    assert (
+        main(
+            ["experimental", "assembly", "analyze", "WORLI:733", "WORLI:734", "--json"],
+            service=Broken(),
+            out=stream,
+        )
+        == EXIT_ERROR
+    )
     assert '"command": "experimental assembly analyze"' in stream.getvalue()
     assert "database unavailable" in stream.getvalue()
 

@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
-from datetime import datetime, timezone
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, cast
+from typing import Any, cast
 
 from dp_lookup.application.planning_snapshot import canonical_planning_specs
 from dp_lookup.clients.parcel_snapshot import LAYER13_URL, resolve_object_id_field, sha256_json
@@ -18,7 +19,7 @@ class UpstreamCheckError(RuntimeError):
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _decode_response(response: Any, source_url: str) -> Mapping[str, Any]:
@@ -92,7 +93,7 @@ def _edit_timestamp(metadata: Mapping[str, Any]) -> Any:
     return None
 
 
-def _edit_field(metadata: Mapping[str, Any]) -> Optional[str]:
+def _edit_field(metadata: Mapping[str, Any]) -> str | None:
     fields = metadata.get("fields")
     if not isinstance(fields, list):
         return None
@@ -117,7 +118,7 @@ def _normalized_signal(value: Any) -> Any:
         return str(value)
 
 
-async def _remote_layer_probe(client: Any, source_url: str) -> Dict[str, Any]:
+async def _remote_layer_probe(client: Any, source_url: str) -> dict[str, Any]:
     metadata = await _get_json(client, source_url, {"f": "json"})
     inventory = await _get_json(
         client,
@@ -192,8 +193,8 @@ def _local_edit_max(
     table: str,
     snapshot_id: int,
     json_column: str,
-    field: Optional[str],
-    layer_id: Optional[int] = None,
+    field: str | None,
+    layer_id: int | None = None,
 ) -> Any:
     if not field or '"' in field:
         return None
@@ -211,7 +212,7 @@ def _local_edit_max(
     return _normalized_signal(row[0]) if row and row[0] is not None else None
 
 
-def _local_parcel_baseline(connection: sqlite3.Connection) -> Optional[Dict[str, Any]]:
+def _local_parcel_baseline(connection: sqlite3.Connection) -> dict[str, Any] | None:
     row = connection.execute(
         "SELECT snapshot_id,source,metadata_json FROM snapshots WHERE state='active' ORDER BY snapshot_id DESC LIMIT 1"
     ).fetchone()
@@ -243,7 +244,7 @@ def _local_parcel_baseline(connection: sqlite3.Connection) -> Optional[Dict[str,
     }
 
 
-def _local_planning_baselines(connection: sqlite3.Connection) -> Tuple[Dict[str, Any], ...]:
+def _local_planning_baselines(connection: sqlite3.Connection) -> tuple[dict[str, Any], ...]:
     row = connection.execute(
         "SELECT snapshot_id FROM planning_snapshots WHERE state='active' ORDER BY version DESC LIMIT 1"
     ).fetchone()
@@ -272,11 +273,7 @@ def _local_planning_baselines(connection: sqlite3.Connection) -> Tuple[Dict[str,
         ]
         edit_field = _edit_field(metadata)
         configured_source_url = str(source_context.get("source_url") or "").rstrip("/")
-        source_url = (
-            configured_source_url
-            if configured_source_url
-            else f"{LAYER13_URL.rsplit('/', 1)[0]}/{int(layer['layer_id'])}"
-        )
+        source_url = configured_source_url or f"{LAYER13_URL.rsplit('/', 1)[0]}/{int(layer['layer_id'])}"
         baselines.append(
             {
                 "snapshot_id": snapshot_id,
@@ -301,8 +298,8 @@ def _local_planning_baselines(connection: sqlite3.Connection) -> Tuple[Dict[str,
     return tuple(baselines)
 
 
-def _compare(local: Mapping[str, Any], remote: Mapping[str, Any]) -> Dict[str, Any]:
-    signals: Dict[str, str] = {}
+def _compare(local: Mapping[str, Any], remote: Mapping[str, Any]) -> dict[str, Any]:
+    signals: dict[str, str] = {}
     for key in ("record_count", "inventory_hash", "metadata_hash"):
         if local.get(key) is None or remote.get(key) is None:
             signals[key] = "unknown"
@@ -341,7 +338,7 @@ def _compare(local: Mapping[str, Any], remote: Mapping[str, Any]) -> Dict[str, A
     }
 
 
-async def check_database_upstream(client: Any, database: Path) -> Dict[str, Any]:
+async def check_database_upstream(client: Any, database: Path) -> dict[str, Any]:
     """Compare local active snapshots with ArcGIS without downloading geometry."""
     path = Path(database).expanduser()
     if not path.is_file():
@@ -364,7 +361,7 @@ async def check_database_upstream(client: Any, database: Path) -> Dict[str, Any]
         connection.close()
 
     if parcel_local is None:
-        parcels: Dict[str, Any] = {
+        parcels: dict[str, Any] = {
             "status": "unknown",
             "refresh_required": True,
             "error": "no active parcel snapshot is available for comparison",
@@ -377,7 +374,7 @@ async def check_database_upstream(client: Any, database: Path) -> Dict[str, Any]
 
     semaphore = asyncio.Semaphore(4)
 
-    async def check_planning_layer(local: Mapping[str, Any]) -> Dict[str, Any]:
+    async def check_planning_layer(local: Mapping[str, Any]) -> dict[str, Any]:
         async with semaphore:
             try:
                 result = _compare(local, await _remote_layer_probe(client, str(local["source_url"])))

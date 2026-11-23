@@ -3,7 +3,7 @@ Core Coordinate, Projection, and Spatial Geometry Mathematics.
 """
 
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from dp_lookup.core.constants import (
     ROAD_EDGE_NUDGES,
@@ -13,7 +13,7 @@ from dp_lookup.core.constants import (
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
 
-def wgs84_to_utm43n(lon: float, lat: float, precision: Optional[int] = 2) -> Tuple[float, float]:
+def wgs84_to_utm43n(lon: float, lat: float, precision: int | None = 2) -> tuple[float, float]:
     """
     Direct ellipsoidal projection from WGS84 (degrees) to UTM Zone 43N (metres),
     EPSG:32643, using standard Karney/Krüger transverse-Mercator formulas on the
@@ -55,7 +55,7 @@ def wgs84_to_utm43n(lon: float, lat: float, precision: Optional[int] = 2) -> Tup
     return round(easting, precision), round(northing, precision)
 
 
-def mercator_to_wgs84(x: float, y: float, precision: int = 7) -> List[float]:
+def mercator_to_wgs84(x: float, y: float, precision: int = 7) -> list[float]:
     """Web Mercator (EPSG:102100/3857) metres to WGS84 degrees."""
     lon = round((x / WEB_MERCATOR_R) * 180, precision)
     lat = round(
@@ -65,7 +65,7 @@ def mercator_to_wgs84(x: float, y: float, precision: int = 7) -> List[float]:
     return [lon, lat]
 
 
-def latlon_to_tile(lat: float, lon: float, zoom: int) -> Tuple[int, int]:
+def latlon_to_tile(lat: float, lon: float, zoom: int) -> tuple[int, int]:
     """Standard Slippy Map tile numbering for Web Mercator XYZ tiles."""
     lat_rad = math.radians(lat)
     n = 2.0**zoom
@@ -74,7 +74,7 @@ def latlon_to_tile(lat: float, lon: float, zoom: int) -> Tuple[int, int]:
     return xtile, ytile
 
 
-def tile_to_latlon(xtile: int, ytile: int, zoom: int) -> Tuple[float, float]:
+def tile_to_latlon(xtile: int, ytile: int, zoom: int) -> tuple[float, float]:
     """Top-left corner coordinates of a Slippy Map tile."""
     n = 2.0**zoom
     lon_deg = xtile / n * 360.0 - 180.0
@@ -83,7 +83,7 @@ def tile_to_latlon(xtile: int, ytile: int, zoom: int) -> Tuple[float, float]:
     return lat_deg, lon_deg
 
 
-def polygon_area(pts: List[List[float]]) -> float:
+def polygon_area(pts: list[list[float]]) -> float:
     """Shoelace formula for simple planar polygon area."""
     n = len(pts)
     s = 0.0
@@ -94,7 +94,7 @@ def polygon_area(pts: List[List[float]]) -> float:
     return abs(s) / 2.0
 
 
-def polygon_centroid(pts: List[List[float]]) -> Tuple[float, float]:
+def polygon_centroid(pts: list[list[float]]) -> tuple[float, float]:
     """Polygon centroid via standard Shoelace-weighted moments."""
     n = len(pts)
     if n < 3:
@@ -115,7 +115,7 @@ def polygon_centroid(pts: List[List[float]]) -> Tuple[float, float]:
     return (cx / (6.0 * signed_area), cy / (6.0 * signed_area))
 
 
-def prepare_geometry(rings: List[List[List[float]]]) -> Dict[str, Any]:
+def prepare_geometry(rings: list[list[list[float]]]) -> dict[str, Any]:
     """
     Everything derived from the parcel rings: centroid, bounding box, the
     half-extent used for map windows, and the WGS84 reprojection.
@@ -151,17 +151,17 @@ def prepare_geometry(rings: List[List[List[float]]]) -> Dict[str, Any]:
 
 
 def road_probe_points(
-    outer_ring: List[List[float]],
+    outer_ring: list[list[float]],
     mcx: float,
     mcy: float,
-    xs: List[float],
-    ys: List[float],
-) -> List[Tuple[float, float]]:
+    xs: list[float],
+    ys: list[float],
+) -> list[tuple[float, float]]:
     """
     Where to look for the abutting road.
     Centroid and both corners, plus the midpoints of the longest edges pushed outward at three distances.
     """
-    edge_probes: List[Tuple[float, Tuple[float, float]]] = []
+    edge_probes: list[tuple[float, tuple[float, float]]] = []
     for i in range(len(outer_ring)):
         p1 = outer_ring[i]
         p2 = outer_ring[(i + 1) % len(outer_ring)]
@@ -184,17 +184,17 @@ def road_probe_points(
     ] + [pt for _, pt in edge_probes[:ROAD_EDGE_PROBE_LIMIT]]
 
 
-def neighbour_probe_points(mcx: float, mcy: float, d: float) -> List[Tuple[float, float]]:
+def neighbour_probe_points(mcx: float, mcy: float, d: float) -> list[tuple[float, float]]:
     """Four cardinal offsets around the parcel."""
     off = max(15.0, d * 0.7)
     return [(mcx + off, mcy), (mcx - off, mcy), (mcx, mcy + off), (mcx, mcy - off)]
 
 
 def nearest_road_geoms(
-    road_geoms: List[List[List[float]]],
-    wgs_rings: List[List[List[float]]],
+    road_geoms: list[list[list[float]]],
+    wgs_rings: list[list[list[float]]],
     limit: int = 8,
-) -> List[List[List[float]]]:
+) -> list[list[list[float]]]:
     """The limit road paths closest to the plot."""
     if not road_geoms or not wgs_rings or not wgs_rings[0]:
         return road_geoms[:limit]
@@ -203,7 +203,7 @@ def nearest_road_geoms(
     lat0 = sum(p[1] for p in ring) / len(ring)
     lon_scale = math.cos(math.radians(lat0))
 
-    def nearest_sq(path: List[List[float]]) -> float:
+    def nearest_sq(path: list[list[float]]) -> float:
         best = float("inf")
         for pt in path:
             dx = (pt[0] - lon0) * lon_scale
@@ -214,7 +214,7 @@ def nearest_road_geoms(
     return sorted(road_geoms, key=nearest_sq)[:limit]
 
 
-def resolve_plot_area(attrs: Dict[str, Any]) -> Dict[str, Any]:
+def resolve_plot_area(attrs: dict[str, Any]) -> dict[str, Any]:
     """Resolve the recorded value or a legacy boundary-derived fallback.
 
     New code should use :func:`dp_lookup.core.area_assessment.assess_plot_area`

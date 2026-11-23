@@ -1,5 +1,6 @@
 """Satellite tile retrieval and process-local/disk caching."""
 
+import contextlib
 import os
 import sys
 import tempfile
@@ -7,7 +8,6 @@ import threading
 import time
 from collections import OrderedDict
 from io import BytesIO
-from typing import Optional, Tuple
 
 import httpx
 from PIL import Image
@@ -15,7 +15,7 @@ from PIL import Image
 MAX_MEMORY_TILES = 512
 TILE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
 TILE_CACHE_ENV = "DP_LOOKUP_TILE_CACHE"
-TileKey = Tuple[str, str, int, int, int]
+TileKey = tuple[str, str, int, int, int]
 _TILE_CACHE: OrderedDict[TileKey, bytes] = OrderedDict()
 _TILE_LOCK = threading.RLock()
 
@@ -70,10 +70,8 @@ def _write_atomic(path: str, content: bytes) -> None:
     finally:
         if descriptor != -1:
             os.close(descriptor)
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(temporary)
-        except OSError:
-            pass
 
 
 async def fetch_tile_cached(
@@ -81,8 +79,8 @@ async def fetch_tile_cached(
     zoom: int,
     ytile: int,
     xtile: int,
-    tile_dir: Optional[str] = None,
-) -> Optional[bytes]:
+    tile_dir: str | None = None,
+) -> bytes | None:
     if tile_dir is None:
         tile_dir = default_tile_dir()
     directory = os.path.realpath(os.path.abspath(os.path.expanduser(os.fspath(tile_dir))))
@@ -95,7 +93,7 @@ async def fetch_tile_cached(
 
     os.makedirs(directory, mode=0o700, exist_ok=True)
     cache_path = os.path.join(directory, f"esri_tile_{zoom}_{ytile}_{xtile}.jpg")
-    stale: Optional[bytes] = None
+    stale: bytes | None = None
     try:
         with open(cache_path, "rb") as handle:
             content = handle.read()
@@ -115,10 +113,8 @@ async def fetch_tile_cached(
             return stale
         content = bytes(response.content)
         _remember(key, content)
-        try:
+        with contextlib.suppress(OSError):
             _write_atomic(cache_path, content)
-        except OSError:
-            pass
         return content
     except Exception:
         return stale

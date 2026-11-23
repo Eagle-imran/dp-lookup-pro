@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import tempfile
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Iterable, Mapping, Optional, Protocol, Tuple, cast
+from typing import Any, Protocol, cast
 
 from dp_lookup.application.planning_snapshot import (
     PlanningFeature,
@@ -54,10 +56,8 @@ def _atomic_json_write(path: Path, value: Mapping[str, Any]) -> None:
             os.fsync(handle.fileno())
         os.replace(temporary_name, path)
     except Exception:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(temporary_name)
-        except OSError:
-            pass
         raise
 
 
@@ -73,7 +73,7 @@ def _manifest_path(database: Path, configured: Any) -> Path:
     return database.with_suffix(database.suffix + ".planning.manifest.json")
 
 
-def _load_checkpoint(path: Path) -> Optional[PlanningSnapshotCheckpoint]:
+def _load_checkpoint(path: Path) -> PlanningSnapshotCheckpoint | None:
     if not path.is_file():
         return None
     try:
@@ -147,7 +147,7 @@ class LocalPlanningDatabaseServices:
 
             async def accept_inventory(
                 spec: LayerSpec,
-                expected_ids: Tuple[int, ...],
+                expected_ids: tuple[int, ...],
                 source_context: Mapping[str, Any],
             ) -> Iterable[int]:
                 store.register_layer(
@@ -168,7 +168,7 @@ class LocalPlanningDatabaseServices:
                 store.set_layer_inventory(snapshot_id, spec.layer_id, expected_ids)
                 return cast(Iterable[int], store.object_ids(snapshot_id, spec.layer_id))
 
-            async def accept_batch(spec: LayerSpec, features: Tuple[PlanningFeature, ...]) -> None:
+            async def accept_batch(spec: LayerSpec, features: tuple[PlanningFeature, ...]) -> None:
                 store.insert_batch(snapshot_id, spec.layer_id, features)
 
             try:

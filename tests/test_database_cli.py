@@ -13,11 +13,20 @@ class Services:
         self.calls.append(("status", database))
         return {"records": 3, "healthy": True}
 
-    def build(self, database): return {"built": str(database)}
-    def verify(self, database): return {"valid": True}
-    def diff(self, database): return {"changes": 0}
-    def activate(self, database): return {"active": True}
-    def rollback(self, database): return {"rolled_back": True}
+    def build(self, database):
+        return {"built": str(database)}
+
+    def verify(self, database):
+        return {"valid": True}
+
+    def diff(self, database):
+        return {"changes": 0}
+
+    def activate(self, database):
+        return {"active": True}
+
+    def rollback(self, database):
+        return {"rolled_back": True}
 
 
 def test_parse_database_command():
@@ -35,7 +44,10 @@ def test_dispatch_human_and_injects_path():
 
 def test_dispatch_json_contract():
     output = io.StringIO()
-    assert main(["database", "verify", "--database", "db.sqlite", "--json"], services=Services(), out=output) == EXIT_SUCCESS
+    assert (
+        main(["database", "verify", "--database", "db.sqlite", "--json"], services=Services(), out=output)
+        == EXIT_SUCCESS
+    )
     payload = json.loads(output.getvalue())
     assert payload == {"command": "verify", "database": "db.sqlite", "result": {"valid": True}}
 
@@ -50,7 +62,9 @@ def test_safe_usage_errors():
 
 def test_service_error_has_error_exit_and_json():
     class Broken(Services):
-        def status(self, database): raise RuntimeError("corrupt")
+        def status(self, database):
+            raise RuntimeError("corrupt")
+
     output = io.StringIO()
     assert main(["database", "status", "--database", "x", "--json"], services=Broken(), out=output) == EXIT_ERROR
     assert json.loads(output.getvalue())["error"] == "corrupt"

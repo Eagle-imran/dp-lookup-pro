@@ -39,7 +39,7 @@ class _Client:
         self.responses = list(responses)
         self.calls: list[dict[str, Any]] = []
 
-    async def __aenter__(self) -> "_Client":
+    async def __aenter__(self) -> _Client:
         return self
 
     async def __aexit__(self, *_args: Any) -> None:
@@ -100,9 +100,7 @@ def test_database_build_resumes_committed_batches_and_hashes_raw_source(tmp_path
             TimeoutError("interrupted"),
         ]
     )
-    second_client = _Client(
-        [_Response({"objectIds": [1, 2]}), _Response({"features": [_feature(2)]})]
-    )
+    second_client = _Client([_Response({"objectIds": [1, 2]}), _Response({"features": [_feature(2)]})])
     clients = iter([first_client, second_client])
     services = LocalDatabaseServices(
         client_factory=lambda: next(clients),

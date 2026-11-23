@@ -1,8 +1,8 @@
 """
 MCGM Development Plan 2034 GIS Constants & Layer Definitions.
 """
+
 import re
-from typing import Tuple
 
 SERVER_URL = "https://agsmaps.mcgm.gov.in/server/rest/services/Development_Plan_2034/MapServer"
 APPLICATION_VERSION = "3.14.0"
@@ -20,7 +20,7 @@ LAYER_DESIGNATION = 47
 LAYER_MODIFICATION = 192
 LAYER_METRO = 1550
 LAYER_PROPOSED_ROAD = 45
-CRZ_LAYER_IDS: Tuple[int, ...] = (14, 1264, 1548)
+CRZ_LAYER_IDS: tuple[int, ...] = (14, 1264, 1548)
 
 PLANNING_LAYER_IDS = [0, 46, 47, 192, 1550]
 ROAD_LAYERS = "visible:193,194,44,45,2224"
@@ -37,7 +37,8 @@ GENERIC_ROAD_NAMES = ("", "existing", "exisiting road", "null", "none", "road", 
 _VILLAGE_RE = re.compile(r"^[A-Za-z0-9 ()./-]{1,64}$")
 _CTS_RE = re.compile(r"^[A-Za-z0-9 ()./-]{1,32}$")
 
-MCGM_VILLAGES: Tuple[str, ...] = (
+# fmt: off
+MCGM_VILLAGES: tuple[str, ...] = (
     "AAKSE", "AAREY", "AKURLI", "AMBIVALI", "ANDHERI", "ANIK", "ASALPE", "BANDIVALI",
     "BANDRA-A", "BANDRA-B", "BANDRA-C", "BANDRA-D", "BANDRA-E", "BANDRA-EAST",
     "BANDRA-F", "BANDRA-G", "BANDRA-H", "BANDRA-I", "BAPNALA", "BHANDUP-E", "BHANDUP-W",
@@ -58,3 +59,4 @@ MCGM_VILLAGES: Tuple[str, ...] = (
     "TIRANDAZ", "TULSI", "TUNGWE", "TURBHE", "VALNAI", "VERSOVA", "VIKHROLI", "VILE PARLE",
     "VYARAVLI", "WADHAVALI", "WADHWAN", "WORLI",
 )
+# fmt: on

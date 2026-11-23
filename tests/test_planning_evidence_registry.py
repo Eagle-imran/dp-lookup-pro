@@ -39,7 +39,5 @@ def test_full_mode_adds_conditional_families_only_when_applicable():
         context=EvidenceContext(coastal=True, tps=True, spa=True, gorai=True),
     )
     assert all(spec.query_policy is QueryPolicy.ALWAYS for spec in without_context)
-    assert {QueryPolicy.TPS, QueryPolicy.SPA, QueryPolicy.GORAI}.issubset(
-        {spec.query_policy for spec in with_context}
-    )
+    assert {QueryPolicy.TPS, QueryPolicy.SPA, QueryPolicy.GORAI}.issubset({spec.query_policy for spec in with_context})
     assert len(with_context) > len(without_context)

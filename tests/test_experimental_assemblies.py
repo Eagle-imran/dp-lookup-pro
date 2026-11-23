@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Optional
 
 import pytest
 
@@ -40,7 +39,7 @@ def _parcel(
     objectids: list[int],
     rings: list[list[list[float]]],
     *,
-    recorded: Optional[float] = 100.0,
+    recorded: float | None = 100.0,
 ) -> ParcelAssemblyInput:
     return ParcelAssemblyInput(
         village="WORLI",
@@ -142,7 +141,10 @@ def test_disconnected_and_point_only_selections_are_not_claimed_as_contiguous() 
 
 def test_missing_recorded_area_keeps_known_sum_but_does_not_invent_a_gross_total() -> None:
     analysis = analyze_plot_assembly(
-        [_parcel("100", [10], _rectangle(), recorded=100.0), _parcel("101", [11], _rectangle(x=8_106_510.0), recorded=None)]
+        [
+            _parcel("100", [10], _rectangle(), recorded=100.0),
+            _parcel("101", [11], _rectangle(x=8_106_510.0), recorded=None),
+        ]
     )
 
     assert analysis.gross_recorded_area_sqm is None
@@ -157,9 +159,7 @@ def test_repairable_source_geometry_is_explicitly_flagged_without_mutating_sourc
     bow_tie = [[[x, y], [x + 10.0, y + 10.0], [x, y + 10.0], [x + 10.0, y], [x, y]]]
     original = deepcopy(bow_tie)
 
-    analysis = analyze_plot_assembly(
-        [_parcel("100", [10], bow_tie), _parcel("101", [11], _rectangle(x=8_106_510.0))]
-    )
+    analysis = analyze_plot_assembly([_parcel("100", [10], bow_tie), _parcel("101", [11], _rectangle(x=8_106_510.0))])
 
     assert "source_geometry_repaired_for_analysis" in _warning_codes(analysis)
     assert bow_tie == original
