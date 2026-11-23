@@ -68,9 +68,8 @@ rollback for newer changes to the modular application. Avoid rewriting shared
 history to recover an ordinary regression.
 
 Current implementation boundaries are listed in the
-[architecture guide](../architecture/overview.md). The public
-`cts_dp_lookup_pro.py` file is a compatibility facade; new fixes belong in the
-owning module under `dp_lookup/`.
+[architecture guide](../architecture/overview.md). Fixes belong in the owning
+module under `dp_lookup/`.
 
 ## Roll back source snapshots
 

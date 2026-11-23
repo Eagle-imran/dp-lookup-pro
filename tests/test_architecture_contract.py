@@ -120,13 +120,7 @@ def test_compatibility_facades_delegate_without_duplicating_the_pipeline():
 
     assert legacy_lookup is lookup_plot_pro
     assert dp_lookup.lookup_plot_pro is lookup_plot_pro
-
-    facade = PROJECT_ROOT / "cts_dp_lookup_pro.py"
-    tree = ast.parse(facade.read_text(encoding="utf-8"), filename=str(facade))
-    implementations = [
-        node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-    ]
-    assert implementations == []
+    assert not (PROJECT_ROOT / "cts_dp_lookup_pro.py").exists()
 
 
 def test_artifact_orchestration_uses_typed_registry_instead_of_writer_calls():

@@ -26,9 +26,8 @@ data/                      ignored local operational snapshots
 output/                    ignored generated reports and registers
 ```
 
-`dp-lookup-pro` is the portable source-checkout launcher.
-`cts_dp_lookup_pro.py` remains a public compatibility facade; it is not the
-implementation home for new code. Local databases, reports, environments,
+`dp-lookup-pro` is the portable source-checkout launcher. The public Python API
+is the `dp_lookup` package. Local databases, reports, environments,
 caches and build artifacts are deliberately outside version control.
 
 ## Dependency direction

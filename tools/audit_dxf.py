@@ -59,7 +59,7 @@ def main(argv=None):
         print('ezdxf missing. Install with: uv pip install -e ".[dev]"', file=sys.stderr)
         return 2
 
-    from cts_dp_lookup_pro import boxes_overlap, text_extents
+    from dp_lookup.exporters.dxf import boxes_overlap, text_extents
 
     doc = ezdxf.readfile(args.dxf)
     msp = doc.modelspace()
