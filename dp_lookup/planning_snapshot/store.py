@@ -133,7 +133,7 @@ class PlanningSnapshotStore(SQLiteStore):
         ):
             try:
                 metadata = json.loads(row["source_metadata_json"] or "{}")
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 continue
             if not isinstance(metadata, Mapping) or metadata.get("registry_hash") != registry_hash:
                 continue

@@ -45,7 +45,7 @@ def _normalised_cts(value: Any) -> str:
 def _positive_area(value: Any) -> float | None:
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return number if math.isfinite(number) and number > 0 else None
 

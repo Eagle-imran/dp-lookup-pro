@@ -59,13 +59,13 @@ def _source_geometry(geometry: Any) -> Any:
         try:
             lines = [LineString(path) for path in valid]
             return lines[0] if len(lines) == 1 else MultiLineString(lines)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
     rings = geometry.get("rings")
     if isinstance(rings, list) and rings:
         try:
             return arcgis_rings_to_geometry(rings)
-        except (IndexError, TypeError, ValueError):
+        except IndexError, TypeError, ValueError:
             return None
     return None
 
@@ -82,7 +82,7 @@ def _wgs_parts(geometry: Any) -> list[list[list[float]]]:
             continue
         try:
             result.append([mercator_to_wgs84(point[0], point[1]) for point in part])
-        except (IndexError, TypeError, ValueError):
+        except IndexError, TypeError, ValueError:
             continue
     return result
 

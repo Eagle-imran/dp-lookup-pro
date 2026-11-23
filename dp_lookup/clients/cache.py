@@ -91,7 +91,7 @@ def _read_store(path: str) -> dict[str, Any]:
                 loaded = json.load(f)
             if isinstance(loaded, dict):
                 store = loaded
-        except (OSError, ValueError):
+        except OSError, ValueError:
             store = {}
     return store
 
@@ -202,7 +202,7 @@ def read_cache_entry(output_dir: str, key: str, ttl_seconds: int = DEFAULT_CACHE
     try:
         if not math.isfinite(float(cached_at)) or cached_at > time.time():
             return None
-    except (OverflowError, ValueError):
+    except OverflowError, ValueError:
         return None
     entry_schema = entry.get("cache_schema_version")
     if entry_schema != CACHE_SCHEMA_VERSION:

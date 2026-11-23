@@ -24,7 +24,7 @@ def _positive_number(value: Any) -> float | None:
         return None
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return number if math.isfinite(number) and number > 0 else None
 
@@ -46,7 +46,7 @@ def _raw_geometry_invalid(rings: Sequence[Sequence[Sequence[float]]]) -> bool:
             if len(points) < 4:
                 return True
             polygon = Polygon(points)
-        except (IndexError, TypeError, ValueError):
+        except IndexError, TypeError, ValueError:
             return True
         if polygon.is_empty or polygon.area <= 0 or not polygon.is_valid:
             return True
@@ -69,7 +69,7 @@ def calculated_boundary_area_sqm(rings: Sequence[Sequence[Sequence[float]]]) -> 
     """Calculate ground area without treating raw Web Mercator square metres as ground area."""
     try:
         geometry = arcgis_rings_to_geometry(_utm_rings(rings))
-    except (IndexError, OverflowError, TypeError, ValueError):
+    except IndexError, OverflowError, TypeError, ValueError:
         return None
     if geometry.is_empty or not geometry.is_valid:
         return None
@@ -89,7 +89,7 @@ def web_mercator_ground_area_scale(
             float(source_geometry.centroid.y),
             precision=10,
         )
-    except (IndexError, TypeError, ValueError):
+    except IndexError, TypeError, ValueError:
         return None
     if source_geometry.is_empty or not 72.0 <= longitude <= 78.0:
         return None
@@ -113,7 +113,7 @@ def _source_objectids(attrs: Mapping[str, Any]) -> tuple[int, ...]:
         try:
             if value is not None:
                 result.append(int(value))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     return tuple(sorted(set(result)))
 
@@ -121,7 +121,7 @@ def _source_objectids(attrs: Mapping[str, Any]) -> tuple[int, ...]:
 def _optional_int(value: Any) -> int | None:
     try:
         return int(value) if value is not None else None
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -143,7 +143,7 @@ def assess_plot_area(
     try:
         geometry, repaired = geometry_with_repair_status(rings)
         raw_invalid = raw_invalid or repaired
-    except (IndexError, TypeError, ValueError):
+    except IndexError, TypeError, ValueError:
         geometry = Polygon()
     calculated = calculated_boundary_area_sqm(rings)
     calculation_method = CALCULATION_METHOD
@@ -302,7 +302,7 @@ def assess_plot_area(
         feature_part_count = (
             max(1, int(part_count_raw)) if part_count_raw is not None else max(1, len(source_objectids))
         )
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         feature_part_count = max(1, len(source_objectids))
 
     return AreaAssessment(

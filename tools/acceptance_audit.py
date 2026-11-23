@@ -93,7 +93,7 @@ def _json_hash(value: Any) -> str:
 def _positive_float(value: Any) -> float | None:
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return number if number > 0 else None
 

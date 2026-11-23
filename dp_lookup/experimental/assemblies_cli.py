@@ -164,7 +164,7 @@ def _default_service() -> AssemblyService:
         try:
             module = importlib.import_module(module_name)
             factory = getattr(module, class_name)
-        except (ImportError, AttributeError):
+        except ImportError, AttributeError:
             continue
         return cast(AssemblyService, factory())
     raise RuntimeError("experimental assembly service is not installed")

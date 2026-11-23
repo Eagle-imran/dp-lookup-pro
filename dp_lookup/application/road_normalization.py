@@ -57,7 +57,7 @@ def parse_road_responses(responses: Any, expected_count: int) -> RoadContext:
                     continue
                 try:
                     geometries.append([mercator_to_wgs84(point[0], point[1]) for point in part])
-                except (IndexError, TypeError, ValueError):
+                except IndexError, TypeError, ValueError:
                     continue
 
     warnings = []

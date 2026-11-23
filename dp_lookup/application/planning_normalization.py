@@ -29,7 +29,7 @@ def _mapping_items(value: Any) -> list[dict[str, Any]]:
 def _safe_percent(value: Any) -> tuple[float, bool]:
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0.0, False
     if not math.isfinite(number):
         return 0.0, False

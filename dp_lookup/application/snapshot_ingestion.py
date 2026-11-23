@@ -145,7 +145,7 @@ def _usable_polygon(geometry: Mapping[str, Any]) -> bool:
         return False
     try:
         polygon = arcgis_rings_to_geometry(rings)
-    except (TypeError, ValueError, OverflowError):
+    except TypeError, ValueError, OverflowError:
         return False
     return not polygon.is_empty and polygon.is_valid and polygon.area > 0
 

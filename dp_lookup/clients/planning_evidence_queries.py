@@ -157,7 +157,7 @@ def _parse_layer_features(
                 runtime_geometry if isinstance(runtime_geometry, BaseGeometry) else arcgis_rings_to_geometry(rings)
             )
             intersection = parcel.intersection(source_geometry)
-        except (GEOSException, IndexError, KeyError, TypeError, ValueError):
+        except GEOSException, IndexError, KeyError, TypeError, ValueError:
             malformed += 1
             continue
         if intersection.is_empty or intersection.area <= threshold:

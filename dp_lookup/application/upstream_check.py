@@ -110,7 +110,7 @@ def _normalized_signal(value: Any) -> Any:
         return value
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return str(value)
 
 

@@ -31,7 +31,7 @@ class ArcGISFeature:
         layer_id: int | None
         try:
             layer_id = int(raw_layer_id) if raw_layer_id is not None else None
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             layer_id = None
         return cls(
             attributes=dict(attributes) if isinstance(attributes, Mapping) else {},

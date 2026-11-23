@@ -32,14 +32,14 @@ def local_snapshot_selection(source_mode: str, database_path: str) -> tuple[str,
         if path.is_file():
             with SnapshotStore.open(path) as store:
                 active_snapshot_id = store.active_snapshot_id()
-    except (OSError, sqlite3.DatabaseError, SpatialStoreError):
+    except OSError, sqlite3.DatabaseError, SpatialStoreError:
         active_snapshot_id = None
     planning_snapshot_id: int | None = None
     try:
         if path.is_file():
             with PlanningSnapshotStore.open(path) as planning_store:
                 planning_snapshot_id = planning_store.active_snapshot_id()
-    except (OSError, sqlite3.DatabaseError):
+    except OSError, sqlite3.DatabaseError:
         planning_snapshot_id = None
     cache_snapshot: Any = active_snapshot_id if active_snapshot_id is not None else "unavailable"
     planning_cache_snapshot: Any = planning_snapshot_id if planning_snapshot_id is not None else "unavailable"
@@ -48,7 +48,7 @@ def local_snapshot_selection(source_mode: str, database_path: str) -> tuple[str,
         if path.is_file():
             with AuthorityStore.open(path, create=False) as authority_store:
                 authority_revision = authority_store.revision()
-    except (OSError, sqlite3.DatabaseError, AuthorityStoreError):
+    except OSError, sqlite3.DatabaseError, AuthorityStoreError:
         authority_revision = "unavailable"
     return (
         f"{source_mode}:{path}:snapshot={cache_snapshot}:planning_snapshot={planning_cache_snapshot}:"
@@ -107,11 +107,11 @@ def compose_lookup_runtime(
         if database.is_file():
             try:
                 parcel_store = SnapshotStore.open(database)
-            except (OSError, sqlite3.DatabaseError, SpatialStoreError):
+            except OSError, sqlite3.DatabaseError, SpatialStoreError:
                 parcel_store = None
             try:
                 planning_store = PlanningSnapshotStore.open(database)
-            except (OSError, sqlite3.DatabaseError):
+            except OSError, sqlite3.DatabaseError:
                 planning_store = None
         dependencies = replace(
             dependencies,
@@ -141,7 +141,7 @@ def compose_lookup_runtime(
     if database_path and Path(database_path).is_file():
         try:
             authority_store = AuthorityStore.open(Path(database_path), create=False)
-        except (OSError, sqlite3.DatabaseError, AuthorityStoreError):
+        except OSError, sqlite3.DatabaseError, AuthorityStoreError:
             authority_store = None
         if authority_store is not None:
             cache_namespace = dependencies.parcel_cache_namespace

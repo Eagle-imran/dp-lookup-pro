@@ -284,7 +284,7 @@ def _int_id(value: Any) -> int | None:
         return None
     try:
         parsed = int(value)
-    except (TypeError, ValueError, OverflowError):
+    except TypeError, ValueError, OverflowError:
         return None
     return parsed if parsed >= 0 and str(value).strip() not in {"", "None", "null"} else None
 
@@ -299,7 +299,7 @@ def _retry_delay(config: PlanningIngestionConfig, attempt: int, response: Any = 
     if retry_after is not None:
         try:
             return min(config.max_delay_seconds, max(0.0, float(retry_after)))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
     return min(config.max_delay_seconds, config.base_delay_seconds * float(2 ** max(0, attempt - 1)))
 
