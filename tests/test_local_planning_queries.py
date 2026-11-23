@@ -1,8 +1,6 @@
 """Contracts for local-first planning snapshot reads."""
 
 import asyncio
-import math
-import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -142,10 +140,6 @@ def test_constructor_and_timestamp_guards_are_explicit():
         LocalFirstPlanningQuery(None, mode="unknown")
     with pytest.raises(ValueError, match="positive"):
         LocalFirstPlanningQuery(None, max_snapshot_age_days=0)
-    assert local_planning_module._age_days(None) is None
-    assert local_planning_module._age_days("invalid") is None
-    assert local_planning_module._age_days(math.inf) is None
-    assert local_planning_module._age_days(str(time.time())) == pytest.approx(0.0, abs=0.01)
     assert local_planning_module._snapshot_value({"snapshot_id": 9}, "snapshot_id") == 9
 
 

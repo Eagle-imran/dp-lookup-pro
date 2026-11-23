@@ -12,6 +12,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from dp_lookup.application.planning_snapshot import canonical_planning_specs, planning_registry_hash
+from dp_lookup.core.timestamps import age_days
 from dp_lookup.intelligence.models import ALGORITHM_VERSION
 from dp_lookup.intelligence.provenance import source_fingerprint
 from dp_lookup.intelligence.store import SCHEMA_VERSION as INTELLIGENCE_SCHEMA_VERSION
@@ -44,19 +45,6 @@ def _loads(value: Any, default: Any) -> Any:
     except (TypeError, ValueError):
         return default
     return decoded
-
-
-def _age_days(value: Any, checked_at: datetime) -> float | None:
-    if value is None:
-        return None
-    try:
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            timestamp = float(value)
-        else:
-            timestamp = datetime.fromisoformat(str(value)).timestamp()
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return round(max(0.0, (checked_at.timestamp() - timestamp) / 86_400.0), 3)
 
 
 def _section(status: str, **values: Any) -> dict[str, Any]:
@@ -176,7 +164,7 @@ def _parcel_health(
     validation_warnings = list(validation.get("warnings") or []) if isinstance(validation, Mapping) else []
     metadata = _loads(active_row["metadata_json"], {})
     summary = metadata.get("manifest_summary", {}) if isinstance(metadata, Mapping) else {}
-    age = _age_days(active_row["finalized_at"], checked_at)
+    age = age_days(active_row["finalized_at"], now=checked_at.timestamp())
 
     pointer_valid = active_pointer == snapshot_id
     critical = bool(
@@ -331,7 +319,7 @@ def _planning_health(
             (snapshot_id,),
         ).fetchone()[0]
     )
-    age = _age_days(active["finalized_at"], checked_at)
+    age = age_days(active["finalized_at"], now=checked_at.timestamp())
     validation = _loads(active["validation_json"], {})
     validation_errors = list(validation.get("errors") or []) if isinstance(validation, Mapping) else []
     validation_warnings = list(validation.get("warnings") or []) if isinstance(validation, Mapping) else []

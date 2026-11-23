@@ -6,20 +6,16 @@ import asyncio
 import json
 import sqlite3
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
 from dp_lookup.application.planning_snapshot import canonical_planning_specs
 from dp_lookup.clients.parcel_snapshot import LAYER13_URL, resolve_object_id_field, sha256_json
+from dp_lookup.core.timestamps import utc_now
 
 
 class UpstreamCheckError(RuntimeError):
     """The local baseline or upstream ArcGIS response could not be checked."""
-
-
-def _utc_now() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def _decode_response(response: Any, source_url: str) -> Mapping[str, Any]:
@@ -411,7 +407,7 @@ async def check_database_upstream(client: Any, database: Path) -> dict[str, Any]
     statuses = (str(parcels["status"]), planning_status)
     overall = "changed" if "changed" in statuses else ("unknown" if "unknown" in statuses else "unchanged")
     return {
-        "checked_at": _utc_now(),
+        "checked_at": utc_now(),
         "database": str(path),
         "overall_status": overall,
         "refresh_required": overall != "unchanged",

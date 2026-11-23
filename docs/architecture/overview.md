@@ -11,6 +11,7 @@ dp_lookup/                 installable application package
   application/             use-case coordination
   core/                    deterministic domain rules and geometry
   clients/                 ArcGIS, cache and local-data adapters
+  storage/                 shared SQLite connection, schema and transaction base
   spatial_store/           parcel snapshot persistence
   planning_snapshot/       planning snapshot persistence and query
   authority/               versioned certified-source evidence
@@ -144,6 +145,7 @@ The boundary and compatibility facades are protected by
 | `application/database_health.py` | Read-only cross-store integrity, completeness, freshness and enrichment audit |
 | `application/upstream_check.py` | Metadata, edit-signal and ObjectID fingerprint comparison without geometry download |
 | `application/database_services.py` | Database build/status/verify/diff/activate/rollback services |
+| `storage/` | `SQLiteStore` base and `connect`/`initialize_schema` helpers shared by all four stores |
 | `spatial_store/` | Standard-library SQLite snapshots, spatial index, validation and lifecycle |
 | `application/planning_snapshot.py` | Canonical planning-layer inventory/batch downloader and manifests |
 | `application/planning_database_services.py` | Planning build/status/verify/activate/rollback services |
@@ -289,7 +291,11 @@ same publish-after-verification lifecycle to every canonical planning layer in
 the audited registry. Both stores share one SQLite file without sharing tables,
 version numbers, or active pointers. Parcel, planning and authority persistence
 keep stable public store facades while schema DDL and lossless row/geometry
-codecs live in focused modules. Existing SQLite files require no migration.
+codecs live in focused modules. All four stores (parcel, planning, authority,
+intelligence) inherit `storage.SQLiteStore`: one WAL connection with foreign
+keys and `synchronous=FULL`, `BEGIN IMMEDIATE` write transactions, and a
+schema-version stamp that refuses to open a file written by another version.
+Existing SQLite files require no migration.
 
 The parcel source is selected at the CLI boundary:
 

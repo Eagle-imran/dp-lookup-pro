@@ -9,17 +9,15 @@ parcel geometry. The deterministic result policy remains in
 
 from __future__ import annotations
 
-import math
-import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any, Protocol, cast
 
 from dp_lookup.clients.planning_queries import (
     build_spatial_planning_result,
     query_spatial_planning_layers,
 )
+from dp_lookup.core import timestamps
 from dp_lookup.core.area_assessment import web_mercator_ground_area_scale
 from dp_lookup.core.constants import (
     CRZ_LAYER_IDS,
@@ -81,28 +79,6 @@ def _snapshot_value(snapshot: Any, name: str, default: Any = None) -> Any:
     if isinstance(snapshot, Mapping):
         return snapshot.get(name, default)
     return getattr(snapshot, name, default)
-
-
-def _age_days(finalized_at: Any) -> float | None:
-    """Return snapshot age in days for common repository timestamp forms."""
-    if finalized_at is None:
-        return None
-    if isinstance(finalized_at, datetime):
-        timestamp = finalized_at.timestamp()
-    elif isinstance(finalized_at, (int, float)) and not isinstance(finalized_at, bool):
-        timestamp = float(finalized_at)
-    else:
-        text = str(finalized_at).strip()
-        try:
-            timestamp = datetime.fromisoformat(text).timestamp()
-        except ValueError:
-            try:
-                timestamp = float(text)
-            except ValueError:
-                return None
-    if not math.isfinite(timestamp):
-        return None
-    return round(max(0.0, (time.time() - timestamp) / 86_400.0), 3)
 
 
 def _with_provenance(result: dict[str, Any], provenance: dict[str, Any], *extra_warnings: str) -> dict[str, Any]:
@@ -167,7 +143,7 @@ class LocalFirstPlanningQuery:
         finalized_at = _snapshot_value(snapshot, "finalized_at")
         if finalized_at is None:
             raise LocalPlanningError(f"planning snapshot {snapshot_id} has no finalized timestamp")
-        age_days = _age_days(finalized_at)
+        age_days = timestamps.age_days(finalized_at)
         if age_days is None:
             raise LocalPlanningError(f"planning snapshot {snapshot_id} has an invalid finalized timestamp")
         stale = (

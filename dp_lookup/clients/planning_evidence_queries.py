@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import math
 import time
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -15,6 +14,7 @@ from shapely.errors import GEOSException
 from shapely.geometry.base import BaseGeometry
 
 from dp_lookup.clients.responses import usable_json
+from dp_lookup.core import timestamps
 from dp_lookup.core.constants import SERVER_URL, SLIVER_AREA_THRESHOLD_SQM, SLIVER_PERCENT_THRESHOLD
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.planning_evidence.models import (
@@ -322,27 +322,6 @@ def _snapshot_value(snapshot: Any, name: str, default: Any = None) -> Any:
     return getattr(snapshot, name, default)
 
 
-def _snapshot_age_days(finalized_at: Any) -> float | None:
-    if finalized_at is None:
-        return None
-    if isinstance(finalized_at, datetime):
-        timestamp = finalized_at.timestamp()
-    elif isinstance(finalized_at, (int, float)) and not isinstance(finalized_at, bool):
-        timestamp = float(finalized_at)
-    else:
-        text = str(finalized_at).strip()
-        try:
-            timestamp = datetime.fromisoformat(text).timestamp()
-        except ValueError:
-            try:
-                timestamp = float(text)
-            except ValueError:
-                return None
-    if not math.isfinite(timestamp):
-        return None
-    return round(max(0.0, (time.time() - timestamp) / 86_400.0), 3)
-
-
 class LocalFirstPlanningEvidenceAnalyzer:
     """Run STANDARD/FULL evidence against one pinned local snapshot first.
 
@@ -412,7 +391,7 @@ class LocalFirstPlanningEvidenceAnalyzer:
         finalized_at = _snapshot_value(snapshot, "finalized_at")
         if finalized_at is None:
             raise LocalPlanningEvidenceError(f"planning snapshot {snapshot_id} has no finalized timestamp")
-        age_days = _snapshot_age_days(finalized_at)
+        age_days = timestamps.age_days(finalized_at)
         if age_days is None:
             raise LocalPlanningEvidenceError(f"planning snapshot {snapshot_id} has an invalid finalized timestamp")
         stale = self.max_snapshot_age_days is not None and age_days > self.max_snapshot_age_days

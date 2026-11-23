@@ -11,12 +11,9 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any
 
-
-def utc_now() -> str:
-    return datetime.now(UTC).isoformat()
+from dp_lookup.core.timestamps import utc_now
 
 
 def canonical_json(value: Any) -> bytes:

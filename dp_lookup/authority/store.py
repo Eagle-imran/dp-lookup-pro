@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import builtins
-import contextlib
 import sqlite3
-from collections.abc import Iterator, Mapping, Sequence
-from datetime import UTC, datetime
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -47,85 +45,36 @@ from dp_lookup.authority.codecs import (
 from dp_lookup.authority.errors import AuthorityStateError, AuthorityStoreError, AuthorityValidationError
 from dp_lookup.authority.models import AuthorityManifest, AuthorityRecord, SelectionPurpose, SourceStatus, SourceType
 from dp_lookup.authority.schema import AUTHORITY_SCHEMA_VERSION, SCHEMA
+from dp_lookup.core.timestamps import utc_now
+from dp_lookup.storage import SQLiteStore, connect, initialize_schema, table_exists
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
+def _schema_mismatch(found: str) -> AuthorityStoreError:
+    return AuthorityStoreError(f"unsupported authority schema {found}; expected {AUTHORITY_SCHEMA_VERSION}")
 
 
-class AuthorityStore:
+class AuthorityStore(SQLiteStore):
     """Durable authority registry sharing the project's existing SQLite file."""
-
-    def __init__(self, connection: sqlite3.Connection, path: str | Path, owns_connection: bool = True) -> None:
-        self.connection = connection
-        self.path = Path(path)
-        self._owns_connection = owns_connection
 
     @classmethod
     def open(cls, path: str | Path, create: bool = True) -> AuthorityStore:
-        path_obj = Path(path)
-        if not create and not path_obj.is_file():
-            raise FileNotFoundError(path_obj)
-        if create:
-            path_obj.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(str(path_obj), timeout=30.0)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA synchronous=FULL")
+        connection = connect(path, create=create)
         try:
             if create:
-                connection.executescript(SCHEMA)
-                existing = connection.execute("SELECT value FROM authority_meta WHERE key='schema_version'").fetchone()
-                if existing is not None and int(existing[0]) != AUTHORITY_SCHEMA_VERSION:
-                    raise AuthorityStoreError(
-                        f"unsupported authority schema {existing[0]}; expected {AUTHORITY_SCHEMA_VERSION}"
-                    )
-                connection.execute(
-                    "INSERT INTO authority_meta(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO NOTHING",
-                    (str(AUTHORITY_SCHEMA_VERSION),),
+                initialize_schema(
+                    connection,
+                    script=SCHEMA,
+                    meta_table="authority_meta",
+                    version=AUTHORITY_SCHEMA_VERSION,
+                    mismatch=_schema_mismatch,
                 )
                 connection.commit()
-            else:
-                exists = connection.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='authority_meta'"
-                ).fetchone()
-                if exists is None:
-                    raise AuthorityStoreError("authority registry is not initialized")
+            elif not table_exists(connection, "authority_meta"):
+                raise AuthorityStoreError("authority registry is not initialized")
         except Exception:
             connection.close()
             raise
-        return cls(connection, path_obj)
-
-    @classmethod
-    def from_connection(cls, connection: sqlite3.Connection, path: str | Path = "") -> AuthorityStore:
-        connection.executescript(SCHEMA)
-        connection.execute(
-            "INSERT INTO authority_meta(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO NOTHING",
-            (str(AUTHORITY_SCHEMA_VERSION),),
-        )
-        connection.commit()
-        return cls(connection, path, owns_connection=False)
-
-    def close(self) -> None:
-        if self._owns_connection:
-            self.connection.close()
-
-    def __enter__(self) -> AuthorityStore:
-        return self
-
-    def __exit__(self, *_: Any) -> None:
-        self.close()
-
-    @contextlib.contextmanager
-    def transaction(self) -> Iterator[sqlite3.Connection]:
-        try:
-            self.connection.execute("BEGIN IMMEDIATE")
-            yield self.connection
-            self.connection.commit()
-        except Exception:
-            self.connection.rollback()
-            raise
+        return cls(connection, path)
 
     def _row(self, record_id: int) -> sqlite3.Row:
         row = self.connection.execute("SELECT * FROM authority_records WHERE record_id=?", (int(record_id),)).fetchone()
@@ -147,7 +96,7 @@ class AuthorityStore:
     ) -> None:
         connection.execute(
             "INSERT INTO authority_events(record_id,event_type,actor,event_at,reason,details_json) VALUES(?,?,?,?,?,?)",
-            (record_id, event_type, actor, _now(), reason, _json(details or {})),
+            (record_id, event_type, actor, utc_now(), reason, _json(details or {})),
         )
 
     def register(
@@ -206,7 +155,7 @@ class AuthorityStore:
                 old = self._row(int(item.supersedes_id))
                 if str(old["village"]) != identity[0] or str(old["cts_no"]) != identity[1]:
                     raise AuthorityValidationError("superseded record must belong to the same village and CTS")
-            now = _now()
+            now = utc_now()
             cursor = connection.execute(
                 """INSERT INTO authority_records(
                     village,cts_no,ward,source_type,version,status,issuer,reference_no,issue_date,survey_date,
@@ -334,7 +283,7 @@ class AuthorityStore:
             raise AuthorityValidationError("verification requires a readable local document URI")
         if _file_sha256(path) != record.source_sha256:
             raise AuthorityValidationError("local document SHA-256 does not match the registered source_sha256")
-        now = _now()
+        now = utc_now()
         with self.transaction() as connection:
             connection.execute(
                 "UPDATE authority_records SET status=?,reviewed_by=?,reviewed_at=?,updated_at=? WHERE record_id=?",
@@ -379,7 +328,7 @@ class AuthorityStore:
         record = self.get(record_id)
         if record.status in {SourceStatus.WITHDRAWN, SourceStatus.REJECTED}:
             return record
-        now = _now()
+        now = utc_now()
         with self.transaction() as connection:
             connection.execute(
                 "UPDATE authority_records SET status=?,updated_at=? WHERE record_id=?",
@@ -412,7 +361,7 @@ class AuthorityStore:
         record = self.get(record_id)
         if not self._suitable(record, selected_purpose):
             raise AuthorityStateError(f"record {record_id} is not verified or suitable for {selected_purpose.value}")
-        now = _now()
+        now = utc_now()
         with self.transaction() as connection:
             connection.execute(
                 """UPDATE authority_selections SET active=0,deactivated_at=?,deactivated_by=?,deactivation_reason=?

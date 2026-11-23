@@ -9,8 +9,6 @@ from .store import (
     SpatialStoreError,
     StoreCorruptError,
     StoreReadOnlyError,
-    create_or_open,
-    open_store,
 )
 
 __all__ = [
@@ -22,6 +20,4 @@ __all__ = [
     "SpatialStoreError",
     "StoreCorruptError",
     "StoreReadOnlyError",
-    "create_or_open",
-    "open_store",
 ]

@@ -8,10 +8,9 @@ discarded; the canonical hash is an additional audit value.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import sqlite3
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -31,12 +30,16 @@ from dp_lookup.planning_snapshot.models import (
 from dp_lookup.planning_snapshot.query import PlanningFeatureQuery, feature_dict
 from dp_lookup.planning_snapshot.schema import SCHEMA, SCHEMA_VERSION
 from dp_lookup.planning_snapshot.validation import validate_snapshot as _validate_snapshot
+from dp_lookup.storage import SQLiteStore, connect, initialize_schema, set_meta
 
 
-class PlanningSnapshotStore:
+def _schema_mismatch(found: str) -> PlanningSnapshotStateError:
+    return PlanningSnapshotStateError(f"unsupported planning snapshot schema {found}; expected {SCHEMA_VERSION}")
+
+
+class PlanningSnapshotStore(SQLiteStore):
     def __init__(self, connection: sqlite3.Connection, path: str | Path) -> None:
-        self.connection = connection
-        self.path = Path(path)
+        super().__init__(connection, path)
         self._rtree_available = False
         self._query_repository: PlanningFeatureQuery | None = None
 
@@ -51,24 +54,22 @@ class PlanningSnapshotStore:
 
     @classmethod
     def open(cls, path: str | Path) -> PlanningSnapshotStore:
-        path_obj = Path(path)
-        path_obj.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(path_obj), timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys=ON")
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=FULL")
-        conn.executescript(SCHEMA)
-        conn.execute(
-            "INSERT INTO planning_meta(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO NOTHING",
-            (str(SCHEMA_VERSION),),
-        )
-        conn.commit()
-        store = cls(conn, path_obj)
+        connection = connect(path)
+        try:
+            initialize_schema(
+                connection,
+                script=SCHEMA,
+                meta_table="planning_meta",
+                version=SCHEMA_VERSION,
+                mismatch=_schema_mismatch,
+            )
+            connection.commit()
+        except Exception:
+            connection.close()
+            raise
+        store = cls(connection, path)
         store._init_rtree()
         return store
-
-    create_or_open = open
 
     def _init_rtree(self) -> None:
         try:
@@ -78,9 +79,7 @@ class PlanningSnapshotStore:
             self.connection.execute(
                 "CREATE TABLE IF NOT EXISTS planning_feature_rtree_map (id INTEGER PRIMARY KEY, snapshot_id INTEGER, canonical_layer_id INTEGER, object_id INTEGER, UNIQUE(snapshot_id,canonical_layer_id,object_id))"
             )
-            self.connection.execute(
-                "INSERT INTO planning_meta(key,value) VALUES('rtree_available','1') ON CONFLICT(key) DO UPDATE SET value='1'"
-            )
+            set_meta(self.connection, "planning_meta", "rtree_available", "1", replace=True)
             self.connection.commit()
             self._rtree_available = True
         except sqlite3.OperationalError:
@@ -93,23 +92,7 @@ class PlanningSnapshotStore:
     def close(self) -> None:
         if self._query_repository is not None:
             self._query_repository.clear_runtime_cache()
-        self.connection.close()
-
-    def __enter__(self) -> PlanningSnapshotStore:
-        return self
-
-    def __exit__(self, *_: Any) -> None:
-        self.close()
-
-    @contextlib.contextmanager
-    def transaction(self) -> Iterator[sqlite3.Connection]:
-        try:
-            self.connection.execute("BEGIN IMMEDIATE")
-            yield self.connection
-            self.connection.commit()
-        except Exception:
-            self.connection.rollback()
-            raise
+        super().close()
 
     def begin_snapshot(
         self, *, source_url: str | None = None, metadata: Mapping[str, Any] | None = None, version: int | None = None
@@ -697,7 +680,4 @@ class PlanningSnapshotStore:
         }
 
 
-open_store = PlanningSnapshotStore.open
-create_or_open = open_store
-
-__all__ = ["SCHEMA_VERSION", "PlanningSnapshotStore", "create_or_open", "open_store"]
+__all__ = ["SCHEMA_VERSION", "PlanningSnapshotStore"]
