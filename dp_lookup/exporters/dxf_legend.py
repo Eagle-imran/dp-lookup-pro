@@ -11,7 +11,7 @@ from dp_lookup.exporters.dxf_policy import DEFAULT_DXF_LAYOUT_POLICY, DXF_LEGEND
 from dp_lookup.exporters.dxf_text import text_extents
 
 
-def dxf_title_block_lines(properties: dict[str, Any], utm_cx: float, utm_cy: float) -> list[str]:
+def dxf_title_block_lines(properties: Mapping[str, Any], utm_cx: float, utm_cy: float) -> list[str]:
     return [
         "MCGM DEVELOPMENT PLAN 2034 - CAD BASE",
         f"PLOT: CTS {properties.get('cts_no')} ({properties.get('village')})",
@@ -88,7 +88,7 @@ def dxf_road_label(properties: Mapping[str, Any]) -> tuple[str, str]:
 
 
 def legend_data_rows(
-    properties: dict[str, Any],
+    properties: Mapping[str, Any],
     setback_status: dict[float, bool],
     measured_area_sqm: float | None = None,
     policy: DxfLayoutPolicy = DEFAULT_DXF_LAYOUT_POLICY,
@@ -171,7 +171,7 @@ def legend_data_rows(
 
 def draw_dxf_legend_column(
     msp: Any,
-    properties: dict[str, Any],
+    properties: Mapping[str, Any],
     setback_status: dict[float, bool],
     utm_cx: float,
     utm_cy: float,

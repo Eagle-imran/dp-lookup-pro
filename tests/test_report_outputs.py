@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import pytest
 from PIL import Image
+from report_data import plot_report
 from reportlab.platypus import Image as ReportImage
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Table
 
@@ -14,7 +15,7 @@ from dp_lookup.application.ingestion import build_parcel_context
 from dp_lookup.application.telemetry import RunDiagnostics
 from dp_lookup.application.visual_fetch import start_visual_fetch
 from dp_lookup.core.geometry import tile_to_latlon
-from dp_lookup.exporters.pdf_renderer import build_pdf_doc
+from dp_lookup.exporters.pdf_renderer import write_pdf_report
 
 
 def _paragraphs(story):
@@ -53,39 +54,46 @@ def test_pdf_preserves_full_note_source_link_image_proportions_and_area_basis(tm
     )
     document = 'https://example.test/notification.pdf?name="hospital"&version=2'
     output = tmp_path / "report.pdf"
-    build_pdf_doc(
-        str(output),
-        status_badge="MODIFIED",
-        status_summary="Source notification applies",
-        village="BYCULLA",
-        attrs={
-            "WARD": "E",
-            "TYPE": "CTS",
-            "_DP_AREA_ASSESSMENT": {
-                "recorded_plot_area_sqm": None,
-                "calculated_boundary_area_sqm": 1877.87,
-                "selected_area_sqm": 1877.87,
+    write_pdf_report(
+        plot_report(
+            output_path=str(output),
+            status_badge="MODIFIED",
+            status_summary="Source notification applies",
+            village="BYCULLA",
+            attrs={
+                "WARD": "E",
+                "TYPE": "CTS",
+                "_DP_AREA_ASSESSMENT": {
+                    "recorded_plot_area_sqm": None,
+                    "calculated_boundary_area_sqm": 1877.87,
+                    "selected_area_sqm": 1877.87,
+                },
             },
-        },
-        cts_number="1605",
-        zone="R",
-        des_desc="Municipal Hospital",
-        des_code="EH1.2",
-        mod_approval="MCP/7526",
-        mod_label=note,
-        modification_document=document,
-        crz_buffer_flag="NO",
-        metro_buffer_flag="YES",
-        road_name="Test road",
-        road_width="18 M",
-        dp_snapshot_path=str(map_path),
-        qr_bytes=qr,
-        map_link="https://example.test/map",
-        sat_snapshot_path=str(satellite_path),
-        neighbors=[
-            {"cts_no": "1", "village": "BYCULLA", "area_sqm": "20310.61", "area_source": "Calculated boundary area"},
-            {"cts_no": "2", "village": "BYCULLA", "area_sqm": "100", "area_source": "Recorded plot area"},
-        ],
+            cts_number="1605",
+            zone="R",
+            designation_description="Municipal Hospital",
+            designation_code="EH1.2",
+            modification_approval="MCP/7526",
+            modification_label=note,
+            modification_document=document,
+            crz_status="NO",
+            metro_buffer="YES",
+            road_name="Test road",
+            road_width="18 M",
+            dp_map_path=str(map_path),
+            qr_png=qr,
+            map_link="https://example.test/map",
+            satellite_path=str(satellite_path),
+            neighbours=[
+                {
+                    "cts_no": "1",
+                    "village": "BYCULLA",
+                    "area_sqm": "20310.61",
+                    "area_source": "Calculated boundary area",
+                },
+                {"cts_no": "2", "village": "BYCULLA", "area_sqm": "100", "area_source": "Recorded plot area"},
+            ],
+        )
     )
     paragraphs = list(_paragraphs(captured))
     text = "\n".join(item.getPlainText() for item in paragraphs)

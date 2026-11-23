@@ -25,44 +25,15 @@ def _area_text(value: Any) -> str:
     return f"{_esc(value)} sq m" if value is not None else "Not available"
 
 
-def _build_pdf_doc_values(
-    pdf_path: str,
-    status_badge: str,
-    status_summary: str,
-    village: str,
-    attrs: dict[str, Any],
-    cts_number: str,
-    zone: str,
-    des_desc: str,
-    des_code: str,
-    mod_approval: str,
-    mod_label: str,
-    crz_buffer_flag: str,
-    metro_buffer_flag: str,
-    road_name: str,
-    road_width: str,
-    dp_snapshot_path: str,
-    qr_bytes: Any,
-    map_link: str,
-    sat_snapshot_path: str,
-    neighbors: list[dict[str, Any]],
-    area_source_label: str = "MCGM cadastral parcel record",
-    *,
-    res_code: str = "None",
-    res_type: str = "None",
-    reservations: list[dict[str, Any]] | None = None,
-    designations: list[dict[str, Any]] | None = None,
-    encumbered_percent: float = 0.0,
-    encumbered_area_sqm: float = 0.0,
-    net_unencumbered_sqm: float = 0.0,
-    modification_document: str = "None",
-) -> None:
+def write_pdf_report(data: PlotReportData) -> None:
     """
     Build a strictly 2-page, high-density DP Remark Dossier PDF.
     Page 1: Title, Status banner, Planning attributes table, HD DP Map, Interactive QR Code.
     Page 2: Title, Satellite Aerial View, Adjoining cadastral cluster table.
     """
-    doc = SimpleDocTemplate(pdf_path, pagesize=letter, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
+    doc = SimpleDocTemplate(
+        data.output_path, pagesize=letter, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36
+    )
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
         "Title", parent=styles["Heading1"], fontSize=14, leading=17, textColor=colors.HexColor("#1A237E")
@@ -82,14 +53,14 @@ def _build_pdf_doc_values(
 
     banner_color = (
         colors.HexColor("#E8F5E9")
-        if "CLEAR" in status_badge
+        if "CLEAR" in data.status_badge
         else (
             colors.HexColor("#FFFDE7")
-            if ("MODIFIED" in status_badge or "PARTIALLY" in status_badge)
+            if ("MODIFIED" in data.status_badge or "PARTIALLY" in data.status_badge)
             else colors.HexColor("#FFEBEE")
         )
     )
-    banner_text = f"<b>STATUS: {_esc(status_badge)}</b> - {_esc(status_summary)}"
+    banner_text = f"<b>STATUS: {_esc(data.status_badge)}</b> - {_esc(data.status_summary)}"
     banner_table = Table(
         [[Paragraph(banner_text, ParagraphStyle("BText", parent=body_style, fontSize=8.5, leading=11))]],
         colWidths=[540],
@@ -107,7 +78,7 @@ def _build_pdf_doc_values(
     story.append(banner_table)
     story.append(Spacer(1, 4))
 
-    res_items = reservations or []
+    res_items = data.reservations or []
     if res_items:
         res_display = [
             f"• <b>{_esc(r['code'])}</b> ({_esc(r['description'])}) - {_esc(str(r['overlap_sqm']))} m² ({_esc(str(r['overlap_percent']))}%)"
@@ -116,12 +87,12 @@ def _build_pdf_doc_values(
         if len(res_items) > 3:
             res_display.append(f"• <i>... and {len(res_items) - 3} more reservations (see CAD/GeoJSON)</i>")
         res_text = "<br/>".join(res_display)
-    elif res_code != "None":
-        res_text = f"<b>{_esc(res_code)}</b> ({_esc(res_type)})"
+    elif data.reservation_code != "None":
+        res_text = f"<b>{_esc(data.reservation_code)}</b> ({_esc(data.reservation_type)})"
     else:
         res_text = "None"
 
-    des_items = designations or []
+    des_items = data.designations or []
     if des_items:
         des_display = [
             f"• <b>{_esc(d['code'])}</b> ({_esc(d['description'])}) - {_esc(str(d['overlap_sqm']))} m² ({_esc(str(d['overlap_percent']))}%)"
@@ -130,13 +101,13 @@ def _build_pdf_doc_values(
         if len(des_items) > 3:
             des_display.append(f"• <i>... and {len(des_items) - 3} more designations (see CAD/GeoJSON)</i>")
         des_text = "<br/>".join(des_display)
-    elif des_desc != "None":
-        des_text = f"{_esc(des_desc)} ({_esc(des_code)})"
+    elif data.designation_description != "None":
+        des_text = f"{_esc(data.designation_description)} ({_esc(data.designation_code)})"
     else:
         des_text = "None"
 
-    area_assessment = attrs.get("_DP_AREA_ASSESSMENT")
-    authority = attrs.get("_DP_AUTHORITY_RESOLUTION")
+    area_assessment = data.attrs.get("_DP_AREA_ASSESSMENT")
+    authority = data.attrs.get("_DP_AUTHORITY_RESOLUTION")
     if not isinstance(authority, dict):
         authority = {}
     raw_area_authority = authority.get("area")
@@ -157,7 +128,7 @@ def _build_pdf_doc_values(
         reliability_note = str(reliability)
         if flag_messages:
             reliability_note += " - " + "; ".join(flag_messages[:2])
-        working_source = area_authority.get("source_label") or area_source_label
+        working_source = area_authority.get("source_label") or data.area_source_label
         authority_note = (
             "Active authority record(s): " + ", ".join(str(value) for value in active_authority_ids)
             if active_authority_ids
@@ -195,10 +166,12 @@ def _build_pdf_doc_values(
             [
                 Paragraph("Plot area", body_style),
                 Paragraph(
-                    f"{_esc(attrs.get('AREA_APP_SQ_MTRS'))} sq m" if attrs.get("AREA_APP_SQ_MTRS") else "Not available",
+                    f"{_esc(data.attrs.get('AREA_APP_SQ_MTRS'))} sq m"
+                    if data.attrs.get("AREA_APP_SQ_MTRS")
+                    else "Not available",
                     body_style,
                 ),
-                Paragraph(_esc(area_source_label), body_style),
+                Paragraph(_esc(data.area_source_label), body_style),
             ]
         ]
 
@@ -210,18 +183,18 @@ def _build_pdf_doc_values(
         ],
         [
             Paragraph("Village / Ward", body_style),
-            Paragraph(f"{_esc(village.upper())} (Ward {_esc(attrs['WARD'])})", body_style),
+            Paragraph(f"{_esc(data.village.upper())} (Ward {_esc(data.attrs['WARD'])})", body_style),
             Paragraph("MCGM Administrative Division", body_style),
         ],
         [
             Paragraph("Plot CTS No.", body_style),
-            Paragraph(f"CTS {_esc(cts_number)} ({_esc(attrs['TYPE'])})", body_style),
+            Paragraph(f"CTS {_esc(data.cts_number)} ({_esc(data.attrs['TYPE'])})", body_style),
             Paragraph("City Survey Cadastral Parcel", body_style),
         ],
         *area_rows,
         [
             Paragraph("Land-Use Zone", body_style),
-            Paragraph(f"<b>Zone {_esc(zone)}</b>", body_style),
+            Paragraph(f"<b>Zone {_esc(data.zone)}</b>", body_style),
             Paragraph("Primary Zoning Classification", body_style),
         ],
         [
@@ -235,12 +208,12 @@ def _build_pdf_doc_values(
             Paragraph("Existing Amenity Designation", body_style),
         ],
     ]
-    if encumbered_percent > 0.0:
+    if data.encumbered_percent > 0.0:
         table_data.append(
             [
                 Paragraph("Encumbrance", body_style),
                 Paragraph(
-                    f"<b>{encumbered_percent:.1f}% Encumbered</b> ({encumbered_area_sqm:,.1f} m²)<br/>Net Unencumbered: <b>{net_unencumbered_sqm:,.1f} m²</b>",
+                    f"<b>{data.encumbered_percent:.1f}% Encumbered</b> ({data.encumbered_area_sqm:,.1f} m²)<br/>Net Unencumbered: <b>{data.net_unencumbered_sqm:,.1f} m²</b>",
                     body_style,
                 ),
                 Paragraph("Spatial Polygon Overlay", body_style),
@@ -248,13 +221,13 @@ def _build_pdf_doc_values(
         )
     modification_row = len(table_data)
     modification_text = (
-        f"Approval: {_esc(mod_approval)}<br/>{_esc(mod_label)}"
-        if mod_approval != "None" or mod_label != "None"
+        f"Approval: {_esc(data.modification_approval)}<br/>{_esc(data.modification_label)}"
+        if data.modification_approval != "None" or data.modification_label != "None"
         else "None"
     )
-    if modification_document.startswith(("https://", "http://")):
+    if data.modification_document.startswith(("https://", "http://")):
         modification_text += (
-            f'<br/><a href={quoteattr(modification_document)} color="blue">Open source notification</a>'
+            f'<br/><a href={quoteattr(data.modification_document)} color="blue">Open source notification</a>'
         )
     table_data += [
         [
@@ -264,17 +237,17 @@ def _build_pdf_doc_values(
         ],
         [
             Paragraph("CRZ Status", body_style),
-            Paragraph(f"<b>{_esc(crz_buffer_flag)}</b>", body_style),
+            Paragraph(f"<b>{_esc(data.crz_status)}</b>", body_style),
             Paragraph("Coastal Regulation Zone Layer Query", body_style),
         ],
         [
             Paragraph("Metro Buffer", body_style),
-            Paragraph(_esc(metro_buffer_flag), body_style),
+            Paragraph(_esc(data.metro_buffer), body_style),
             Paragraph("Layer 1550 Metro Rail Influence", body_style),
         ],
         [
             Paragraph("Abutting Road", body_style),
-            Paragraph(f"<b>{_esc(road_name)}</b> ({_esc(road_width)})", body_style),
+            Paragraph(f"<b>{_esc(data.road_name)}</b> ({_esc(data.road_width)})", body_style),
             Paragraph("DP 2034 Road Access &amp; Width", body_style),
         ],
     ]
@@ -294,8 +267,8 @@ def _build_pdf_doc_values(
     story.append(t)
     story.append(Spacer(1, 4))
 
-    dp_img_rl = RLImage(dp_snapshot_path, width=290, height=290)
-    qr_img_rl = RLImage(qr_bytes, width=85, height=85)
+    dp_img_rl = RLImage(data.dp_map_path, width=290, height=290)
+    qr_img_rl = RLImage(data.qr_png, width=85, height=85)
 
     qr_cell = [
         Paragraph("<b>Scan for Live Interactive Map:</b>", body_style),
@@ -303,7 +276,7 @@ def _build_pdf_doc_values(
         qr_img_rl,
         Spacer(1, 3),
         Paragraph(
-            f"<a href='{_esc(map_link)}'>Open ArcGIS Web Map</a>",
+            f"<a href='{_esc(data.map_link)}'>Open ArcGIS Web Map</a>",
             ParagraphStyle("Link", parent=body_style, textColor=colors.blue, fontSize=7.5),
         ),
     ]
@@ -323,13 +296,13 @@ def _build_pdf_doc_values(
     story.append(Paragraph("<b>SATELLITE & ADJOINING PLOT ANALYSIS</b>", page_two_title_style))
     story.append(
         Paragraph(
-            f"Spatial Planning Screening Report | Page 2 of 2 | Plot CTS {_esc(cts_number)} ({_esc(village.upper())})",
+            f"Spatial Planning Screening Report | Page 2 of 2 | Plot CTS {_esc(data.cts_number)} ({_esc(data.village.upper())})",
             subtitle_style,
         )
     )
     story.append(Spacer(1, 8))
 
-    sat_img_rl = RLImage(sat_snapshot_path, width=540, height=340, kind="proportional")
+    sat_img_rl = RLImage(data.satellite_path, width=540, height=340, kind="proportional")
     story.append(sat_img_rl)
     story.append(Spacer(1, 10))
 
@@ -348,7 +321,7 @@ def _build_pdf_doc_values(
             Paragraph("<b>Area (sq m) / basis</b>", bold_style),
         ]
     ]
-    for n in neighbors[:8]:
+    for n in data.neighbours[:8]:
         area_basis = {
             "Recorded plot area": "MCGM recorded area",
             "Calculated boundary area": "Calculated nearby pieces",
@@ -362,7 +335,7 @@ def _build_pdf_doc_values(
                 Paragraph(f"{area_text}<br/>{_esc(area_basis)}", body_style),
             ]
         )
-    if not neighbors:
+    if not data.neighbours:
         adj_table_data.append(
             [
                 Paragraph("No immediate adjoining CTS polygons detected in buffer", body_style),
@@ -383,7 +356,7 @@ def _build_pdf_doc_values(
         )
     )
     story.append(adj_table)
-    if any(n.get("area_source") == "Calculated boundary area" for n in neighbors[:8]):
+    if any(n.get("area_source") == "Calculated boundary area" for n in data.neighbours[:8]):
         story.append(Spacer(1, 4))
         story.append(
             Paragraph(
@@ -394,106 +367,3 @@ def _build_pdf_doc_values(
         )
 
     doc.build(story)
-
-
-def write_pdf_report(data: PlotReportData) -> None:
-    """Render a dossier from the pipeline's typed report contract."""
-    _build_pdf_doc_values(
-        data.output_path,
-        data.status_badge,
-        data.status_summary,
-        data.village,
-        dict(data.attrs),
-        data.cts_number,
-        data.zone,
-        data.designation_description,
-        data.designation_code,
-        data.modification_approval,
-        data.modification_label,
-        data.crz_status,
-        data.metro_buffer,
-        data.road_name,
-        data.road_width,
-        data.dp_map_path,
-        data.qr_png,
-        data.map_link,
-        data.satellite_path,
-        [dict(item) for item in data.neighbours],
-        data.area_source_label,
-        res_code=data.reservation_code,
-        res_type=data.reservation_type,
-        reservations=[dict(item) for item in data.reservations],
-        designations=[dict(item) for item in data.designations],
-        encumbered_percent=data.encumbered_percent,
-        encumbered_area_sqm=data.encumbered_area_sqm,
-        net_unencumbered_sqm=data.net_unencumbered_sqm,
-        modification_document=data.modification_document,
-    )
-
-
-def build_pdf_doc(
-    pdf_path: str,
-    status_badge: str,
-    status_summary: str,
-    village: str,
-    attrs: dict[str, Any],
-    cts_number: str,
-    zone: str,
-    des_desc: str,
-    des_code: str,
-    mod_approval: str,
-    mod_label: str,
-    crz_buffer_flag: str,
-    metro_buffer_flag: str,
-    road_name: str,
-    road_width: str,
-    dp_snapshot_path: str,
-    qr_bytes: Any,
-    map_link: str,
-    sat_snapshot_path: str,
-    neighbors: list[dict[str, Any]],
-    area_source_label: str = "MCGM cadastral parcel record",
-    *,
-    res_code: str = "None",
-    res_type: str = "None",
-    reservations: list[dict[str, Any]] | None = None,
-    designations: list[dict[str, Any]] | None = None,
-    encumbered_percent: float = 0.0,
-    encumbered_area_sqm: float = 0.0,
-    net_unencumbered_sqm: float = 0.0,
-    modification_document: str = "None",
-) -> None:
-    """Compatibility adapter for integrations using the historical signature."""
-    write_pdf_report(
-        PlotReportData(
-            output_path=pdf_path,
-            status_badge=status_badge,
-            status_summary=status_summary,
-            village=village,
-            attrs=attrs,
-            cts_number=cts_number,
-            zone=zone,
-            reservation_code=res_code,
-            reservation_type=res_type,
-            designation_description=des_desc,
-            designation_code=des_code,
-            modification_approval=mod_approval,
-            modification_label=mod_label,
-            modification_document=modification_document,
-            crz_status=crz_buffer_flag,
-            metro_buffer=metro_buffer_flag,
-            road_name=road_name,
-            road_width=road_width,
-            neighbours=neighbors,
-            reservations=reservations or [],
-            designations=designations or [],
-            encumbered_percent=encumbered_percent,
-            encumbered_area_sqm=encumbered_area_sqm,
-            net_unencumbered_sqm=net_unencumbered_sqm,
-            area_source_label=area_source_label,
-            dp_map_path=dp_snapshot_path,
-            satellite_path=sat_snapshot_path,
-            qr_png=qr_bytes,
-            map_link=map_link,
-        )
-    )

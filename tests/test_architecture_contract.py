@@ -179,7 +179,7 @@ def test_pdf_public_module_is_a_small_facade_over_typed_renderer():
     source = exporter.read_text(encoding="utf-8")
     assert len(source.splitlines()) < 15
     assert (exporter.parent / "pdf_renderer.py").is_file()
-    assert "build_pdf_doc" in source
+    assert "build_pdf_doc" not in source
     assert "write_pdf_report" in source
 
 
@@ -215,11 +215,9 @@ def test_pdf_and_excel_default_to_native_typed_data_writers():
     assert "class ExcelRegisterData" in contracts_source
     assert "pdf_data_writer: PdfDataWriter = write_pdf_report" in dependencies_source
     assert "excel_data_writer: ExcelDataWriter = write_excel_register" in dependencies_source
-    from dp_lookup.application.dependencies import LookupDependencies
-
-    defaults = LookupDependencies()
-    assert defaults.pdf_writer is None
-    assert defaults.excel_writer is None
+    assert "ArtifactProcedure" not in dependencies_source
+    assert "pdf_writer:" not in dependencies_source
+    assert "excel_writer:" not in dependencies_source
 
 
 def test_planning_snapshot_spatial_reads_are_separate_from_lifecycle_store():

@@ -16,6 +16,7 @@ import sys
 import time
 
 import pytest
+from report_data import plot_report
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -1603,32 +1604,34 @@ def test_pdf_build_with_multi_reservations(tmp_path):
         },
     ]
 
-    dp.build_pdf_doc(
-        str(out),
-        status_badge="PARTIALLY RESERVED / DESIGNATED",
-        status_summary="22.8% Encumbered",
-        village="MULUND-W",
-        attrs={"WARD": "T", "TYPE": "CTS", "AREA_APP_SQ_MTRS": 35735.55},
-        cts_number="22",
-        zone="R",
-        des_desc="Play Ground, Municipal School",
-        des_code="EOS1.4, EE1.1",
-        mod_approval="None",
-        mod_label="None",
-        crz_buffer_flag="NO",
-        metro_buffer_flag="NO",
-        road_name="Road",
-        road_width="N/A",
-        dp_snapshot_path=dp_img_path,
-        qr_bytes=qr_bytes,
-        map_link="https://example.com",
-        sat_snapshot_path=sat_img_path,
-        neighbors=[],
-        reservations=reservations,
-        designations=designations,
-        encumbered_percent=22.82,
-        encumbered_area_sqm=9187.19,
-        net_unencumbered_sqm=31070.79,
+    dp.write_pdf_report(
+        plot_report(
+            output_path=str(out),
+            status_badge="PARTIALLY RESERVED / DESIGNATED",
+            status_summary="22.8% Encumbered",
+            village="MULUND-W",
+            attrs={"WARD": "T", "TYPE": "CTS", "AREA_APP_SQ_MTRS": 35735.55},
+            cts_number="22",
+            zone="R",
+            designation_description="Play Ground, Municipal School",
+            designation_code="EOS1.4, EE1.1",
+            modification_approval="None",
+            modification_label="None",
+            crz_status="NO",
+            metro_buffer="NO",
+            road_name="Road",
+            road_width="N/A",
+            dp_map_path=dp_img_path,
+            qr_png=qr_bytes,
+            map_link="https://example.com",
+            satellite_path=sat_img_path,
+            neighbours=[],
+            reservations=reservations,
+            designations=designations,
+            encumbered_percent=22.82,
+            encumbered_area_sqm=9187.19,
+            net_unencumbered_sqm=31070.79,
+        )
     )
 
     assert out.exists()

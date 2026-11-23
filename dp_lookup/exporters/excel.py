@@ -128,36 +128,11 @@ def _append_register_row(worksheet: Any, headers: list[str], values: list[Any]) 
         _write_cell(worksheet, target_row, columns[header], value)
 
 
-def update_excel_register(
-    register_path: str,
-    attrs: dict[str, Any],
-    village: str,
-    cts_number: str,
-    zone: str,
-    status_badge: str,
-    res_code: str,
-    res_type: str,
-    des_code: str,
-    des_desc: str,
-    mod_approval: str,
-    mod_label: str,
-    mod_doc: str,
-    crz_buffer_flag: str,
-    metro_buffer_flag: str,
-    road_name: str,
-    road_width: str,
-    neighbors: list[dict[str, Any]],
-    dp_snapshot_fname: str,
-    sat_snapshot_fname: str,
-    pdf_fname: str,
-    dxf_fname: str,
-    geojson_fname: str,
-    kml_fname: str,
-    map_link: str,
-    reservations: list[dict[str, Any]] | None = None,
-    designations: list[dict[str, Any]] | None = None,
-) -> None:
+def write_excel_register(data: ExcelRegisterData) -> None:
     """Append a structured lookup record row to the master Excel register."""
+    report = data.report
+    names = data.artifact_filenames
+    register_path = report.output_path
     with _REGISTER_LOCK:
         now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -207,15 +182,15 @@ def update_excel_register(
             "authority_active_record_ids",
         ]
 
-        assessment = attrs.get("_DP_AREA_ASSESSMENT")
+        assessment = report.attrs.get("_DP_AREA_ASSESSMENT")
         if not isinstance(assessment, dict):
             assessment = {}
-        selected_area = assessment.get("selected_area_sqm", attrs.get("AREA_APP_SQ_MTRS"))
+        selected_area = assessment.get("selected_area_sqm", report.attrs.get("AREA_APP_SQ_MTRS"))
         quality_flags = assessment.get("quality_flags") or []
         quality_flag_codes = "; ".join(
             str(flag.get("code")) for flag in quality_flags if isinstance(flag, dict) and flag.get("code")
         )
-        authority = attrs.get("_DP_AUTHORITY_RESOLUTION")
+        authority = report.attrs.get("_DP_AUTHORITY_RESOLUTION")
         if not isinstance(authority, dict):
             authority = {}
         raw_area_authority = authority.get("area")
@@ -234,43 +209,53 @@ def update_excel_register(
             "; ".join(str(value) for value in raw_active_record_ids) if isinstance(raw_active_record_ids, list) else ""
         )
 
-        excel_res_code = "; ".join(r["code"] for r in reservations) if reservations else res_code
-        excel_res_type = (
-            "; ".join(f"{r['type']} ({r['description']})" for r in reservations) if reservations else res_type
+        excel_res_code = (
+            "; ".join(r["code"] for r in report.reservations) if report.reservations else report.reservation_code
         )
-        excel_des_code = "; ".join(d["code"] for d in designations) if designations else des_code
-        excel_des_desc = "; ".join(d["description"] for d in designations) if designations else des_desc
+        excel_res_type = (
+            "; ".join(f"{r['type']} ({r['description']})" for r in report.reservations)
+            if report.reservations
+            else report.reservation_type
+        )
+        excel_des_code = (
+            "; ".join(d["code"] for d in report.designations) if report.designations else report.designation_code
+        )
+        excel_des_desc = (
+            "; ".join(d["description"] for d in report.designations)
+            if report.designations
+            else report.designation_description
+        )
 
         row = [
             now_str,
             "MCGM SDP 2014-34",
-            attrs.get("WARD"),
-            village,
-            cts_number,
-            attrs.get("TYPE"),
+            report.attrs.get("WARD"),
+            report.village,
+            report.cts_number,
+            report.attrs.get("TYPE"),
             selected_area,
-            zone,
-            status_badge,
+            report.zone,
+            report.status_badge,
             excel_res_code,
             excel_res_type,
             excel_des_code,
             excel_des_desc,
-            mod_approval,
-            mod_label,
-            mod_doc,
-            crz_buffer_flag,
-            metro_buffer_flag,
-            road_name,
-            road_width,
-            len(neighbors),
-            dp_snapshot_fname,
-            sat_snapshot_fname,
-            pdf_fname,
-            dxf_fname,
-            geojson_fname,
-            kml_fname,
-            map_link,
-            assessment.get("recorded_plot_area_sqm", attrs.get("AREA_APP_SQ_MTRS")),
+            report.modification_approval,
+            report.modification_label,
+            report.modification_document,
+            report.crz_status,
+            report.metro_buffer,
+            report.road_name,
+            report.road_width,
+            len(report.neighbours),
+            names["dp_map"],
+            names["satellite"],
+            names["pdf"],
+            names["dxf"],
+            names["geojson"],
+            names["kml"],
+            report.map_link,
+            assessment.get("recorded_plot_area_sqm", report.attrs.get("AREA_APP_SQ_MTRS")),
             assessment.get("calculated_boundary_area_sqm"),
             assessment.get("difference_sqm"),
             assessment.get("difference_percent"),
@@ -296,38 +281,3 @@ def update_excel_register(
                 _save_workbook_atomic(wb, register_path)
             finally:
                 wb.close()
-
-
-def write_excel_register(data: ExcelRegisterData) -> None:
-    """Append one row from the pipeline's typed report contract."""
-    report = data.report
-    names = data.artifact_filenames
-    update_excel_register(
-        register_path=report.output_path,
-        attrs=dict(report.attrs),
-        village=report.village,
-        cts_number=report.cts_number,
-        zone=report.zone,
-        status_badge=report.status_badge,
-        res_code=report.reservation_code,
-        res_type=report.reservation_type,
-        des_code=report.designation_code,
-        des_desc=report.designation_description,
-        mod_approval=report.modification_approval,
-        mod_label=report.modification_label,
-        mod_doc=report.modification_document,
-        crz_buffer_flag=report.crz_status,
-        metro_buffer_flag=report.metro_buffer,
-        road_name=report.road_name,
-        road_width=report.road_width,
-        neighbors=[dict(item) for item in report.neighbours],
-        dp_snapshot_fname=str(names["dp_map"]),
-        sat_snapshot_fname=str(names["satellite"]),
-        pdf_fname=str(names["pdf"]),
-        dxf_fname=str(names["dxf"]),
-        geojson_fname=str(names["geojson"]),
-        kml_fname=str(names["kml"]),
-        map_link=report.map_link,
-        reservations=[dict(item) for item in report.reservations],
-        designations=[dict(item) for item in report.designations],
-    )

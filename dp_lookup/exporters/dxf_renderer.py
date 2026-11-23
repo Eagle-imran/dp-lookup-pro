@@ -2,95 +2,45 @@
 
 import contextlib
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 import ezdxf
 from ezdxf.enums import TextEntityAlignment
 from ezdxf.lldxf.const import BOUNDARY_PATH_EXTERNAL, BOUNDARY_PATH_OUTERMOST
 from shapely.geometry import MultiPolygon, Polygon
+from shapely.geometry.base import BaseGeometry
 
 from dp_lookup.core.geometry import wgs84_to_utm43n
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.exporters.contracts import ExportPayload, legacy_export_properties
 from dp_lookup.exporters.dxf_geometry import (
-    METRES_PER_DEG_LAT as METRES_PER_DEG_LAT,
-)
-from dp_lookup.exporters.dxf_geometry import (
-    METRES_PER_DEG_LON_EQUATOR as METRES_PER_DEG_LON_EQUATOR,
-)
-from dp_lookup.exporters.dxf_geometry import (
-    clip_path_to_window as clip_path_to_window,
-)
-from dp_lookup.exporters.dxf_geometry import (
-    clip_segment_to_box as clip_segment_to_box,
-)
-from dp_lookup.exporters.dxf_geometry import inset_polygon_parts
-from dp_lookup.exporters.dxf_geometry import (
-    offset_polygon_inward as offset_polygon_inward,
-)
-from dp_lookup.exporters.dxf_geometry import (
-    polygon_signed_area as polygon_signed_area,
-)
-from dp_lookup.exporters.dxf_geometry import (
-    project_rings_to_local_metres as project_rings_to_local_metres,
-)
-from dp_lookup.exporters.dxf_geometry import (
-    to_local_metres as to_local_metres,
+    Ring,
+    clip_path_to_window,
+    inset_polygon_parts,
+    project_rings_to_local_metres,
+    to_local_metres,
 )
 from dp_lookup.exporters.dxf_legend import (
-    draw_dxf_legend_column as draw_dxf_legend_column,
-)
-from dp_lookup.exporters.dxf_legend import dxf_road_label
-from dp_lookup.exporters.dxf_legend import (
-    dxf_title_block_lines as dxf_title_block_lines,
-)
-from dp_lookup.exporters.dxf_legend import (
-    legend_column_height as legend_column_height,
-)
-from dp_lookup.exporters.dxf_legend import (
-    legend_data_row as legend_data_row,
-)
-from dp_lookup.exporters.dxf_legend import (
-    legend_data_rows as legend_data_rows,
-)
-from dp_lookup.exporters.dxf_legend import (
-    title_block_height as title_block_height,
+    draw_dxf_legend_column,
+    dxf_road_label,
+    dxf_title_block_lines,
+    legend_column_height,
+    legend_data_rows,
+    title_block_height,
 )
 from dp_lookup.exporters.dxf_policy import (
-    DEFAULT_DXF_LAYOUT_POLICY as DEFAULT_DXF_LAYOUT_POLICY,
+    DEFAULT_DXF_LAYOUT_POLICY,
+    DXF_LAYERS,
+    DXF_LEGEND_ROWS,
+    DXF_RESERVATION_LEGEND_ROW,
+    DxfLayoutPolicy,
 )
-from dp_lookup.exporters.dxf_policy import (
-    DEFAULT_LAYOUT_POLICY as DEFAULT_LAYOUT_POLICY,
-)
-from dp_lookup.exporters.dxf_policy import (
-    DXF_LAYERS as DXF_LAYERS,
-)
-from dp_lookup.exporters.dxf_policy import (
-    DXF_LEGEND_ROWS as DXF_LEGEND_ROWS,
-)
-from dp_lookup.exporters.dxf_policy import DXF_RESERVATION_LEGEND_ROW
-from dp_lookup.exporters.dxf_policy import (
-    LEGEND_PAD_ROWS as LEGEND_PAD_ROWS,
-)
-from dp_lookup.exporters.dxf_policy import (
-    LEGEND_VALUE_MAX_CHARS as LEGEND_VALUE_MAX_CHARS,
-)
-from dp_lookup.exporters.dxf_policy import (
-    DxfLayoutPolicy as DxfLayoutPolicy,
-)
-from dp_lookup.exporters.dxf_text import (
-    boxes_overlap as boxes_overlap,
-)
-from dp_lookup.exporters.dxf_text import (
-    fit_label_to_width as fit_label_to_width,
-)
-from dp_lookup.exporters.dxf_text import (
-    nudge_text_clear as nudge_text_clear,
-)
-from dp_lookup.exporters.dxf_text import (
-    text_extents as text_extents,
-)
+from dp_lookup.exporters.dxf_text import Box, Point, fit_label_to_width, nudge_text_clear, text_extents
+
+SETBACK_LAYERS = ("C-SETBACK-3M", "C-SETBACK-6M")
+OVERLAY_LABEL_MIN_SQM = 100.0
 
 
 def new_dxf_document(has_reservations: bool = False) -> ezdxf.document.Drawing:
@@ -114,6 +64,404 @@ def new_dxf_document(has_reservations: bool = False) -> ezdxf.document.Drawing:
     return doc
 
 
+@dataclass
+class _Sheet:
+    """Model space plus the local frame, text sizes and label boxes shared by every drawing step.
+
+    The parcel's first ring sets ``min_x``..``max_y``; its centroid sits at the local origin.
+    """
+
+    msp: Any
+    policy: DxfLayoutPolicy
+    lon0: float
+    lat0: float
+    mpd_lon: float
+    mpd_lat: float
+    min_x: float
+    min_y: float
+    max_x: float
+    max_y: float
+    placed_boxes: list[Box] = field(default_factory=list)
+
+    @property
+    def width(self) -> float:
+        return self.max_x - self.min_x
+
+    @property
+    def height(self) -> float:
+        return self.max_y - self.min_y
+
+    @property
+    def scale(self) -> float:
+        return max(self.width, self.height, self.policy.min_scale)
+
+    @property
+    def char_h(self) -> float:
+        return max(self.policy.min_char_height, self.scale * self.policy.char_height_fraction)
+
+    @property
+    def dim_char_h(self) -> float:
+        return max(self.policy.min_dim_char_height, self.scale * self.policy.dim_char_height_fraction)
+
+    def to_local(self, ring: Ring) -> list[Point]:
+        return to_local_metres(ring, self.lon0, self.lat0, self.mpd_lon, self.mpd_lat)
+
+    def remember(self, entity: Any) -> Box | None:
+        """Record a placed label so later labels steer around it."""
+        box = text_extents(entity)
+        if box:
+            self.placed_boxes.append(box)
+        return box
+
+    def place(self, entity: Any, step: float, *, limit: int, direction: Point = (0.0, 1.0)) -> Box | None:
+        """Nudge a label clear of earlier ones and keep it even if it still overlaps."""
+        nudge_text_clear(entity, self.placed_boxes, step, direction=direction, limit=limit)
+        return self.remember(entity)
+
+    def place_or_drop(self, entity: Any, step: float, *, limit: int, direction: Point = (0.0, 1.0)) -> None:
+        """Nudge a label clear of earlier ones, or delete it if no clear spot is found."""
+        if nudge_text_clear(entity, self.placed_boxes, step, direction=direction, limit=limit):
+            self.remember(entity)
+        else:
+            self.msp.delete_entity(entity)
+
+
+def _draw_grid(sheet: _Sheet) -> None:
+    policy = sheet.policy
+    step = policy.grid_step_for(sheet.scale)
+    extent = sheet.scale * policy.grid_extent_fraction
+    g_min_x = math.floor((sheet.min_x - extent) / step) * step
+    g_max_x = math.ceil((sheet.max_x + extent) / step) * step
+    g_min_y = math.floor((sheet.min_y - extent) / step) * step
+    g_max_y = math.ceil((sheet.max_y + extent) / step) * step
+    label_attribs = {"layer": "0_GRID_AXIS", "height": sheet.dim_char_h * policy.grid_label_height_fraction}
+
+    gx = g_min_x
+    while gx <= g_max_x:
+        sheet.msp.add_line((gx, g_min_y), (gx, g_max_y), dxfattribs={"layer": "0_GRID_AXIS"})
+        label = sheet.msp.add_text(f"{int(gx)}m", dxfattribs=label_attribs)
+        label.set_placement((gx + policy.grid_label_offset, g_min_y + policy.grid_label_offset))
+        sheet.remember(label)
+        gx += step
+
+    gy = g_min_y
+    while gy <= g_max_y:
+        sheet.msp.add_line((g_min_x, gy), (g_max_x, gy), dxfattribs={"layer": "0_GRID_AXIS"})
+        if gy > g_min_y:
+            label = sheet.msp.add_text(f"{int(gy)}m", dxfattribs=label_attribs)
+            label.set_placement((g_min_x + policy.grid_label_offset, gy + policy.grid_label_offset))
+            sheet.remember(label)
+        gy += step
+
+
+def _draw_parcel(sheet: _Sheet, local_rings: list[list[Point]], parcel: BaseGeometry, cts_no: Any) -> None:
+    policy = sheet.policy
+    for ring in local_rings:
+        outline = sheet.msp.add_lwpolyline(ring, close=True, dxfattribs={"layer": "C-PLOT-BDY"})
+        outline.dxf.const_width = max(policy.plot_line_min_width, sheet.scale * policy.plot_line_width_fraction)
+    parts = parcel.geoms if isinstance(parcel, MultiPolygon) else (parcel,)
+    for part in parts:
+        if isinstance(part, Polygon) and not part.is_empty:
+            hatch = sheet.msp.add_hatch(color=252, dxfattribs={"layer": "C-PROP-HATCH"})
+            hatch.paths.add_polyline_path(part.exterior.coords, flags=BOUNDARY_PATH_EXTERNAL)
+            for cutout in part.interiors:
+                hatch.paths.add_polyline_path(cutout.coords, flags=BOUNDARY_PATH_OUTERMOST)
+            hatch.transparency = 0.65
+
+    label = sheet.msp.add_text(f"CTS {cts_no}", dxfattribs={"layer": "C-ANNO-TEXT", "height": sheet.char_h})
+    label.set_placement((0.0, 0.0), align=TextEntityAlignment.MIDDLE_CENTER)
+    sheet.remember(label)
+
+
+def _draw_setbacks(sheet: _Sheet, parcel: BaseGeometry) -> dict[float, bool]:
+    """Draw each inset setback line; return which distances leave buildable area."""
+    policy = sheet.policy
+    status: dict[float, bool] = {}
+    for layer, distance, marker_offset in zip(
+        SETBACK_LAYERS, policy.setback_distances, policy.setback_marker_offsets, strict=False
+    ):
+        inset_parts = inset_polygon_parts(parcel, distance)
+        for part in inset_parts:
+            for ring in (part.exterior, *part.interiors):
+                sheet.msp.add_lwpolyline(list(ring.coords)[:-1], close=True, dxfattribs={"layer": layer})
+        status[distance] = bool(inset_parts)
+        if not inset_parts:
+            marker = sheet.msp.add_text(
+                f"{distance:.1f}m SETBACK N/A", dxfattribs={"layer": layer, "height": sheet.dim_char_h}
+            )
+            marker.set_placement((sheet.min_x, sheet.min_y - sheet.dim_char_h * marker_offset))
+            sheet.place(
+                marker,
+                sheet.dim_char_h * policy.setback_nudge_step_fraction,
+                direction=(0.0, -1.0),
+                limit=policy.setback_nudge_limit,
+            )
+    return status
+
+
+def _draw_edge_dimensions(sheet: _Sheet, local_rings: list[list[Point]]) -> None:
+    """Label edges longest first, outside the parcel, dropping labels that cannot fit."""
+    policy = sheet.policy
+    segments = []
+    for ring in local_rings:
+        for i, p1 in enumerate(ring):
+            p2 = ring[(i + 1) % len(ring)]
+            dx = p2[0] - p1[0]
+            dy = p2[1] - p1[1]
+            length = math.sqrt(dx * dx + dy * dy)
+            if length > policy.dimension_min_length:
+                segments.append((length, dx, dy, p1, p2))
+    segments.sort(key=lambda s: -s[0])
+
+    offset = sheet.dim_char_h * policy.dimension_offset_fraction
+    for length, dx, dy, p1, p2 in segments:
+        mx = (p1[0] + p2[0]) / 2.0
+        my = (p1[1] + p2[1]) / 2.0
+        nx = -dy / length
+        ny = dx / length
+        if (mx + nx) ** 2 + (my + ny) ** 2 < mx**2 + my**2:
+            nx = -nx
+            ny = -ny
+        angle = math.degrees(math.atan2(dy, dx))
+        if angle > 90 or angle < -90:
+            angle += 180
+
+        label = sheet.msp.add_text(
+            f"{length:.2f}m",
+            dxfattribs={"layer": "C-ANNO-DIMS", "height": sheet.dim_char_h, "rotation": angle},
+        )
+        label.set_placement((mx + nx * offset, my + ny * offset))
+        sheet.place_or_drop(
+            label,
+            sheet.dim_char_h * policy.dimension_nudge_step_fraction,
+            direction=(nx, ny),
+            limit=policy.dimension_nudge_limit,
+        )
+
+
+def _draw_roads(sheet: _Sheet, roads: Sequence[Sequence[Sequence[float]]], properties: Mapping[str, Any]) -> None:
+    """Clip road centrelines to a window around the parcel and label the abutting road once."""
+    policy = sheet.policy
+    clip = sheet.scale * policy.road_clip_fraction
+    window = (sheet.min_x - clip, sheet.min_y - clip, sheet.max_x + clip, sheet.max_y + clip)
+    drawn = 0
+    for road in roads:
+        for segment in clip_path_to_window(sheet.to_local(road), *window):
+            if len(segment) >= 2:
+                sheet.msp.add_lwpolyline(segment, dxfattribs={"layer": "C-ROAD-ALIGN"})
+                drawn += 1
+    if not drawn:
+        return
+
+    road_label, road_value = dxf_road_label(properties)
+    label = sheet.msp.add_text(
+        fit_label_to_width(
+            f"{road_label}: {{}}",
+            road_value,
+            max_width=max(sheet.width, sheet.height) * policy.road_label_width_fraction,
+            char_h=sheet.dim_char_h,
+            policy=policy,
+        ),
+        dxfattribs={"layer": "C-ROAD-ALIGN", "height": sheet.dim_char_h},
+    )
+    label.set_placement((sheet.min_x, sheet.min_y - sheet.dim_char_h * policy.road_label_y_offset_fraction))
+    sheet.place(
+        label,
+        sheet.dim_char_h * policy.road_nudge_step_fraction,
+        direction=(0.0, -1.0),
+        limit=policy.road_nudge_limit,
+    )
+
+
+def _draw_north_arrow(sheet: _Sheet) -> None:
+    policy = sheet.policy
+    x = sheet.max_x + sheet.scale * policy.north_arrow_x_fraction
+    y = sheet.max_y - sheet.scale * policy.north_arrow_y_fraction
+    r = sheet.scale * policy.north_arrow_radius_fraction
+    base_y = y - r * policy.north_arrow_base_y_fraction
+    half_width = r * policy.north_arrow_half_width_fraction
+    sheet.msp.add_circle((x, y), radius=r, dxfattribs={"layer": "C-NORTH-ARROW"})
+    sheet.msp.add_lwpolyline(
+        [(x, y + r * policy.north_arrow_tip_fraction), (x - half_width, base_y), (x + half_width, base_y)],
+        close=True,
+        dxfattribs={"layer": "C-NORTH-ARROW"},
+    )
+    label = sheet.msp.add_text("N", dxfattribs={"layer": "C-NORTH-ARROW", "height": sheet.char_h})
+    label.set_placement((x - sheet.char_h * policy.north_label_x_fraction, y + r * policy.north_label_y_fraction))
+    sheet.remember(label)
+
+
+def _draw_neighbours(sheet: _Sheet, neighbours: Sequence[Mapping[str, Any]]) -> None:
+    policy = sheet.policy
+    label_attribs = {"layer": "C-ADJN-PLOTS", "height": sheet.dim_char_h * policy.neighbor_label_height_fraction}
+    for neighbour in neighbours:
+        cts_no = neighbour.get("cts_no", "N/A")
+        for ring in neighbour.get("rings", []):
+            local = sheet.to_local(ring)
+            sheet.msp.add_lwpolyline(local, close=True, dxfattribs={"layer": "C-ADJN-PLOTS"})
+            if not local:
+                continue
+            label = sheet.msp.add_text(f"CTS {cts_no}", dxfattribs=label_attribs)
+            label.set_placement((sum(p[0] for p in local) / len(local), sum(p[1] for p in local) / len(local)))
+            sheet.place_or_drop(
+                label,
+                sheet.dim_char_h * policy.neighbor_nudge_step_fraction,
+                limit=policy.neighbor_nudge_limit,
+            )
+
+
+def _restriction_notes(properties: Mapping[str, Any]) -> list[str]:
+    notes = []
+    crz_flag = str(properties.get("crz_buffer_flag") or "")
+    if crz_flag.upper().startswith("YES"):
+        notes += [f"CRZ: {crz_flag}", "DEVELOPMENT RESTRICTED"]
+    if str(properties.get("metro_buffer_flag") or "").upper().startswith("YES"):
+        notes.append("METRO BUFFER INTERSECTS PLOT")
+    return notes
+
+
+def _draw_restriction_notes(sheet: _Sheet, properties: Mapping[str, Any]) -> None:
+    """Stack CRZ and metro warnings above the parcel."""
+    policy = sheet.policy
+    note_y = sheet.max_y + sheet.dim_char_h * policy.restriction_note_y_offset_fraction
+    for note in _restriction_notes(properties):
+        text = sheet.msp.add_text(note, dxfattribs={"layer": "C-RESTRICT-ZONE", "height": sheet.dim_char_h})
+        text.set_placement((sheet.min_x, note_y))
+        box = sheet.place(
+            text,
+            sheet.dim_char_h * policy.restriction_nudge_step_fraction,
+            limit=policy.restriction_nudge_limit,
+        )
+        if box:
+            note_y = box[3] + sheet.dim_char_h * policy.restriction_note_gap_fraction
+        else:
+            note_y += sheet.dim_char_h * policy.restriction_note_fallback_gap_fraction
+
+
+def _draw_overlays(
+    sheet: _Sheet,
+    reservations: Sequence[Mapping[str, Any]],
+    designations: Sequence[Mapping[str, Any]],
+) -> None:
+    """Outline reservation and designation polygons; label overlaps of at least 100 m²."""
+    policy = sheet.policy
+    label_attribs = {"layer": "C-RESERVATIONS", "height": sheet.char_h * policy.reservation_label_height_fraction}
+    for prefix, items in (("RES", reservations), ("DES", designations)):
+        for item in items:
+            overlap_sqm = item.get("overlap_sqm", 0)
+            for wgs_ring in item.get("wgs_rings", []):
+                if len(wgs_ring) < 3:
+                    continue
+                local = sheet.to_local(wgs_ring)
+                sheet.msp.add_lwpolyline(local, close=True, dxfattribs={"layer": "C-RESERVATIONS"})
+                if not local or overlap_sqm < OVERLAY_LABEL_MIN_SQM:
+                    continue
+                label = sheet.msp.add_text(
+                    f"{prefix}: {item.get('code')} ({overlap_sqm:.0f}m²)", dxfattribs=label_attribs
+                )
+                label.set_placement(
+                    (sum(p[0] for p in local) / len(local), sum(p[1] for p in local) / len(local)),
+                    align=TextEntityAlignment.MIDDLE_CENTER,
+                )
+                sheet.place_or_drop(
+                    label,
+                    sheet.char_h * policy.reservation_nudge_step_fraction,
+                    direction=(0.0, 1.0),
+                    limit=policy.reservation_nudge_limit,
+                )
+
+
+def _content_bounds(sheet: _Sheet) -> Box:
+    """Bounding box of everything drawn so far, falling back to the parcel extent."""
+    xs: list[float] = []
+    ys: list[float] = []
+    for entity in sheet.msp:
+        try:
+            kind = entity.dxftype()
+            if kind == "LWPOLYLINE":
+                for vx, vy in entity.get_points("xy"):
+                    xs.append(vx)
+                    ys.append(vy)
+            elif kind == "LINE":
+                xs += [entity.dxf.start.x, entity.dxf.end.x]
+                ys += [entity.dxf.start.y, entity.dxf.end.y]
+            elif kind == "CIRCLE":
+                centre, radius = entity.dxf.center, entity.dxf.radius
+                xs += [centre.x - radius, centre.x + radius]
+                ys += [centre.y - radius, centre.y + radius]
+            elif kind == "TEXT":
+                box = text_extents(entity)
+                if box:
+                    xs += [box[0], box[2]]
+                    ys += [box[1], box[3]]
+        except Exception:
+            continue
+    if not xs:
+        return sheet.min_x, sheet.min_y, sheet.max_x, sheet.max_y
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _draw_legend_and_frame(
+    doc: ezdxf.document.Drawing,
+    sheet: _Sheet,
+    properties: Mapping[str, Any],
+    setback_status: dict[float, bool],
+    measured_area: float | None,
+) -> Box:
+    """Add the legend column right of the drawing and a frame around both; return the frame."""
+    policy = sheet.policy
+    scale, char_h = sheet.scale, sheet.char_h
+    utm_x, utm_y = wgs84_to_utm43n(sheet.lon0, sheet.lat0)
+    content_left, content_bottom, content_right, content_top = _content_bounds(sheet)
+    pad = max(scale * policy.content_pad_fraction, policy.content_pad_min)
+    left = content_left - pad
+    plot_right = content_right + pad
+    bottom = content_bottom - pad
+    top = content_top + pad
+
+    data_rows = legend_data_rows(properties, setback_status, measured_area, policy)
+    legend_rows: tuple[tuple[str, str], ...] = DXF_LEGEND_ROWS
+    if "C-RESERVATIONS" in doc.layers:
+        legend_rows = (*legend_rows, DXF_RESERVATION_LEGEND_ROW)
+
+    row_height = max(char_h * policy.legend_row_height_fraction, policy.legend_row_min)
+    needed = (
+        legend_column_height(row_height, len(legend_rows), len(data_rows), policy)
+        + title_block_height(row_height, len(dxf_title_block_lines(properties, utm_x, utm_y)), policy)
+        + pad * 3
+    )
+    if (top - bottom) < needed:
+        bottom = top - needed
+
+    legend_width = max(scale * policy.legend_width_fraction, policy.legend_width_min)
+    legend_left = plot_right + scale * policy.legend_x_gap_fraction
+    legend_right = draw_dxf_legend_column(
+        sheet.msp,
+        properties,
+        setback_status,
+        utm_x,
+        utm_y,
+        legend_left,
+        legend_width,
+        top,
+        bottom,
+        char_h,
+        sheet.dim_char_h,
+        scale,
+        data_rows=data_rows,
+        policy=policy,
+        legend_rows=legend_rows,
+    )
+    right = max(legend_left + legend_width, legend_right) + scale * policy.legend_x_gap_fraction
+
+    sheet.msp.add_lwpolyline(
+        [(left, bottom), (right, bottom), (right, top), (left, top)],
+        close=True,
+        dxfattribs={"layer": "C-TITLE-BLOCK"},
+    )
+    return left, bottom, right, top
+
+
 def export_dxf(
     wgs_rings: list[list[list[float]]],
     properties: ExportPayload,
@@ -125,428 +473,51 @@ def export_dxf(
     *,
     layout_policy: DxfLayoutPolicy = DEFAULT_DXF_LAYOUT_POLICY,
 ) -> None:
-    """
-    Generates a scale-accurate Multi-Layered AutoCAD DXF CAD drawing file (.dxf)
-    centered around Local Origin (0, 0) in Real-World Metric Meters (1 CAD Unit = 1 Meter).
-    """
-    properties = legacy_export_properties(properties)
-    has_res = bool((reservations or []) + (designations or []))
-    doc = new_dxf_document(has_reservations=has_res)
-    msp = doc.modelspace()
+    """Write a layered DXF sheet in metres (1 CAD unit = 1 m) with the parcel centred on the origin."""
+    props = legacy_export_properties(properties)
+    reservations = reservations or []
+    designations = designations or []
+    doc = new_dxf_document(has_reservations=bool(reservations or designations))
 
-    proj = project_rings_to_local_metres(wgs_rings)
-    lon0, lat0 = proj["lon0"], proj["lat0"]
-    meters_per_deg_lon, meters_per_deg_lat = proj["mpd_lon"], proj["mpd_lat"]
-    local_rings = proj["local_rings"]
-    parcel_geometry = arcgis_rings_to_geometry(local_rings)
-
-    lr0 = local_rings[0]
-    all_x = [p[0] for p in lr0]
-    all_y = [p[1] for p in lr0]
-    min_x, max_x = min(all_x), max(all_x)
-    min_y, max_y = min(all_y), max(all_y)
-
-    utm_cx, utm_cy = wgs84_to_utm43n(lon0, lat0)
-
-    cx, cy = 0.0, 0.0
-    width = max_x - min_x
-    height = max_y - min_y
-    scale = max(width, height, layout_policy.min_scale)
-    char_h = max(layout_policy.min_char_height, scale * layout_policy.char_height_fraction)
-    dim_char_h = max(layout_policy.min_dim_char_height, scale * layout_policy.dim_char_height_fraction)
-
-    grid_step = layout_policy.grid_step_for(scale)
-    g_min_x = math.floor((min_x - scale * layout_policy.grid_extent_fraction) / grid_step) * grid_step
-    g_max_x = math.ceil((max_x + scale * layout_policy.grid_extent_fraction) / grid_step) * grid_step
-    g_min_y = math.floor((min_y - scale * layout_policy.grid_extent_fraction) / grid_step) * grid_step
-    g_max_y = math.ceil((max_y + scale * layout_policy.grid_extent_fraction) / grid_step) * grid_step
-
-    placed_boxes = []
-
-    gx = g_min_x
-    while gx <= g_max_x:
-        msp.add_line((gx, g_min_y), (gx, g_max_y), dxfattribs={"layer": "0_GRID_AXIS"})
-        lbl = msp.add_text(
-            f"{int(gx)}m",
-            dxfattribs={"layer": "0_GRID_AXIS", "height": dim_char_h * layout_policy.grid_label_height_fraction},
-        )
-        lbl.set_placement((gx + layout_policy.grid_label_offset, g_min_y + layout_policy.grid_label_offset))
-        box = text_extents(lbl)
-        if box:
-            placed_boxes.append(box)
-        gx += grid_step
-
-    gy = g_min_y
-    while gy <= g_max_y:
-        msp.add_line((g_min_x, gy), (g_max_x, gy), dxfattribs={"layer": "0_GRID_AXIS"})
-        if gy > g_min_y:
-            lbl = msp.add_text(
-                f"{int(gy)}m",
-                dxfattribs={"layer": "0_GRID_AXIS", "height": dim_char_h * layout_policy.grid_label_height_fraction},
-            )
-            lbl.set_placement((g_min_x + layout_policy.grid_label_offset, gy + layout_policy.grid_label_offset))
-            box = text_extents(lbl)
-            if box:
-                placed_boxes.append(box)
-        gy += grid_step
-
-    for loc_ring in local_rings:
-        poly = msp.add_lwpolyline(loc_ring, close=True, dxfattribs={"layer": "C-PLOT-BDY"})
-        poly.dxf.const_width = max(
-            layout_policy.plot_line_min_width,
-            scale * layout_policy.plot_line_width_fraction,
-        )
-    plot_parts = parcel_geometry.geoms if isinstance(parcel_geometry, MultiPolygon) else (parcel_geometry,)
-    for part in plot_parts:
-        if isinstance(part, Polygon) and not part.is_empty:
-            hatch = msp.add_hatch(color=252, dxfattribs={"layer": "C-PROP-HATCH"})
-            hatch.paths.add_polyline_path(part.exterior.coords, flags=BOUNDARY_PATH_EXTERNAL)
-            for cutout in part.interiors:
-                hatch.paths.add_polyline_path(cutout.coords, flags=BOUNDARY_PATH_OUTERMOST)
-            hatch.transparency = 0.65
-
-    cts_label = msp.add_text(f"CTS {properties.get('cts_no')}", dxfattribs={"layer": "C-ANNO-TEXT", "height": char_h})
-    cts_label.set_placement((cx, cy), align=TextEntityAlignment.MIDDLE_CENTER)
-    cts_box = text_extents(cts_label)
-    if cts_box:
-        placed_boxes.append(cts_box)
-
-    setback_status = {}
-    setback_layers = ("C-SETBACK-3M", "C-SETBACK-6M")
-    for spec_layer, spec_dist, marker_offset in zip(
-        setback_layers, layout_policy.setback_distances, layout_policy.setback_marker_offsets, strict=False
-    ):
-        inset_parts = inset_polygon_parts(parcel_geometry, spec_dist)
-        for part in inset_parts:
-            for ring in (part.exterior, *part.interiors):
-                msp.add_lwpolyline(list(ring.coords)[:-1], close=True, dxfattribs={"layer": spec_layer})
-        setback_status[spec_dist] = bool(inset_parts)
-        if not inset_parts:
-            marker = msp.add_text(
-                f"{spec_dist:.1f}m SETBACK N/A", dxfattribs={"layer": spec_layer, "height": dim_char_h}
-            )
-            marker.set_placement((min_x, min_y - dim_char_h * marker_offset))
-            nudge_text_clear(
-                marker,
-                placed_boxes,
-                dim_char_h * layout_policy.setback_nudge_step_fraction,
-                direction=(0.0, -1.0),
-                limit=layout_policy.setback_nudge_limit,
-            )
-            box = text_extents(marker)
-            if box:
-                placed_boxes.append(box)
-
-    segments = []
-    for loc_ring in local_rings:
-        n_pts = len(loc_ring)
-        for i in range(n_pts):
-            p1 = loc_ring[i]
-            p2 = loc_ring[(i + 1) % n_pts]
-            dx = p2[0] - p1[0]
-            dy = p2[1] - p1[1]
-            seg_len = math.sqrt(dx * dx + dy * dy)
-            if seg_len > layout_policy.dimension_min_length:
-                segments.append((seg_len, dx, dy, p1, p2))
-    segments.sort(key=lambda s: -s[0])
-
-    for seg_len, dx, dy, p1, p2 in segments:
-        mx = (p1[0] + p2[0]) / 2.0
-        my = (p1[1] + p2[1]) / 2.0
-        nx = -dy / seg_len
-        ny = dx / seg_len
-        if (mx + nx - cx) ** 2 + (my + ny - cy) ** 2 < (mx - cx) ** 2 + (my - cy) ** 2:
-            nx = -nx
-            ny = -ny
-        tx = mx + nx * (dim_char_h * layout_policy.dimension_offset_fraction)
-        ty = my + ny * (dim_char_h * layout_policy.dimension_offset_fraction)
-        angle_deg = math.degrees(math.atan2(dy, dx))
-        if angle_deg > 90 or angle_deg < -90:
-            angle_deg += 180
-
-        txt_elem = msp.add_text(
-            f"{seg_len:.2f}m",
-            dxfattribs={
-                "layer": "C-ANNO-DIMS",
-                "height": dim_char_h,
-                "rotation": angle_deg,
-            },
-        )
-        txt_elem.set_placement((tx, ty))
-        if nudge_text_clear(
-            txt_elem,
-            placed_boxes,
-            dim_char_h * layout_policy.dimension_nudge_step_fraction,
-            direction=(nx, ny),
-            limit=layout_policy.dimension_nudge_limit,
-        ):
-            box = text_extents(txt_elem)
-            if box:
-                placed_boxes.append(box)
-        else:
-            msp.delete_entity(txt_elem)
-
-    clip = scale * layout_policy.road_clip_fraction
-    cx_lo, cx_hi = min_x - clip, max_x + clip
-    cy_lo, cy_hi = min_y - clip, max_y + clip
-
-    road_drawn = 0
-    for road_ring in roads or []:
-        loc = [((pt[0] - lon0) * meters_per_deg_lon, (pt[1] - lat0) * meters_per_deg_lat) for pt in road_ring]
-        for seg in clip_path_to_window(loc, cx_lo, cy_lo, cx_hi, cy_hi):
-            if len(seg) >= 2:
-                msp.add_lwpolyline(seg, dxfattribs={"layer": "C-ROAD-ALIGN"})
-                road_drawn += 1
-
-    if road_drawn:
-        road_label, road_value = dxf_road_label(properties)
-        road_text = msp.add_text(
-            fit_label_to_width(
-                f"{road_label}: {{}}",
-                road_value,
-                max_width=max(width, height) * layout_policy.road_label_width_fraction,
-                char_h=dim_char_h,
-                policy=layout_policy,
-            ),
-            dxfattribs={"layer": "C-ROAD-ALIGN", "height": dim_char_h},
-        )
-        road_text.set_placement((min_x, min_y - dim_char_h * layout_policy.road_label_y_offset_fraction))
-        nudge_text_clear(
-            road_text,
-            placed_boxes,
-            dim_char_h * layout_policy.road_nudge_step_fraction,
-            direction=(0.0, -1.0),
-            limit=layout_policy.road_nudge_limit,
-        )
-        box = text_extents(road_text)
-        if box:
-            placed_boxes.append(box)
-
-    na_x = max_x + scale * layout_policy.north_arrow_x_fraction
-    na_y = max_y - scale * layout_policy.north_arrow_y_fraction
-    na_r = scale * layout_policy.north_arrow_radius_fraction
-    msp.add_circle((na_x, na_y), radius=na_r, dxfattribs={"layer": "C-NORTH-ARROW"})
-    msp.add_lwpolyline(
-        [
-            (na_x, na_y + na_r * layout_policy.north_arrow_tip_fraction),
-            (
-                na_x - na_r * layout_policy.north_arrow_half_width_fraction,
-                na_y - na_r * layout_policy.north_arrow_base_y_fraction,
-            ),
-            (
-                na_x + na_r * layout_policy.north_arrow_half_width_fraction,
-                na_y - na_r * layout_policy.north_arrow_base_y_fraction,
-            ),
-        ],
-        close=True,
-        dxfattribs={"layer": "C-NORTH-ARROW"},
-    )
-    na_lbl = msp.add_text("N", dxfattribs={"layer": "C-NORTH-ARROW", "height": char_h})
-    na_lbl.set_placement(
-        (na_x - char_h * layout_policy.north_label_x_fraction, na_y + na_r * layout_policy.north_label_y_fraction)
-    )
-    na_box = text_extents(na_lbl)
-    if na_box:
-        placed_boxes.append(na_box)
-
-    if neighbors:
-        for n in neighbors:
-            n_rings = n.get("rings", [])
-            n_cts = n.get("cts_no", "N/A")
-            for n_ring in n_rings:
-                n_loc_ring = [
-                    ((pt[0] - lon0) * meters_per_deg_lon, (pt[1] - lat0) * meters_per_deg_lat) for pt in n_ring
-                ]
-                msp.add_lwpolyline(n_loc_ring, close=True, dxfattribs={"layer": "C-ADJN-PLOTS"})
-                if n_loc_ring:
-                    ncx = sum(p[0] for p in n_loc_ring) / len(n_loc_ring)
-                    ncy = sum(p[1] for p in n_loc_ring) / len(n_loc_ring)
-                    label = msp.add_text(
-                        f"CTS {n_cts}",
-                        dxfattribs={
-                            "layer": "C-ADJN-PLOTS",
-                            "height": dim_char_h * layout_policy.neighbor_label_height_fraction,
-                        },
-                    )
-                    label.set_placement((ncx, ncy))
-                    if not nudge_text_clear(
-                        label,
-                        placed_boxes,
-                        dim_char_h * layout_policy.neighbor_nudge_step_fraction,
-                        limit=layout_policy.neighbor_nudge_limit,
-                    ):
-                        msp.delete_entity(label)
-                    else:
-                        box = text_extents(label)
-                        if box:
-                            placed_boxes.append(box)
-
-    restrict_notes = []
-    crz_flag = str(properties.get("crz_buffer_flag") or "")
-    if crz_flag.upper().startswith("YES"):
-        restrict_notes.append(f"CRZ: {crz_flag}")
-        restrict_notes.append("DEVELOPMENT RESTRICTED")
-    if str(properties.get("metro_buffer_flag") or "").upper().startswith("YES"):
-        restrict_notes.append("METRO BUFFER INTERSECTS PLOT")
-
-    note_y = max_y + dim_char_h * layout_policy.restriction_note_y_offset_fraction
-    for note in restrict_notes:
-        note_text = msp.add_text(note, dxfattribs={"layer": "C-RESTRICT-ZONE", "height": dim_char_h})
-        note_text.set_placement((min_x, note_y))
-        nudge_text_clear(
-            note_text,
-            placed_boxes,
-            dim_char_h * layout_policy.restriction_nudge_step_fraction,
-            limit=layout_policy.restriction_nudge_limit,
-        )
-        box = text_extents(note_text)
-        if box:
-            placed_boxes.append(box)
-            note_y = box[3] + dim_char_h * layout_policy.restriction_note_gap_fraction
-        else:
-            note_y += dim_char_h * layout_policy.restriction_note_fallback_gap_fraction
-
-    all_res_items = (reservations or []) + (designations or [])
-    if all_res_items:
-        for item in reservations or []:
-            ov_sqm = item.get("overlap_sqm", 0)
-            for res_wgs_ring in item.get("wgs_rings", []):
-                if len(res_wgs_ring) >= 3:
-                    res_loc_ring = to_local_metres(res_wgs_ring, lon0, lat0, meters_per_deg_lon, meters_per_deg_lat)
-                    msp.add_lwpolyline(res_loc_ring, close=True, dxfattribs={"layer": "C-RESERVATIONS"})
-                    if res_loc_ring and ov_sqm >= 100.0:
-                        rcx = sum(p[0] for p in res_loc_ring) / len(res_loc_ring)
-                        rcy = sum(p[1] for p in res_loc_ring) / len(res_loc_ring)
-                        txt = msp.add_text(
-                            f"RES: {item.get('code')} ({ov_sqm:.0f}m²)",
-                            dxfattribs={
-                                "layer": "C-RESERVATIONS",
-                                "height": char_h * layout_policy.reservation_label_height_fraction,
-                            },
-                        )
-                        txt.set_placement((rcx, rcy), align=TextEntityAlignment.MIDDLE_CENTER)
-                        if nudge_text_clear(
-                            txt,
-                            placed_boxes,
-                            char_h * layout_policy.reservation_nudge_step_fraction,
-                            direction=(0.0, 1.0),
-                            limit=layout_policy.reservation_nudge_limit,
-                        ):
-                            box = text_extents(txt)
-                            if box:
-                                placed_boxes.append(box)
-                        else:
-                            msp.delete_entity(txt)
-        for item in designations or []:
-            ov_sqm = item.get("overlap_sqm", 0)
-            for des_wgs_ring in item.get("wgs_rings", []):
-                if len(des_wgs_ring) >= 3:
-                    des_loc_ring = to_local_metres(des_wgs_ring, lon0, lat0, meters_per_deg_lon, meters_per_deg_lat)
-                    msp.add_lwpolyline(des_loc_ring, close=True, dxfattribs={"layer": "C-RESERVATIONS"})
-                    if des_loc_ring and ov_sqm >= 100.0:
-                        dcx = sum(p[0] for p in des_loc_ring) / len(des_loc_ring)
-                        dcy = sum(p[1] for p in des_loc_ring) / len(des_loc_ring)
-                        txt = msp.add_text(
-                            f"DES: {item.get('code')} ({ov_sqm:.0f}m²)",
-                            dxfattribs={
-                                "layer": "C-RESERVATIONS",
-                                "height": char_h * layout_policy.reservation_label_height_fraction,
-                            },
-                        )
-                        txt.set_placement((dcx, dcy), align=TextEntityAlignment.MIDDLE_CENTER)
-                        if nudge_text_clear(
-                            txt,
-                            placed_boxes,
-                            char_h * layout_policy.reservation_nudge_step_fraction,
-                            direction=(0.0, 1.0),
-                            limit=layout_policy.reservation_nudge_limit,
-                        ):
-                            box = text_extents(txt)
-                            if box:
-                                placed_boxes.append(box)
-                        else:
-                            msp.delete_entity(txt)
-
-    content_x, content_y = [], []
-    for entity in msp:
-        try:
-            if entity.dxftype() == "LWPOLYLINE":
-                for vx, vy in entity.get_points("xy"):
-                    content_x.append(vx)
-                    content_y.append(vy)
-            elif entity.dxftype() == "LINE":
-                content_x += [entity.dxf.start.x, entity.dxf.end.x]
-                content_y += [entity.dxf.start.y, entity.dxf.end.y]
-            elif entity.dxftype() == "CIRCLE":
-                ctr, rad = entity.dxf.center, entity.dxf.radius
-                content_x += [ctr.x - rad, ctr.x + rad]
-                content_y += [ctr.y - rad, ctr.y + rad]
-            elif entity.dxftype() == "TEXT":
-                box = text_extents(entity)
-                if box:
-                    content_x += [box[0], box[2]]
-                    content_y += [box[1], box[3]]
-        except Exception:
-            continue
-    if not content_x:
-        content_x, content_y = [min_x, max_x], [min_y, max_y]
-
-    pad = max(scale * layout_policy.content_pad_fraction, layout_policy.content_pad_min)
-    b_min_x = min(content_x) - pad
-    plot_right = max(content_x) + pad
-    b_min_y = min(content_y) - pad
-    b_max_y = max(content_y) + pad
-
-    measured_area = float(parcel_geometry.area) or None
-    data_rows = legend_data_rows(properties, setback_status, measured_area, layout_policy)
-    legend_rows: tuple[tuple[str, str], ...] = DXF_LEGEND_ROWS
-    if "C-RESERVATIONS" in doc.layers:
-        legend_rows = (*legend_rows, DXF_RESERVATION_LEGEND_ROW)
-
-    _lg_row = max(char_h * layout_policy.legend_row_height_fraction, layout_policy.legend_row_min)
-    _needed = (
-        legend_column_height(_lg_row, len(legend_rows), len(data_rows), layout_policy)
-        + title_block_height(_lg_row, len(dxf_title_block_lines(properties, utm_cx, utm_cy)), layout_policy)
-        + pad * 3
-    )
-    if (b_max_y - b_min_y) < _needed:
-        b_min_y = b_max_y - _needed
-
-    lg_w = max(scale * layout_policy.legend_width_fraction, layout_policy.legend_width_min)
-    lg_x0 = plot_right + scale * layout_policy.legend_x_gap_fraction
-
-    lg_x1 = draw_dxf_legend_column(
-        msp,
-        properties,
-        setback_status,
-        utm_cx,
-        utm_cy,
-        lg_x0,
-        lg_w,
-        b_max_y,
-        b_min_y,
-        char_h,
-        dim_char_h,
-        scale,
-        data_rows=data_rows,
+    projection = project_rings_to_local_metres(wgs_rings)
+    local_rings = projection["local_rings"]
+    parcel = arcgis_rings_to_geometry(local_rings)
+    xs = [p[0] for p in local_rings[0]]
+    ys = [p[1] for p in local_rings[0]]
+    sheet = _Sheet(
+        msp=doc.modelspace(),
         policy=layout_policy,
-        legend_rows=legend_rows,
+        lon0=projection["lon0"],
+        lat0=projection["lat0"],
+        mpd_lon=projection["mpd_lon"],
+        mpd_lat=projection["mpd_lat"],
+        min_x=min(xs),
+        min_y=min(ys),
+        max_x=max(xs),
+        max_y=max(ys),
     )
-    b_max_x = max(lg_x0 + lg_w, lg_x1) + scale * layout_policy.legend_x_gap_fraction
 
-    msp.add_lwpolyline(
-        [(b_min_x, b_min_y), (b_max_x, b_min_y), (b_max_x, b_max_y), (b_min_x, b_max_y)],
-        close=True,
-        dxfattribs={"layer": "C-TITLE-BLOCK"},
+    _draw_grid(sheet)
+    _draw_parcel(sheet, local_rings, parcel, props.get("cts_no"))
+    setback_status = _draw_setbacks(sheet, parcel)
+    _draw_edge_dimensions(sheet, local_rings)
+    _draw_roads(sheet, roads or [], props)
+    _draw_north_arrow(sheet)
+    _draw_neighbours(sheet, neighbors or [])
+    _draw_restriction_notes(sheet, props)
+    _draw_overlays(sheet, reservations, designations)
+    left, bottom, right, top = _draw_legend_and_frame(
+        doc, sheet, props, setback_status, measured_area=float(parcel.area) or None
     )
 
-    doc.header["$EXTMIN"] = (b_min_x, b_min_y, 0)
-    doc.header["$EXTMAX"] = (b_max_x, b_max_y, 0)
-    doc.header["$LIMMIN"] = (b_min_x, b_min_y)
-    doc.header["$LIMMAX"] = (b_max_x, b_max_y)
+    doc.header["$EXTMIN"] = (left, bottom, 0)
+    doc.header["$EXTMAX"] = (right, top, 0)
+    doc.header["$LIMMIN"] = (left, bottom)
+    doc.header["$LIMMAX"] = (right, top)
 
-    view_bounds = parcel_geometry.bounds if not parcel_geometry.is_empty else (min_x, min_y, max_x, max_y)
-    view_left, view_bottom, view_right, view_top = view_bounds
+    view_left, view_bottom, view_right, view_top = (
+        parcel.bounds if not parcel.is_empty else (sheet.min_x, sheet.min_y, sheet.max_x, sheet.max_y)
+    )
     with contextlib.suppress(Exception):
         doc.set_modelspace_vport(
             height=max(1.0, view_right - view_left, view_top - view_bottom) * layout_policy.vport_height_fraction,

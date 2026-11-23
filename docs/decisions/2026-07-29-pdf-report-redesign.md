@@ -4,6 +4,10 @@
 **Status:** Approved, ready for implementation planning
 **Affects:** `build_pdf_doc` in `cts_dp_lookup_pro.py`
 
+> **2026-11-24:** `build_pdf_doc` was later replaced by
+> `write_pdf_report(PlotReportData)` in `dp_lookup/exporters/pdf_renderer.py`.
+> The layout decisions below still apply.
+
 ---
 
 ## Problem

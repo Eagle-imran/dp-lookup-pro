@@ -102,12 +102,6 @@ class ResultCacheWriter(Protocol):
     def __call__(self, output_dir: str, key: str, result: dict[str, Any]) -> None: ...
 
 
-class ArtifactProcedure(Protocol):
-    """Legacy report/register callable retained behind a named output port."""
-
-    def __call__(self, *args: Any, **kwargs: Any) -> None: ...
-
-
 class DpMapRenderer(Protocol):
     def __call__(
         self,
@@ -160,8 +154,6 @@ class LookupDependencies:
     excel_register_writer: ExcelRegisterWriter | None = None
     pdf_data_writer: PdfDataWriter = write_pdf_report
     excel_data_writer: ExcelDataWriter = write_excel_register
-    pdf_writer: ArtifactProcedure | None = None
-    excel_writer: ArtifactProcedure | None = None
     dp_map_renderer: DpMapRenderer = render_dp_map
     satellite_renderer: SatelliteRenderer = stitch_satellite
     planning_evidence_analyzer: PlanningEvidenceAnalyzer = collect_planning_evidence

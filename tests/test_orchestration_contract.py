@@ -137,11 +137,11 @@ def _stub_dependencies(client_factory):
         assert _props.area_assessment is not None
         Path(path).write_text("artifact", encoding="utf-8")
 
-    def pdf_writer(path, *_args, **_kwargs):
-        Path(path).write_bytes(b"%PDF-placeholder")
+    def pdf_writer(data):
+        Path(data.output_path).write_bytes(b"%PDF-placeholder")
 
-    def excel_writer(*_args, **kwargs):
-        Path(kwargs["register_path"]).write_text("register", encoding="utf-8")
+    def excel_writer(data):
+        Path(data.report.output_path).write_text("register", encoding="utf-8")
 
     return replace(
         DEFAULT_DEPENDENCIES,
@@ -151,8 +151,8 @@ def _stub_dependencies(client_factory):
         dxf_writer=vector_writer,
         kml_writer=vector_writer,
         html_writer=vector_writer,
-        pdf_writer=pdf_writer,
-        excel_writer=excel_writer,
+        pdf_data_writer=pdf_writer,
+        excel_data_writer=excel_writer,
     )
 
 
@@ -308,7 +308,7 @@ def test_registered_artifact_must_stay_inside_bundle(tmp_path):
     assert any("must be inside the lookup bundle" in warning for warning in result["metadata"]["warnings"])
 
 
-def test_typed_report_writers_replace_legacy_call_shape_without_changing_manifest(tmp_path):
+def test_request_writers_take_precedence_over_data_writers_without_changing_manifest(tmp_path):
     requests = []
 
     class PdfWriter:
@@ -321,13 +321,13 @@ def test_typed_report_writers_replace_legacy_call_shape_without_changing_manifes
             requests.append(request)
             Path(request.output_path).write_bytes(b"typed-register")
 
-    def legacy_writer_should_not_run(*_args, **_kwargs):
-        raise AssertionError("typed writer should take precedence")
+    def data_writer_should_not_run(_data):
+        raise AssertionError("request writer should take precedence")
 
     dependencies = replace(
         _stub_dependencies(lambda timeout_seconds, verify_tls=True: FakeArcGISClient()),
-        pdf_writer=legacy_writer_should_not_run,
-        excel_writer=legacy_writer_should_not_run,
+        pdf_data_writer=data_writer_should_not_run,
+        excel_data_writer=data_writer_should_not_run,
         pdf_report_writer=PdfWriter(),
         excel_register_writer=ExcelWriter(),
     )

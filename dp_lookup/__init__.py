@@ -56,11 +56,11 @@ from dp_lookup.core.planning_status import (
 )
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.exporters.dxf import export_dxf
-from dp_lookup.exporters.excel import update_excel_register
+from dp_lookup.exporters.excel import write_excel_register
 from dp_lookup.exporters.geojson import export_geojson
 from dp_lookup.exporters.html_map import export_html_map
 from dp_lookup.exporters.kml import export_kml
-from dp_lookup.exporters.pdf import build_pdf_doc
+from dp_lookup.exporters.pdf import write_pdf_report
 from dp_lookup.planning_evidence import EvidenceClass, EvidenceMode, PlanningEvidenceReport, QueryState
 from dp_lookup.renderers.map_overlay import render_dp_map
 from dp_lookup.renderers.satellite import stitch_satellite
@@ -98,7 +98,6 @@ __all__ = [
     "SpatialCluster",
     "arcgis_rings_to_geometry",
     "assess_plot_area",
-    "build_pdf_doc",
     "bundle_folder_name",
     "calculated_boundary_area_sqm",
     "crz_flag_from",
@@ -123,7 +122,8 @@ __all__ = [
     "stitch_satellite",
     "suggest_villages",
     "tile_to_latlon",
-    "update_excel_register",
     "web_mercator_ground_area_scale",
     "wgs84_to_utm43n",
+    "write_excel_register",
+    "write_pdf_report",
 ]

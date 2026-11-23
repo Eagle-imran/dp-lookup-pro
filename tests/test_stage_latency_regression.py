@@ -19,6 +19,7 @@ from PIL import Image
 
 from dp_lookup.application.dependencies import DEFAULT_DEPENDENCIES
 from dp_lookup.application.lookup_service import lookup_plot_pro
+from dp_lookup.exporters.contracts import ExcelRegisterData, PlotReportData
 
 
 def _png_bytes() -> bytes:
@@ -129,13 +130,13 @@ def _dependencies(delay_s: float):
         time.sleep(delay_s)
         Path(path).write_text("vector", encoding="utf-8")
 
-    def pdf_writer(path: str, *_args: Any, **_kwargs: Any) -> None:
+    def pdf_writer(data: PlotReportData) -> None:
         time.sleep(delay_s)
-        Path(path).write_bytes(b"pdf")
+        Path(data.output_path).write_bytes(b"pdf")
 
-    def excel_writer(*_args: Any, **kwargs: Any) -> None:
+    def excel_writer(data: ExcelRegisterData) -> None:
         time.sleep(delay_s)
-        Path(kwargs["register_path"]).write_bytes(b"xlsx")
+        Path(data.report.output_path).write_bytes(b"xlsx")
 
     def map_renderer(*_args: Any, **_kwargs: Any) -> Image.Image:
         time.sleep(delay_s)
@@ -155,8 +156,8 @@ def _dependencies(delay_s: float):
         dxf_writer=vector_writer,
         kml_writer=vector_writer,
         html_writer=vector_writer,
-        pdf_writer=pdf_writer,
-        excel_writer=excel_writer,
+        pdf_data_writer=pdf_writer,
+        excel_data_writer=excel_writer,
         dp_map_renderer=map_renderer,
         satellite_renderer=satellite_renderer,
     )
