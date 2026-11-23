@@ -332,7 +332,7 @@ If you are using Claude Code in your terminal:
 If you are building a custom Python agent with OpenAI Codex or Function Calling:
 1. Import `lookup_plot_pro` directly in your Python code:
    ```python
-   from cts_dp_lookup_pro import lookup_plot_pro
+   from dp_lookup import lookup_plot_pro
    import asyncio
 
 

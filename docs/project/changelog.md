@@ -85,6 +85,11 @@ All notable changes to this project. Newest first.
   `query_layer`. The `active_snapshot` and `records_intersecting` fallbacks
   were removed, along with the `PlanningSnapshotStore.records_intersecting`
   alias.
+* **Breaking — `cts_dp_lookup_pro` removed:** the 275-line module that only
+  re-exported names from `dp_lookup` is gone from the repository and the
+  wheel. Import from `dp_lookup` instead, for example
+  `from dp_lookup import lookup_plot_pro`. The `dp-lookup-pro` command is
+  unchanged.
 
 ### Audit fixes — 2026-11-10
 

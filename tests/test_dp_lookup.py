@@ -9,6 +9,7 @@ three vector exporters.
 Run:  uv run pytest -q
 """
 
+import io
 import json
 import math
 import os
@@ -16,30 +17,85 @@ import sys
 import time
 
 import pytest
+from PIL import Image
 from report_data import plot_report
+
+from dp_lookup.application.lookup_service import lookup_plot_pro
+from dp_lookup.cli import format_result_human, main, suggest_villages
+from dp_lookup.clients.arcgis import identify_payload, map_export_params, planning_layers
+from dp_lookup.clients.cache import (
+    _STORES,
+    bundle_is_intact,
+    cache_path_for,
+    load_disk_cache,
+    read_cache_entry,
+    sanitize_query_value,
+    usable_json,
+    write_cache_entry,
+)
+from dp_lookup.core.constants import (
+    _VILLAGE_RE,
+    CACHE_FILENAME,
+    DEFAULT_CACHE_TTL_SECONDS,
+    MCGM_VILLAGES,
+    ROAD_EDGE_NUDGES,
+    ROAD_EDGE_PROBE_LIMIT,
+    ROAD_LAYERS,
+)
+from dp_lookup.core.geometry import (
+    latlon_to_tile,
+    mercator_to_wgs84,
+    nearest_road_geoms,
+    neighbour_probe_points,
+    prepare_geometry,
+    resolve_plot_area,
+    road_probe_points,
+    tile_to_latlon,
+    wgs84_to_utm43n,
+)
+from dp_lookup.core.planning_status import bundle_folder_name, crz_flag_from, derive_status, select_road
+from dp_lookup.exporters.dxf import (
+    LEGEND_VALUE_MAX_CHARS,
+    boxes_overlap,
+    clip_path_to_window,
+    export_dxf,
+    fit_label_to_width,
+    legend_column_height,
+    legend_data_row,
+    legend_data_rows,
+    nudge_text_clear,
+    offset_polygon_inward,
+    polygon_signed_area,
+    text_extents,
+)
+from dp_lookup.exporters.geojson import export_geojson
+from dp_lookup.exporters.html_map import export_html_map
+from dp_lookup.exporters.kml import _esc, export_kml
+from dp_lookup.exporters.pdf import write_pdf_report
+from dp_lookup.renderers.map_overlay import render_dp_map
+from dp_lookup.renderers.satellite import stitch_satellite
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import cts_dp_lookup_pro as dp
 from dp_lookup.core.geometry import wgs84_to_mercator
 
 
 def test_utm43n_matches_known_mumbai_point():
     """Mumbai sits in UTM zone 43N; easting must land west of the 500 km meridian."""
-    easting, northing = dp.wgs84_to_utm43n(72.8776, 19.0760)
+    easting, northing = wgs84_to_utm43n(72.8776, 19.0760)
     assert 200_000 < easting < 500_000
     assert 2_000_000 < northing < 2_200_000
 
 
 def test_utm43n_easting_grows_with_longitude():
-    e1, _ = dp.wgs84_to_utm43n(72.80, 19.00)
-    e2, _ = dp.wgs84_to_utm43n(72.90, 19.00)
+    e1, _ = wgs84_to_utm43n(72.80, 19.00)
+    e2, _ = wgs84_to_utm43n(72.90, 19.00)
     assert e2 > e1
 
 
 def test_utm43n_northing_grows_with_latitude():
-    _, n1 = dp.wgs84_to_utm43n(72.85, 18.90)
-    _, n2 = dp.wgs84_to_utm43n(72.85, 19.10)
+    _, n1 = wgs84_to_utm43n(72.85, 18.90)
+    _, n2 = wgs84_to_utm43n(72.85, 19.10)
     assert n2 > n1
 
 
@@ -47,15 +103,15 @@ def test_utm43n_northing_grows_with_latitude():
 def test_tile_roundtrip_lands_in_same_tile(lat, lon):
     """tile -> latlon -> tile must be stable, or the satellite overlay misaligns."""
     zoom = 18
-    x, y = dp.latlon_to_tile(lat, lon, zoom)
-    back_lat, back_lon = dp.tile_to_latlon(x, y, zoom)
-    x2, y2 = dp.latlon_to_tile(back_lat, back_lon, zoom)
+    x, y = latlon_to_tile(lat, lon, zoom)
+    back_lat, back_lon = tile_to_latlon(x, y, zoom)
+    x2, y2 = latlon_to_tile(back_lat, back_lon, zoom)
     assert (x, y) == (x2, y2)
 
 
 def test_tile_to_latlon_is_tile_top_left():
     zoom = 18
-    lat, lon = dp.tile_to_latlon(*dp.latlon_to_tile(19.0, 72.8, zoom), zoom)
+    lat, lon = tile_to_latlon(*latlon_to_tile(19.0, 72.8, zoom), zoom)
     assert lat >= 19.0 - 0.01 and lon <= 72.8
 
 
@@ -73,7 +129,7 @@ def test_tile_to_latlon_is_tile_top_left():
     ],
 )
 def test_real_mcgm_values_are_accepted(value):
-    assert dp.sanitize_query_value(value, dp._VILLAGE_RE, "village", 64) == value
+    assert sanitize_query_value(value, _VILLAGE_RE, "village", 64) == value
 
 
 @pytest.mark.parametrize(
@@ -90,17 +146,17 @@ def test_real_mcgm_values_are_accepted(value):
 )
 def test_injection_and_junk_are_rejected(value):
     with pytest.raises(ValueError):
-        dp.sanitize_query_value(value, dp._VILLAGE_RE, "village", 64)
+        sanitize_query_value(value, _VILLAGE_RE, "village", 64)
 
 
 def test_single_quotes_never_reach_the_where_clause():
     """The whitelist rejects quotes outright; doubling is only defence in depth."""
     with pytest.raises(ValueError):
-        dp.sanitize_query_value("A'B", dp._VILLAGE_RE, "village", 64)
+        sanitize_query_value("A'B", _VILLAGE_RE, "village", 64)
 
 
 def test_whitespace_is_trimmed_not_rejected():
-    assert dp.sanitize_query_value("  WORLI  ", dp._VILLAGE_RE, "village", 64) == "WORLI"
+    assert sanitize_query_value("  WORLI  ", _VILLAGE_RE, "village", 64) == "WORLI"
 
 
 class FakeResp:
@@ -117,38 +173,38 @@ class FakeResp:
 
 def test_usable_json_rejects_arcgis_error_body_despite_http_200():
     resp = FakeResp(200, {"error": {"code": 400, "message": "", "details": []}})
-    assert dp.usable_json(resp) is None
+    assert usable_json(resp) is None
 
 
 def test_usable_json_accepts_real_payload():
     resp = FakeResp(200, {"results": [{"layerId": 14}]})
-    assert dp.usable_json(resp) == {"results": [{"layerId": 14}]}
+    assert usable_json(resp) == {"results": [{"layerId": 14}]}
 
 
 def test_usable_json_rejects_non_200_exception_and_bad_json():
-    assert dp.usable_json(FakeResp(500, {"results": []})) is None
-    assert dp.usable_json(RuntimeError("timeout")) is None
-    assert dp.usable_json(FakeResp(200, None, boom=True)) is None
-    assert dp.usable_json(None) is None
+    assert usable_json(FakeResp(500, {"results": []})) is None
+    assert usable_json(RuntimeError("timeout")) is None
+    assert usable_json(FakeResp(200, None, boom=True)) is None
+    assert usable_json(None) is None
 
 
 def test_empty_results_is_distinguishable_from_failure():
     """A genuine no-match must survive; only failures return None."""
-    assert dp.usable_json(FakeResp(200, {"results": []})) == {"results": []}
+    assert usable_json(FakeResp(200, {"results": []})) == {"results": []}
 
 
 def test_esc_handles_xml_metacharacters():
-    assert dp._esc("A & B") == "A &amp; B"
-    assert dp._esc("<tag>") == "&lt;tag&gt;"
-    assert dp._esc(None) == ""
-    assert dp._esc(1877.87) == "1877.87"
+    assert _esc("A & B") == "A &amp; B"
+    assert _esc("<tag>") == "&lt;tag&gt;"
+    assert _esc(None) == ""
+    assert _esc(1877.87) == "1877.87"
 
 
 def test_kml_with_ampersand_village_is_well_formed(tmp_path):
     import xml.etree.ElementTree as ET
 
     out = tmp_path / "x.kml"
-    dp.export_kml(
+    export_kml(
         [[[72.8, 19.0], [72.81, 19.0], [72.81, 19.01], [72.8, 19.0]]],
         {
             "cts_no": "7 & 8",
@@ -168,32 +224,32 @@ def test_kml_with_ampersand_village_is_well_formed(tmp_path):
 
 
 def test_cache_path_follows_output_dir(tmp_path):
-    assert dp.cache_path_for(str(tmp_path)) == os.path.join(str(tmp_path), dp.CACHE_FILENAME)
+    assert cache_path_for(str(tmp_path)) == os.path.join(str(tmp_path), CACHE_FILENAME)
 
 
 def test_cache_roundtrip_then_expiry(tmp_path):
     d = str(tmp_path)
-    dp._STORES.clear()
-    dp.write_cache_entry(d, "WORLI:947", _entry_with_files(tmp_path))
-    assert dp.read_cache_entry(d, "WORLI:947", 3600) is not None
+    _STORES.clear()
+    write_cache_entry(d, "WORLI:947", _entry_with_files(tmp_path))
+    assert read_cache_entry(d, "WORLI:947", 3600) is not None
     time.sleep(0.01)
-    assert dp.read_cache_entry(d, "WORLI:947", 0) is None
+    assert read_cache_entry(d, "WORLI:947", 0) is None
 
 
 def test_legacy_untimestamped_entries_are_treated_as_expired(tmp_path):
     """Pre-fix entries hold the old CRZ answers and must never be served."""
     d = str(tmp_path)
-    dp._STORES.clear()
-    with open(dp.cache_path_for(d), "w", encoding="utf-8") as f:
+    _STORES.clear()
+    with open(cache_path_for(d), "w", encoding="utf-8") as f:
         json.dump({"WORLI:947": {"planning_remarks": {"zone": "R"}}}, f)
-    assert dp.read_cache_entry(d, "WORLI:947", 3600) is None
+    assert read_cache_entry(d, "WORLI:947", 3600) is None
 
 
 def test_negative_ttl_disables_expiry(tmp_path):
     d = str(tmp_path)
-    dp._STORES.clear()
-    dp.write_cache_entry(d, "K", _entry_with_files(tmp_path))
-    got = dp.read_cache_entry(d, "K", -1)
+    _STORES.clear()
+    write_cache_entry(d, "K", _entry_with_files(tmp_path))
+    got = read_cache_entry(d, "K", -1)
     assert got is not None
     assert got["metadata"]["cache_expires_in_days"] is None
 
@@ -210,40 +266,40 @@ def _entry_with_files(tmp_path, names=("a.pdf", "b.png")):
 
 
 def test_default_ttl_is_thirty_days():
-    assert dp.DEFAULT_CACHE_TTL_SECONDS == 30 * 24 * 60 * 60
+    assert DEFAULT_CACHE_TTL_SECONDS == 30 * 24 * 60 * 60
 
 
 def test_cache_hit_requires_files_to_exist(tmp_path):
     """Regression: a hit used to return paths to deleted files and report success."""
     d = str(tmp_path)
-    dp._STORES.clear()
+    _STORES.clear()
     result = _entry_with_files(tmp_path)
-    dp.write_cache_entry(d, "K", result)
-    assert dp.read_cache_entry(d, "K", 3600) is not None
+    write_cache_entry(d, "K", result)
+    assert read_cache_entry(d, "K", 3600) is not None
 
     os.remove(result["export_files"]["f0"])
-    assert dp.read_cache_entry(d, "K", 3600) is None, "deleted bundle must invalidate the entry"
+    assert read_cache_entry(d, "K", 3600) is None, "deleted bundle must invalidate the entry"
 
 
 def test_missing_excel_register_does_not_invalidate(tmp_path):
     """The register is shared and regenerated; its absence must not nuke the entry."""
     d = str(tmp_path)
-    dp._STORES.clear()
-    dp.write_cache_entry(d, "K", _entry_with_files(tmp_path))
-    assert dp.read_cache_entry(d, "K", 3600) is not None
+    _STORES.clear()
+    write_cache_entry(d, "K", _entry_with_files(tmp_path))
+    assert read_cache_entry(d, "K", 3600) is not None
 
 
 def test_bundle_is_intact_rejects_malformed_result():
-    assert dp.bundle_is_intact({}) is False
-    assert dp.bundle_is_intact({"export_files": "nope"}) is False
+    assert bundle_is_intact({}) is False
+    assert bundle_is_intact({"export_files": "nope"}) is False
 
 
 def test_cache_hit_reports_its_age(tmp_path):
     """Staleness must never be silent - the caller sees how old the answer is."""
     d = str(tmp_path)
-    dp._STORES.clear()
-    dp.write_cache_entry(d, "K", _entry_with_files(tmp_path))
-    got = dp.read_cache_entry(d, "K", dp.DEFAULT_CACHE_TTL_SECONDS)
+    _STORES.clear()
+    write_cache_entry(d, "K", _entry_with_files(tmp_path))
+    got = read_cache_entry(d, "K", DEFAULT_CACHE_TTL_SECONDS)
     meta = got["metadata"]
     assert "cached_at" in meta
     assert meta["cache_age_days"] >= 0
@@ -253,19 +309,19 @@ def test_cache_hit_reports_its_age(tmp_path):
 def test_reading_cache_does_not_mutate_the_store(tmp_path):
     """Age fields are added to the returned copy, not written back to disk."""
     d = str(tmp_path)
-    dp._STORES.clear()
-    dp.write_cache_entry(d, "K", _entry_with_files(tmp_path))
-    dp.read_cache_entry(d, "K", 3600)
-    stored = dp.load_disk_cache(d)["K"]["result"]
+    _STORES.clear()
+    write_cache_entry(d, "K", _entry_with_files(tmp_path))
+    read_cache_entry(d, "K", 3600)
+    stored = load_disk_cache(d)["K"]["result"]
     assert "cache_age_days" not in stored.get("metadata", {})
 
 
 def test_cache_survives_corrupt_store(tmp_path):
     d = str(tmp_path)
-    dp._STORES.clear()
-    with open(dp.cache_path_for(d), "w", encoding="utf-8") as f:
+    _STORES.clear()
+    with open(cache_path_for(d), "w", encoding="utf-8") as f:
         f.write("{not json")
-    assert dp.read_cache_entry(d, "anything", 3600) is None
+    assert read_cache_entry(d, "anything", 3600) is None
 
 
 RING = [[[72.8200, 18.9700], [72.8210, 18.9700], [72.8210, 18.9710], [72.8200, 18.9710], [72.8200, 18.9700]]]
@@ -285,7 +341,7 @@ PROPS = {
 
 def test_geojson_is_valid_and_crs84(tmp_path):
     out = tmp_path / "x.geojson"
-    dp.export_geojson(RING, PROPS, str(out))
+    export_geojson(RING, PROPS, str(out))
     data = json.loads(out.read_text())
     assert data["type"] == "FeatureCollection"
     assert data["crs"]["properties"]["name"] == "urn:ogc:def:crs:OGC:1.3:CRS84"
@@ -295,7 +351,7 @@ def test_geojson_is_valid_and_crs84(tmp_path):
 def test_dxf_written_with_expected_layers(tmp_path):
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    dp.export_dxf(RING, PROPS, str(out), neighbors=[])
+    export_dxf(RING, PROPS, str(out), neighbors=[])
     doc = ezdxf.readfile(str(out))
     names = {layer.dxf.name for layer in doc.layers}
     for expected in ("C-PLOT-BDY", "C-ANNO-DIMS", "C-TITLE-BLOCK"):
@@ -305,7 +361,7 @@ def test_dxf_written_with_expected_layers(tmp_path):
 def test_dxf_geometry_is_metric_and_centred_on_origin(tmp_path):
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    dp.export_dxf(RING, PROPS, str(out), neighbors=[])
+    export_dxf(RING, PROPS, str(out), neighbors=[])
     doc = ezdxf.readfile(str(out))
     pts = []
     for e in doc.modelspace().query("LWPOLYLINE[layer=='C-PLOT-BDY']"):
@@ -333,9 +389,9 @@ L_SHAPE = [(0, 0), (60, 0), (60, 20), (20, 20), (20, 60), (0, 60)]
 
 
 def test_setback_offset_is_exact_on_a_square():
-    rings = dp.offset_polygon_inward(SQUARE, 10)
+    rings = offset_polygon_inward(SQUARE, 10)
     assert len(rings) == 1
-    assert abs(abs(dp.polygon_signed_area(rings[0])) - 6400.0) < 0.01
+    assert abs(abs(polygon_signed_area(rings[0])) - 6400.0) < 0.01
 
 
 @pytest.mark.parametrize("poly", [SQUARE, L_SHAPE])
@@ -353,7 +409,7 @@ def test_setback_is_a_true_parallel_offset(poly, distance):
     Vertices at reflex corners sit further out than `distance` by design - that
     is what a mitre join does - so a per-vertex equality check is the wrong test.
     """
-    rings = dp.offset_polygon_inward(poly, distance)
+    rings = offset_polygon_inward(poly, distance)
     assert rings, "expected a viable setback"
 
     sampled = []
@@ -369,20 +425,20 @@ def test_setback_is_a_true_parallel_offset(poly, distance):
 
 
 def test_setback_is_winding_independent():
-    a = dp.offset_polygon_inward(SQUARE, 10)
-    b = dp.offset_polygon_inward(SQUARE[::-1], 10)
-    assert abs(abs(dp.polygon_signed_area(a[0])) - abs(dp.polygon_signed_area(b[0]))) < 0.01
+    a = offset_polygon_inward(SQUARE, 10)
+    b = offset_polygon_inward(SQUARE[::-1], 10)
+    assert abs(abs(polygon_signed_area(a[0])) - abs(polygon_signed_area(b[0]))) < 0.01
 
 
 def test_setback_omitted_when_plot_cannot_sustain_it():
     """Better to draw nothing than a line an architect would build to."""
-    assert dp.offset_polygon_inward([(0, 0), (4, 0), (4, 4), (0, 4)], 6.0) == []
-    assert dp.offset_polygon_inward([(0, 0), (1, 0), (1, 1)], 3.0) == []
+    assert offset_polygon_inward([(0, 0), (4, 0), (4, 4), (0, 4)], 6.0) == []
+    assert offset_polygon_inward([(0, 0), (1, 0), (1, 1)], 3.0) == []
 
 
 def test_setback_handles_duplicate_closing_vertex():
     closed = [*SQUARE, SQUARE[0]]
-    assert dp.offset_polygon_inward(closed, 10)
+    assert offset_polygon_inward(closed, 10)
 
 
 def test_dxf_has_no_empty_layers_and_carries_a_legend(tmp_path):
@@ -397,7 +453,7 @@ def test_dxf_has_no_empty_layers_and_carries_a_legend(tmp_path):
     neighbours = [
         {"cts_no": "948", "rings": [[[72.8216, 18.9700], [72.8225, 18.9700], [72.8225, 18.9712], [72.8216, 18.9700]]]}
     ]
-    dp.export_dxf(ring, props, str(out), neighbors=neighbours, roads=roads)
+    export_dxf(ring, props, str(out), neighbors=neighbours, roads=roads)
 
     doc = ezdxf.readfile(str(out))
     msp = doc.modelspace()
@@ -453,7 +509,7 @@ def test_dxf_road_annotations_distinguish_proposed_and_unconfirmed_frontage(tmp_
         road_gap_m=gap,
         road_method="boundary_probe" if gap is None else "local_snapshot_distance",
     )
-    dp.export_dxf(RING, props, str(out), roads=[[[72.82, 18.9698], [72.821, 18.9698]]])
+    export_dxf(RING, props, str(out), roads=[[[72.82, 18.9698], [72.821, 18.9698]]])
     model = ezdxf.readfile(out).modelspace()
     (drawing_label,) = model.query('TEXT[layer=="C-ROAD-ALIGN"]')
     legend_label = next(
@@ -473,7 +529,7 @@ def test_dxf_geometry_stays_within_sane_extents(tmp_path):
     neighbours = [
         {"cts_no": "1", "rings": [[[72.8216, 18.9700], [72.8225, 18.9700], [72.8225, 18.9712], [72.8216, 18.9700]]]}
     ]
-    dp.export_dxf(RING, PROPS, str(out), neighbors=neighbours)
+    export_dxf(RING, PROPS, str(out), neighbors=neighbours)
     doc = ezdxf.readfile(str(out))
     coords = [
         c for e in doc.modelspace() if e.dxftype() == "LWPOLYLINE" for p in e.get_points("xy") for c in (p[0], p[1])
@@ -484,15 +540,15 @@ def test_dxf_geometry_stays_within_sane_extents(tmp_path):
 def test_exports_do_not_crash_on_none_area(tmp_path):
     """MALABAR HILL 16/738 really does return a null area from MCGM."""
     props = dict(PROPS, area_sqm=None)
-    dp.export_geojson(RING, props, str(tmp_path / "a.geojson"))
-    dp.export_kml(RING, props, str(tmp_path / "a.kml"))
-    dp.export_dxf(RING, props, str(tmp_path / "a.dxf"), neighbors=[])
+    export_geojson(RING, props, str(tmp_path / "a.geojson"))
+    export_kml(RING, props, str(tmp_path / "a.kml"))
+    export_dxf(RING, props, str(tmp_path / "a.dxf"), neighbors=[])
 
 
 def test_lookup_accepts_an_on_data_callback():
     import inspect
 
-    sig = inspect.signature(dp.lookup_plot_pro)
+    sig = inspect.signature(lookup_plot_pro)
     assert "on_data" in sig.parameters
     assert sig.parameters["on_data"].default is None
 
@@ -530,16 +586,16 @@ def test_summary_marks_a_pending_snapshot_as_still_building():
             "notes": [],
         },
     }
-    text = dp.format_result_human(snap)
+    text = format_result_human(snap)
     for token in ("WORLI", "CTS 733", "YES (CRZ II)", "1,317.74"):
         assert token in text
 
 
 def test_village_list_is_complete_and_sorted():
-    assert len(dp.MCGM_VILLAGES) == 128
-    assert list(dp.MCGM_VILLAGES) == sorted(dp.MCGM_VILLAGES)
+    assert len(MCGM_VILLAGES) == 128
+    assert list(MCGM_VILLAGES) == sorted(MCGM_VILLAGES)
     for known in ("BANDRA-A", "WORLI", "MALABAR HILL", "KURLA - 1", "BHANDUP-E", "MOHILI"):
-        assert known in dp.MCGM_VILLAGES
+        assert known in MCGM_VILLAGES
 
 
 @pytest.mark.parametrize(
@@ -553,16 +609,16 @@ def test_village_list_is_complete_and_sorted():
     ],
 )
 def test_suggestions_catch_the_common_locality_mistakes(typo, expected):
-    assert expected in dp.suggest_villages(typo)
+    assert expected in suggest_villages(typo)
 
 
 def test_suggestions_are_empty_for_nonsense():
-    assert dp.suggest_villages("") == []
-    assert dp.suggest_villages("ZZZZQQQQ") == []
+    assert suggest_villages("") == []
+    assert suggest_villages("ZZZZQQQQ") == []
 
 
 def test_list_villages_flag(capsys):
-    assert dp.main(["--list-villages"]) == 0
+    assert main(["--list-villages"]) == 0
     out = capsys.readouterr().out
     assert "128 valid MCGM village names" in out
     assert "BANDRA-A" in out
@@ -598,7 +654,7 @@ def test_human_summary_reads_cleanly():
         },
         "metadata": {"execution_time_ms": 7100, "cached_result": False, "complete": True, "warnings": [], "notes": []},
     }
-    text = dp.format_result_human(result)
+    text = format_result_human(result)
     for token in ("WORLI", "CTS 733", "1,317.74", "YES (CRZ II)", "B G KHER", "7.1s"):
         assert token in text
     assert "{" not in text, "summary should not leak raw JSON"
@@ -635,31 +691,31 @@ def test_human_summary_flags_a_derived_area_and_incompleteness():
             "notes": ["area derived"],
         },
     }
-    text = dp.format_result_human(result)
+    text = format_result_human(result)
     assert "derived from boundary" in text
     assert "INCOMPLETE" in text
     assert "road probes failed" in text
 
 
 def test_human_summary_renders_an_error_without_traceback():
-    text = dp.format_result_human({"error": "'BANDRA' is not a valid MCGM village name."})
+    text = format_result_human({"error": "'BANDRA' is not a valid MCGM village name."})
     assert "BANDRA" in text and "Could not complete" in text
 
 
 def test_cli_usage_exits_nonzero_without_args(capsys):
-    assert dp.main([]) == 1
+    assert main([]) == 1
     assert "Usage:" in capsys.readouterr().out
 
 
 def test_cli_rejects_bad_village_without_network(capsys):
-    code = dp.main(["1' OR '1'='1", "947"])
+    code = main(["1' OR '1'='1", "947"])
     assert code == 1
     assert "unsupported characters" in capsys.readouterr().out
 
 
 def test_mercator_roundtrips_against_the_known_plot_centroid():
     """WORLI 733's centroid, verified live: 19.011989 N, 72.817102 E."""
-    lon, lat = dp.mercator_to_wgs84(8106574.0, 2151800.0, precision=4)
+    lon, lat = mercator_to_wgs84(8106574.0, 2151800.0, precision=4)
     assert 72.0 < lon < 73.5
     assert 18.5 < lat < 19.5
 
@@ -667,7 +723,7 @@ def test_mercator_roundtrips_against_the_known_plot_centroid():
 @pytest.mark.parametrize(("lon", "lat"), [(72.8171, 19.0120), (0.0, 0.0), (-122.4, 37.8), (151.2, -33.9)])
 def test_wgs84_to_mercator_inverts_mercator_to_wgs84(lon, lat):
     x, y = wgs84_to_mercator(lon, lat)
-    assert dp.mercator_to_wgs84(x, y) == pytest.approx([lon, lat], abs=1e-7)
+    assert mercator_to_wgs84(x, y) == pytest.approx([lon, lat], abs=1e-7)
 
 
 def test_wgs84_to_mercator_clamps_latitude_at_the_projection_limit():
@@ -675,12 +731,12 @@ def test_wgs84_to_mercator_clamps_latitude_at_the_projection_limit():
 
 
 def test_mercator_is_monotonic():
-    assert dp.mercator_to_wgs84(1e6, 0)[0] > dp.mercator_to_wgs84(0, 0)[0]
-    assert dp.mercator_to_wgs84(0, 1e6)[1] > dp.mercator_to_wgs84(0, 0)[1]
+    assert mercator_to_wgs84(1e6, 0)[0] > mercator_to_wgs84(0, 0)[0]
+    assert mercator_to_wgs84(0, 1e6)[1] > mercator_to_wgs84(0, 0)[1]
 
 
 def test_area_prefers_the_mcgm_recorded_figure():
-    got = dp.resolve_plot_area({"AREA_APP_SQ_MTRS": 1317.74, "SHAPE.AREA": 1321.74})
+    got = resolve_plot_area({"AREA_APP_SQ_MTRS": 1317.74, "SHAPE.AREA": 1321.74})
     assert got["area_sqm"] == 1317.74
     assert got["area_source"] == "Recorded plot area"
     assert got["note"] is None
@@ -688,7 +744,7 @@ def test_area_prefers_the_mcgm_recorded_figure():
 
 def test_area_falls_back_to_geometry_and_says_so():
     """MALABAR HILL 518 and TARDEO 264 have no recorded plot area."""
-    got = dp.resolve_plot_area({"AREA_APP_SQ_MTRS": None, "SHAPE.AREA": 2450.15659})
+    got = resolve_plot_area({"AREA_APP_SQ_MTRS": None, "SHAPE.AREA": 2450.15659})
     assert got["area_sqm"] == 2450.16
     assert got["area_source"] == "Calculated boundary area"
     assert "used for screening" in got["note"]
@@ -703,7 +759,7 @@ def test_area_falls_back_to_geometry_and_says_so():
     ],
 )
 def test_area_reports_unavailable_rather_than_guessing(attrs):
-    got = dp.resolve_plot_area(attrs)
+    got = resolve_plot_area(attrs)
     assert got["area_sqm"] is None
     assert got["area_source"] == "unavailable"
 
@@ -712,7 +768,7 @@ MERC_RING = [[[8106500.0, 2151700.0], [8106600.0, 2151700.0], [8106600.0, 215180
 
 
 def test_prepare_geometry_returns_a_usable_window():
-    g = dp.prepare_geometry(MERC_RING)
+    g = prepare_geometry(MERC_RING)
     assert g["mcx"] == pytest.approx(8106550.0)
     assert g["mcy"] == pytest.approx(2151750.0)
     assert g["d"] >= 50
@@ -722,7 +778,7 @@ def test_prepare_geometry_returns_a_usable_window():
 
 def test_prepare_geometry_floors_the_window_for_a_tiny_plot():
     tiny = [[[8106500.0, 2151700.0], [8106504.0, 2151700.0], [8106504.0, 2151704.0], [8106500.0, 2151704.0]]]
-    assert dp.prepare_geometry(tiny)["d"] == 50
+    assert prepare_geometry(tiny)["d"] == 50
 
 
 @pytest.mark.parametrize(
@@ -735,17 +791,17 @@ def test_prepare_geometry_floors_the_window_for_a_tiny_plot():
     ],
 )
 def test_bundle_folder_is_filesystem_safe(village, cts, expected):
-    name = dp.bundle_folder_name(village, cts)
+    name = bundle_folder_name(village, cts)
     assert name == expected
     assert "/" not in name and "\\" not in name and " " not in name
 
 
 def test_bundle_folder_preserves_exact_slash_vs_hyphen_identity():
-    assert dp.bundle_folder_name("MALABAR HILL", "16/738") != dp.bundle_folder_name("MALABAR HILL", "16-738")
+    assert bundle_folder_name("MALABAR HILL", "16/738") != bundle_folder_name("MALABAR HILL", "16-738")
 
 
 def test_road_prefers_a_named_road_with_a_width():
-    chosen = dp.select_road(
+    chosen = select_road(
         {
             "a": {"name": "Exisiting Road", "width": "N/A"},
             "b": {"name": "B G KHER", "width": "18.30 M"},
@@ -756,18 +812,18 @@ def test_road_prefers_a_named_road_with_a_width():
 
 def test_road_accepts_a_width_without_a_name():
     """MOHILI 732 returns an unnamed road carrying a real 21.35 m width."""
-    chosen = dp.select_road({"a": {"name": "Road", "width": "21.35"}})
+    chosen = select_road({"a": {"name": "Road", "width": "21.35"}})
     assert chosen["width"] == "21.35"
 
 
 def test_road_falls_back_to_the_generic_record():
     """MCGM placeholders must not be presented as if they were real road names."""
-    chosen = dp.select_road({"a": {"name": "Exisiting Road", "width": "N/A"}})
+    chosen = select_road({"a": {"name": "Exisiting Road", "width": "N/A"}})
     assert chosen == {"name": "Unnamed / existing road", "width": "N/A"}
 
 
 def test_road_reports_none_when_nothing_was_found():
-    assert dp.select_road({}) == {"name": "None", "width": "None"}
+    assert select_road({}) == {"name": "None", "width": "None"}
 
 
 @pytest.mark.parametrize(
@@ -781,49 +837,49 @@ def test_road_reports_none_when_nothing_was_found():
     ],
 )
 def test_crz_tier_is_read_from_whichever_attribute_the_layer_uses(item, expected):
-    assert dp.crz_flag_from(item) == expected
+    assert crz_flag_from(item) == expected
 
 
 def test_crz_falls_back_to_the_layer_name_when_no_tier_is_present():
-    got = dp.crz_flag_from({"layerName": "CRZ", "attributes": {"category": "Null"}})
+    got = crz_flag_from({"layerName": "CRZ", "attributes": {"category": "Null"}})
     assert got == "YES (CRZ)"
 
 
 def test_a_dp_modification_outranks_everything():
-    got = dp.derive_status({"x": 1}, {"y": 1}, {"z": 1}, "Hospital", "EH1.2", "RC1", "Garden", "MCP/7526")
+    got = derive_status({"x": 1}, {"y": 1}, {"z": 1}, "Hospital", "EH1.2", "RC1", "Garden", "MCP/7526")
     assert "MODIFIED" in got["badge"]
     assert "MCP/7526" in got["summary"]
 
 
 def test_a_designation_outranks_a_reservation():
-    got = dp.derive_status(None, {"y": 1}, {"z": 1}, "Fire Station", "EPU1.1", "RC1", "Garden", "None")
+    got = derive_status(None, {"y": 1}, {"z": 1}, "Fire Station", "EPU1.1", "RC1", "Garden", "None")
     assert "RESERVED / DESIGNATED" in got["badge"]
     assert "Fire Station" in got["summary"]
 
 
 def test_a_reservation_is_reported_when_there_is_no_designation():
-    got = dp.derive_status(None, None, {"z": 1}, "None", "None", "RC1", "Garden", "None")
+    got = derive_status(None, None, {"z": 1}, "None", "None", "RC1", "Garden", "None")
     assert "RESERVED" in got["badge"] and "Garden" in got["badge"]
 
 
 def test_a_plot_with_nothing_against_it_is_clear():
-    got = dp.derive_status(None, None, None, "None", "None", "None", "None", "None")
+    got = derive_status(None, None, None, "None", "None", "None", "None", "None")
     assert "CLEAR" in got["badge"]
     assert got["summary"] == "Unreserved Land Parcel"
 
 
 def test_planning_layer_string_is_exact():
-    assert dp.planning_layers([14, 1264, 1548]) == "visible:0,46,47,192,1550,14,1264,1548"
+    assert planning_layers([14, 1264, 1548]) == "visible:0,46,47,192,1550,14,1264,1548"
 
 
 def test_road_layers_include_the_polygon_road_layers():
     """193/194 return `paths`, 44/45 return `rings`. Both are needed."""
     for layer in ("193", "194", "44", "45"):
-        assert layer in dp.ROAD_LAYERS
+        assert layer in ROAD_LAYERS
 
 
 def test_identify_payload_shape():
-    got = dp.identify_payload(100.0, 200.0, "visible:13", 10.0, 20.0, 50.0, tolerance=30, return_geometry=True)
+    got = identify_payload(100.0, 200.0, "visible:13", 10.0, 20.0, 50.0, tolerance=30, return_geometry=True)
     assert got["geometry"] == "100.0,200.0"
     assert got["geometryType"] == "esriGeometryPoint"
     assert got["sr"] == "102100"
@@ -836,11 +892,11 @@ def test_identify_payload_shape():
 
 def test_identify_payload_returns_geometry_as_a_string_not_a_bool():
     """ArcGIS wants the literal strings; a Python bool would be sent as True."""
-    assert dp.identify_payload(0, 0, "x", 0, 0, 1, 30, False)["returnGeometry"] == "false"
+    assert identify_payload(0, 0, "x", 0, 0, 1, 30, False)["returnGeometry"] == "false"
 
 
 def test_map_export_params_shape():
-    got = dp.map_export_params(1.0, 2.0, 3.0, 4.0)
+    got = map_export_params(1.0, 2.0, 3.0, 4.0)
     assert got["bbox"] == "1.0,2.0,3.0,4.0"
     assert got["size"] == "1000,1000"
     assert got["f"] == "image"
@@ -853,22 +909,22 @@ SQ_RING = [[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]]
 
 def test_road_probes_keep_the_centroid_and_both_corners():
     """Dropping these regressed WORLI 947's named road; they are deliberate."""
-    pts = dp.road_probe_points(SQ_RING, 50.0, 50.0, [0.0, 100.0], [0.0, 100.0])
+    pts = road_probe_points(SQ_RING, 50.0, 50.0, [0.0, 100.0], [0.0, 100.0])
     assert pts[0] == (50.0, 50.0)
     assert pts[1] == (0.0, 0.0)
     assert pts[2] == (100.0, 100.0)
 
 
 def test_road_probes_are_capped_and_pushed_outside_the_plot():
-    pts = dp.road_probe_points(SQ_RING, 50.0, 50.0, [0.0, 100.0], [0.0, 100.0])
-    assert len(pts) == 3 + dp.ROAD_EDGE_PROBE_LIMIT
+    pts = road_probe_points(SQ_RING, 50.0, 50.0, [0.0, 100.0], [0.0, 100.0])
+    assert len(pts) == 3 + ROAD_EDGE_PROBE_LIMIT
     for x, y in pts[3:]:
         assert not (0.0 < x < 100.0 and 0.0 < y < 100.0), f"probe ({x},{y}) is inside the plot"
 
 
 def test_road_probes_use_three_distances_per_edge():
-    assert len(dp.ROAD_EDGE_NUDGES) == 3
-    pts = dp.road_probe_points(SQ_RING, 50.0, 50.0, [0.0, 100.0], [0.0, 100.0])
+    assert len(ROAD_EDGE_NUDGES) == 3
+    pts = road_probe_points(SQ_RING, 50.0, 50.0, [0.0, 100.0], [0.0, 100.0])
     dists = {round(max(abs(x - 50.0), abs(y - 50.0)), 1) for x, y in pts[3:]}
     assert len(dists) >= 3
 
@@ -876,18 +932,18 @@ def test_road_probes_use_three_distances_per_edge():
 def test_road_probes_survive_a_degenerate_ring():
     """A zero-length segment must not divide by zero."""
     ring = [[0.0, 0.0], [0.0, 0.0], [10.0, 0.0], [10.0, 10.0]]
-    assert dp.road_probe_points(ring, 5.0, 5.0, [0.0, 10.0], [0.0, 10.0])
+    assert road_probe_points(ring, 5.0, 5.0, [0.0, 10.0], [0.0, 10.0])
 
 
 def test_neighbour_probes_are_four_cardinal_offsets():
-    pts = dp.neighbour_probe_points(0.0, 0.0, 100.0)
+    pts = neighbour_probe_points(0.0, 0.0, 100.0)
     assert len(pts) == 4
     assert set(pts) == {(70.0, 0.0), (-70.0, 0.0), (0.0, 70.0), (0.0, -70.0)}
 
 
 def test_neighbour_probe_offset_has_a_floor():
     """A tiny plot still needs to reach far enough to find a neighbour."""
-    assert dp.neighbour_probe_points(0.0, 0.0, 1.0) == [(15.0, 0.0), (-15.0, 0.0), (0.0, 15.0), (0.0, -15.0)]
+    assert neighbour_probe_points(0.0, 0.0, 1.0) == [(15.0, 0.0), (-15.0, 0.0), (0.0, 15.0), (0.0, -15.0)]
 
 
 def _png_bytes(size=(256, 256), colour=(10, 120, 30)):
@@ -913,7 +969,7 @@ MERC_SQUARE = [[[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]]]
 
 
 def test_dp_map_renders_over_the_server_image():
-    img = dp.render_dp_map(
+    img = render_dp_map(
         _png_bytes((1000, 1000)), MERC_SQUARE, bbox=(0, 0, 100, 100), size=(1000, 1000), labels=DP_LABELS
     )
     assert img.size == (1000, 1000)
@@ -922,12 +978,12 @@ def test_dp_map_renders_over_the_server_image():
 
 def test_dp_map_still_renders_when_the_server_image_is_missing():
     """A failed /export must not abort the report."""
-    img = dp.render_dp_map(None, MERC_SQUARE, bbox=(0, 0, 100, 100), size=(400, 400), labels=DP_LABELS)
+    img = render_dp_map(None, MERC_SQUARE, bbox=(0, 0, 100, 100), size=(400, 400), labels=DP_LABELS)
     assert img.size == (400, 400)
 
 
 def test_dp_map_draws_the_plot_boundary_in_red():
-    img = dp.render_dp_map(None, MERC_SQUARE, bbox=(0, 0, 100, 100), size=(600, 600), labels=DP_LABELS).convert("RGB")
+    img = render_dp_map(None, MERC_SQUARE, bbox=(0, 0, 100, 100), size=(600, 600), labels=DP_LABELS).convert("RGB")
     px = img.load()
     reds = sum(
         1
@@ -941,7 +997,7 @@ def test_dp_map_draws_the_plot_boundary_in_red():
 def test_satellite_stitches_a_grid():
     tiles = [_png_bytes() for _ in range(9)]
     coords = [(x, y) for y in range(3) for x in range(3)]
-    img = dp.stitch_satellite(
+    img = stitch_satellite(
         tiles,
         coords,
         3,
@@ -956,7 +1012,7 @@ def test_satellite_survives_missing_and_failed_tiles():
     """Tiles arrive as bytes, None, or exceptions when a fetch failed."""
     tiles = [_png_bytes(), None, RuntimeError("timeout"), b"", _png_bytes(), None, None, _png_bytes(), None]
     coords = [(x, y) for y in range(3) for x in range(3)]
-    img = dp.stitch_satellite(
+    img = stitch_satellite(
         tiles,
         coords,
         3,
@@ -970,18 +1026,18 @@ def test_satellite_survives_missing_and_failed_tiles():
 def test_satellite_survives_corrupt_tile_bytes():
     tiles = [b"not a png"] * 9
     coords = [(x, y) for y in range(3) for x in range(3)]
-    img = dp.stitch_satellite(tiles, coords, 3, [], bounds=(19.02, 72.79, 18.99, 72.82), labels=SAT_LABELS)
+    img = stitch_satellite(tiles, coords, 3, [], bounds=(19.02, 72.79, 18.99, 72.82), labels=SAT_LABELS)
     assert img.size == (768, 768)
 
 
 def test_renderers_accept_a_multi_ring_plot():
     two = [*MERC_SQUARE, [[10.0, 10.0], [20.0, 10.0], [20.0, 20.0], [10.0, 20.0]]]
-    assert dp.render_dp_map(None, two, (0, 0, 100, 100), (300, 300), DP_LABELS)
+    assert render_dp_map(None, two, (0, 0, 100, 100), (300, 300), DP_LABELS)
 
 
 def _dxf_texts(msp):
     """(entity, measured box) for every TEXT that can be measured."""
-    return [(e, dp.text_extents(e)) for e in msp.query("TEXT") if dp.text_extents(e) is not None]
+    return [(e, text_extents(e)) for e in msp.query("TEXT") if text_extents(e) is not None]
 
 
 def _title_block_rects(msp):
@@ -1002,22 +1058,22 @@ def test_text_extents_measures_width_and_respects_rotation():
     msp = doc.modelspace()
     flat = msp.add_text("MMMMMMMMMM", dxfattribs={"height": 2.0})
     flat.set_placement((0.0, 0.0))
-    box = dp.text_extents(flat)
+    box = text_extents(flat)
     assert box is not None
     assert box[2] - box[0] > 4.0, "ten characters cannot be narrower than two heights"
     assert box[3] - box[1] == pytest.approx(2.0, abs=0.6)
 
     turned = msp.add_text("MMMMMMMMMM", dxfattribs={"height": 2.0, "rotation": 90.0})
     turned.set_placement((0.0, 0.0))
-    tbox = dp.text_extents(turned)
+    tbox = text_extents(turned)
     assert tbox[3] - tbox[1] > tbox[2] - tbox[0]
 
 
 def test_boxes_overlap_and_unmeasurable_text_never_collides():
-    assert dp.boxes_overlap((0, 0, 2, 2), (1, 1, 3, 3))
-    assert not dp.boxes_overlap((0, 0, 2, 2), (2.5, 0, 4, 2))
-    assert not dp.boxes_overlap(None, (0, 0, 1, 1))
-    assert not dp.boxes_overlap((0, 0, 1, 1), None)
+    assert boxes_overlap((0, 0, 2, 2), (1, 1, 3, 3))
+    assert not boxes_overlap((0, 0, 2, 2), (2.5, 0, 4, 2))
+    assert not boxes_overlap(None, (0, 0, 1, 1))
+    assert not boxes_overlap((0, 0, 1, 1), None)
 
 
 def test_nudge_text_clear_moves_a_label_out_of_the_way():
@@ -1026,12 +1082,12 @@ def test_nudge_text_clear_moves_a_label_out_of_the_way():
     msp = doc.modelspace()
     label = msp.add_text("CTS 733A", dxfattribs={"height": 1.0})
     label.set_placement((0.0, 0.0))
-    obstacle = dp.text_extents(label)
+    obstacle = text_extents(label)
     start_y = float(label.dxf.insert[1])
 
-    assert dp.nudge_text_clear(label, [obstacle], step=1.5, limit=10)
+    assert nudge_text_clear(label, [obstacle], step=1.5, limit=10)
     assert float(label.dxf.insert[1]) > start_y
-    assert not dp.boxes_overlap(dp.text_extents(label), obstacle)
+    assert not boxes_overlap(text_extents(label), obstacle)
 
 
 def test_nudge_text_clear_reports_failure_rather_than_looping():
@@ -1040,23 +1096,23 @@ def test_nudge_text_clear_reports_failure_rather_than_looping():
     msp = doc.modelspace()
     label = msp.add_text("X", dxfattribs={"height": 1.0})
     label.set_placement((0.0, 0.0))
-    assert not dp.nudge_text_clear(label, [(-50, -50, 50, 50)], step=0.1, limit=3)
+    assert not nudge_text_clear(label, [(-50, -50, 50, 50)], step=0.1, limit=3)
 
 
 def test_legend_height_accounts_for_the_plot_data_rows():
     """Regression: the height was `lg_row * (n_legend + 9.5)`, which counted none
     of the PLOT DATA rows, so the panel border cut across the last three."""
     lg_row = 3.5
-    tall = dp.legend_column_height(lg_row, 12, 10)
+    tall = legend_column_height(lg_row, 12, 10)
     assert tall > lg_row * (12 + 9.5), "must exceed the old under-count"
-    assert dp.legend_column_height(lg_row, 12, 11) - tall == pytest.approx(lg_row)
+    assert legend_column_height(lg_row, 12, 11) - tall == pytest.approx(lg_row)
 
 
 def test_long_road_name_wraps_instead_of_escaping_the_panel():
     """AMBIVALI 807's frontage overran the panel by 19.8 m as a single row."""
-    rows = dp.legend_data_row("ABUTTING ROAD", "Jay Prakash Road Part II Dadabhai Road to Versova Metro. (27.4 M.)")
+    rows = legend_data_row("ABUTTING ROAD", "Jay Prakash Road Part II Dadabhai Road to Versova Metro. (27.4 M.)")
     assert len(rows) > 1, "a 65-character value has to wrap"
-    assert all(len(r) <= 16 + 2 + dp.LEGEND_VALUE_MAX_CHARS for r in rows)
+    assert all(len(r) <= 16 + 2 + LEGEND_VALUE_MAX_CHARS for r in rows)
     assert rows[0].startswith("ABUTTING ROAD   : ")
     assert rows[1].startswith(" " * 16)
     assert "Versova" in " ".join(rows), "wrapping must not drop words"
@@ -1067,7 +1123,7 @@ def test_plot_data_prints_both_areas_and_names_the_gap():
     2142.25. Printing one figure invites an FSI calculation off an unreconciled
     number."""
     props = dict(PROPS, area_sqm=2019.0, area_source="approved (MCGM AREA_APP_SQ_MTRS)")
-    rows = dp.legend_data_rows(props, {3.0: True, 6.0: True}, measured_area_sqm=2142.25)
+    rows = legend_data_rows(props, {3.0: True, 6.0: True}, measured_area_sqm=2142.25)
     joined = " ".join(rows)
     assert "2019.0" in joined
     assert "2142.25" in joined
@@ -1077,7 +1133,7 @@ def test_plot_data_prints_both_areas_and_names_the_gap():
 def test_plot_data_omits_the_delta_when_the_area_is_derived():
     """A derived area IS the boundary measurement; a delta against itself is noise."""
     props = dict(PROPS, area_source="derived from boundary")
-    rows = dp.legend_data_rows(props, {3.0: True}, measured_area_sqm=462.28)
+    rows = legend_data_rows(props, {3.0: True}, measured_area_sqm=462.28)
     assert "% vs record" not in " ".join(rows)
 
 
@@ -1095,7 +1151,7 @@ def test_dxf_keeps_every_label_inside_the_sheet_border(tmp_path):
     neighbours = [
         {"cts_no": "948", "rings": [[[72.8210, 18.9700], [72.8219, 18.9700], [72.8219, 18.9709], [72.8210, 18.9700]]]}
     ]
-    dp.export_dxf(RING, props, str(out), neighbors=neighbours, roads=roads)
+    export_dxf(RING, props, str(out), neighbors=neighbours, roads=roads)
 
     msp = ezdxf.readfile(str(out)).modelspace()
     rects = _title_block_rects(msp)
@@ -1115,7 +1171,7 @@ def test_dxf_legend_rows_stay_inside_their_panel(tmp_path):
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
     props = dict(PROPS, abutting_road="KHAN ABDUL GAFFAR KHAN MARG", road_width="N/A")
-    dp.export_dxf(RING, props, str(out), neighbors=[])
+    export_dxf(RING, props, str(out), neighbors=[])
 
     msp = ezdxf.readfile(str(out)).modelspace()
     rects = _title_block_rects(msp)
@@ -1150,7 +1206,7 @@ def test_dxf_drawing_labels_do_not_collide(tmp_path):
     neighbours = [
         {"cts_no": "733A", "rings": [[[72.8210, 18.9701], [72.8214, 18.9701], [72.8214, 18.9705], [72.8210, 18.9701]]]}
     ]
-    dp.export_dxf(ring, props, str(out), neighbors=neighbours)
+    export_dxf(ring, props, str(out), neighbors=neighbours)
 
     msp = ezdxf.readfile(str(out)).modelspace()
     panels = _title_block_rects(msp)[1:]
@@ -1161,7 +1217,7 @@ def test_dxf_drawing_labels_do_not_collide(tmp_path):
     drawing = [(e, b) for e, b in _dxf_texts(msp) if not in_panel(b)]
     for i, (e1, b1) in enumerate(drawing):
         for e2, b2 in drawing[i + 1 :]:
-            assert not dp.boxes_overlap(b1, b2), (
+            assert not boxes_overlap(b1, b2), (
                 f"{e1.dxf.text!r} [{e1.dxf.layer}] overlaps {e2.dxf.text!r} [{e2.dxf.layer}]"
             )
 
@@ -1171,7 +1227,7 @@ def test_dxf_grid_does_not_label_the_corner_twice(tmp_path):
     bottom-left corner, at identical coordinates."""
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    dp.export_dxf(RING, PROPS, str(out), neighbors=[])
+    export_dxf(RING, PROPS, str(out), neighbors=[])
     msp = ezdxf.readfile(str(out)).modelspace()
     points = [(round(e.dxf.insert[0], 4), round(e.dxf.insert[1], 4)) for e in msp.query("TEXT[layer=='0_GRID_AXIS']")]
     assert len(points) == len(set(points)), "two grid labels share an insertion point"
@@ -1182,7 +1238,7 @@ def test_dxf_layers_carry_lineweights_so_the_sheet_plots_with_hierarchy(tmp_path
     the same weight as the plot boundary."""
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    dp.export_dxf(RING, PROPS, str(out), neighbors=[])
+    export_dxf(RING, PROPS, str(out), neighbors=[])
     doc = ezdxf.readfile(str(out))
     weights = {lay.dxf.name: lay.dxf.lineweight for lay in doc.layers if lay.dxf.name not in ("0", "Defpoints")}
     assert weights and all(w > 0 for w in weights.values()), (
@@ -1196,7 +1252,7 @@ def test_dxf_plot_fill_is_transparent_so_an_underlay_shows_through(tmp_path):
     what an architect puts under this drawing."""
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    dp.export_dxf(RING, PROPS, str(out), neighbors=[])
+    export_dxf(RING, PROPS, str(out), neighbors=[])
     hatches = list(ezdxf.readfile(str(out)).modelspace().query("HATCH"))
     assert hatches, "the plot fill is missing"
     for hatch in hatches:
@@ -1211,7 +1267,7 @@ def test_dxf_annotation_is_readable_on_a_very_small_plot(tmp_path):
     ring = [
         [[72.8200, 18.9700], [72.820076, 18.9700], [72.820076, 18.970144], [72.8200, 18.970144], [72.8200, 18.9700]]
     ]
-    dp.export_dxf(ring, dict(PROPS, area_sqm=125.0), str(out), neighbors=[])
+    export_dxf(ring, dict(PROPS, area_sqm=125.0), str(out), neighbors=[])
 
     msp = ezdxf.readfile(str(out)).modelspace()
     panels = _title_block_rects(msp)[1:]
@@ -1231,7 +1287,7 @@ def test_metro_buffer_flag_is_shown_as_an_advisory_note(tmp_path):
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
     props = dict(PROPS, crz_buffer_flag="NO (Outside CRZ Buffer)", metro_buffer_flag="YES (Metro Buffer Zone)")
-    dp.export_dxf(RING, props, str(out), neighbors=[])
+    export_dxf(RING, props, str(out), neighbors=[])
 
     msp = ezdxf.readfile(str(out)).modelspace()
     assert not list(msp.query("CIRCLE[layer=='C-RESTRICT-ZONE']"))
@@ -1243,7 +1299,7 @@ def test_restriction_layer_carries_notes_in_addition_to_the_legend_swatch(tmp_pa
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
     props = dict(PROPS, crz_buffer_flag="YES (CRZ II)", metro_buffer_flag="YES (Metro Buffer Zone)")
-    dp.export_dxf(RING, props, str(out), neighbors=[])
+    export_dxf(RING, props, str(out), neighbors=[])
 
     msp = ezdxf.readfile(str(out)).modelspace()
     notes = {e.dxf.text for e in msp.query("TEXT[layer=='C-RESTRICT-ZONE']")}
@@ -1254,25 +1310,25 @@ def test_restriction_layer_carries_notes_in_addition_to_the_legend_swatch(tmp_pa
 def test_clip_keeps_a_segment_that_crosses_with_no_vertex_inside():
     """MCGM road centrelines can have vertices a kilometre apart. Testing
     vertices alone dropped roads running straight past the plot."""
-    runs = dp.clip_path_to_window([(-1000.0, 5.0), (1000.0, 5.0)], -50, -50, 50, 50)
+    runs = clip_path_to_window([(-1000.0, 5.0), (1000.0, 5.0)], -50, -50, 50, 50)
     assert len(runs) == 1
     (x0, _), (x1, _) = runs[0][0], runs[0][-1]
     assert x0 == pytest.approx(-50.0) and x1 == pytest.approx(50.0)
 
 
 def test_clip_drops_a_path_that_misses_the_window():
-    assert dp.clip_path_to_window([(-1000.0, 500.0), (1000.0, 500.0)], -50, -50, 50, 50) == []
+    assert clip_path_to_window([(-1000.0, 500.0), (1000.0, 500.0)], -50, -50, 50, 50) == []
 
 
 def test_clip_splits_a_path_that_leaves_and_reenters():
     path = [(-100.0, 0.0), (0.0, 0.0), (0.0, 500.0), (10.0, 500.0), (10.0, 0.0), (100.0, 0.0)]
-    runs = dp.clip_path_to_window(path, -50, -50, 50, 50)
+    runs = clip_path_to_window(path, -50, -50, 50, 50)
     assert len(runs) == 2, f"expected two runs, got {len(runs)}"
 
 
 def test_clip_keeps_a_wholly_contained_path_intact():
     path = [(-10.0, -10.0), (0.0, 0.0), (10.0, 10.0)]
-    runs = dp.clip_path_to_window(path, -50, -50, 50, 50)
+    runs = clip_path_to_window(path, -50, -50, 50, 50)
     assert len(runs) == 1
     assert len(runs[0]) == 3
 
@@ -1285,7 +1341,7 @@ def test_sparse_road_is_drawn_on_the_dxf(tmp_path):
     props = dict(PROPS, abutting_road="Jay Prakash Road", road_width="27.4 M.")
     sparse = [[[72.800, 18.96995], [72.850, 18.96995]]]
     out = tmp_path / "x.dxf"
-    dp.export_dxf(RING, props, str(out), neighbors=[], roads=sparse)
+    export_dxf(RING, props, str(out), neighbors=[], roads=sparse)
 
     msp = ezdxf.readfile(str(out)).modelspace()
     assert list(msp.query("LWPOLYLINE[layer=='C-ROAD-ALIGN']")), "road passes the plot but was not drawn"
@@ -1299,7 +1355,7 @@ def test_a_long_road_does_not_drag_the_sheet_border_out(tmp_path):
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
     huge = [[[72.0, 18.96995], [73.5, 18.96995]]]
-    dp.export_dxf(RING, PROPS, str(out), neighbors=[], roads=huge)
+    export_dxf(RING, PROPS, str(out), neighbors=[], roads=huge)
     coords = [
         c
         for e in ezdxf.readfile(str(out)).modelspace().query("LWPOLYLINE")
@@ -1320,14 +1376,14 @@ def test_text_extents_honours_alignment():
 
     centred = msp.add_text("CTS 1862", dxfattribs={"height": 2.0})
     centred.set_placement((0.0, 0.0), align=TextEntityAlignment.MIDDLE_CENTER)
-    x0, y0, x1, y1 = dp.text_extents(centred)
+    x0, y0, x1, y1 = text_extents(centred)
     assert x0 < 0 < x1, "centred text must straddle its anchor horizontally"
     assert y0 < 0 < y1, "middle-aligned text must straddle its anchor vertically"
     assert x1 == pytest.approx(-x0, rel=1e-6)
 
     left = msp.add_text("CTS 1862", dxfattribs={"height": 2.0})
     left.set_placement((0.0, 0.0))
-    lb = dp.text_extents(left)
+    lb = text_extents(left)
     assert lb[0] == pytest.approx(0.0) and lb[1] == pytest.approx(0.0)
 
 
@@ -1338,19 +1394,19 @@ def test_text_extents_composes_alignment_with_rotation():
     msp = ezdxf.new("R2010").modelspace()
     e = msp.add_text("CTS 1862", dxfattribs={"height": 2.0, "rotation": 90.0})
     e.set_placement((0.0, 0.0), align=TextEntityAlignment.MIDDLE_CENTER)
-    x0, y0, x1, y1 = dp.text_extents(e)
+    x0, y0, x1, y1 = text_extents(e)
     assert x0 < 0 < x1 and y0 < 0 < y1
     assert (y1 - y0) > (x1 - x0)
 
 
 def test_fit_label_to_width_budgets_against_the_plot():
-    wide = dp.fit_label_to_width("ABUTTING ROAD: {}", "Bazar Road (9.15 M.)", max_width=200.0, char_h=1.0)
+    wide = fit_label_to_width("ABUTTING ROAD: {}", "Bazar Road (9.15 M.)", max_width=200.0, char_h=1.0)
     assert wide == "ABUTTING ROAD: Bazar Road (9.15 M.)", "no truncation when it fits"
 
-    tight = dp.fit_label_to_width("ABUTTING ROAD: {}", "Bazar Road (9.15 M.)", max_width=20.0, char_h=1.0)
+    tight = fit_label_to_width("ABUTTING ROAD: {}", "Bazar Road (9.15 M.)", max_width=20.0, char_h=1.0)
     assert tight.endswith("...") and len(tight) < len(wide)
 
-    squeezed = dp.fit_label_to_width("ABUTTING ROAD: {}", "Jay Prakash Road Part II", max_width=0.5, char_h=1.0)
+    squeezed = fit_label_to_width("ABUTTING ROAD: {}", "Jay Prakash Road Part II", max_width=0.5, char_h=1.0)
     assert "Jay Pras"[:4] in squeezed or len(squeezed) > len("ABUTTING ROAD: ")
 
 
@@ -1370,7 +1426,7 @@ def test_dimension_labels_prefer_the_longest_edges(tmp_path):
             [72.8200, 18.9700],
         ]
     ]
-    dp.export_dxf(ring, PROPS, str(out), neighbors=[])
+    export_dxf(ring, PROPS, str(out), neighbors=[])
     msp = ezdxf.readfile(str(out)).modelspace()
     labels = [e.dxf.text for e in msp.query("TEXT[layer=='C-ANNO-DIMS']")]
     lengths = sorted((float(t[:-1]) for t in labels), reverse=True)
@@ -1395,13 +1451,13 @@ def test_slivers_never_leave_overlapping_dimensions(tmp_path):
             [72.8200, 18.9700],
         ]
     ]
-    dp.export_dxf(ring, PROPS, str(out), neighbors=[])
+    export_dxf(ring, PROPS, str(out), neighbors=[])
     msp = ezdxf.readfile(str(out)).modelspace()
-    boxes = [dp.text_extents(e) for e in msp.query("TEXT[layer=='C-ANNO-DIMS']")]
+    boxes = [text_extents(e) for e in msp.query("TEXT[layer=='C-ANNO-DIMS']")]
     boxes = [b for b in boxes if b]
     for i, a in enumerate(boxes):
         for b in boxes[i + 1 :]:
-            assert not dp.boxes_overlap(a, b), "two dimension labels still overlap"
+            assert not boxes_overlap(a, b), "two dimension labels still overlap"
 
 
 def test_centre_label_is_clear_of_boundary_dimensions(tmp_path):
@@ -1410,13 +1466,13 @@ def test_centre_label_is_clear_of_boundary_dimensions(tmp_path):
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
     ring = [[[72.8200, 18.9700], [72.8215, 18.9700], [72.8215, 18.970055], [72.8200, 18.970055], [72.8200, 18.9700]]]
-    dp.export_dxf(ring, dict(PROPS, cts_no="1862"), str(out), neighbors=[])
+    export_dxf(ring, dict(PROPS, cts_no="1862"), str(out), neighbors=[])
     msp = ezdxf.readfile(str(out)).modelspace()
-    centre = [dp.text_extents(e) for e in msp.query("TEXT[layer=='C-ANNO-TEXT']")]
-    dims = [dp.text_extents(e) for e in msp.query("TEXT[layer=='C-ANNO-DIMS']")]
+    centre = [text_extents(e) for e in msp.query("TEXT[layer=='C-ANNO-TEXT']")]
+    dims = [text_extents(e) for e in msp.query("TEXT[layer=='C-ANNO-DIMS']")]
     assert centre and centre[0]
     for d in dims:
-        assert not dp.boxes_overlap(centre[0], d), "a dimension sits on the CTS label"
+        assert not boxes_overlap(centre[0], d), "a dimension sits on the CTS label"
 
 
 def test_setback_marker_and_road_label_do_not_collide(tmp_path):
@@ -1428,18 +1484,18 @@ def test_setback_marker_and_road_label_do_not_collide(tmp_path):
     ]
     props = dict(PROPS, abutting_road="Bazar Road", road_width="9.15 M.")
     roads = [[[72.8195, 18.96995], [72.8206, 18.96995]]]
-    dp.export_dxf(ring, props, str(out), neighbors=[], roads=roads)
+    export_dxf(ring, props, str(out), neighbors=[], roads=roads)
 
     msp = ezdxf.readfile(str(out)).modelspace()
     below = []
     for layer in ("C-SETBACK-3M", "C-SETBACK-6M", "C-ROAD-ALIGN"):
         for e in msp.query(f"TEXT[layer=='{layer}']"):
-            b = dp.text_extents(e)
+            b = text_extents(e)
             if b and b[1] < 0:
                 below.append((e.dxf.text, b))
     for i, (t1, b1) in enumerate(below):
         for t2, b2 in below[i + 1 :]:
-            assert not dp.boxes_overlap(b1, b2), f"{t1!r} overlaps {t2!r}"
+            assert not boxes_overlap(b1, b2), f"{t1!r} overlaps {t2!r}"
 
 
 def test_nearest_road_geoms_ranks_by_proximity_not_arrival_order():
@@ -1452,7 +1508,7 @@ def test_nearest_road_geoms_ranks_by_proximity_not_arrival_order():
     frontage = [[72.8205, 18.96999], [72.8206, 18.96999]]
     geoms = [far] * 20 + [frontage]
 
-    picked = dp.nearest_road_geoms(geoms, ring, limit=6)
+    picked = nearest_road_geoms(geoms, ring, limit=6)
     assert len(picked) == 6
     assert frontage in picked, "the nearest road must survive the cut"
     assert picked[0] is frontage, "the nearest road must rank first"
@@ -1460,8 +1516,8 @@ def test_nearest_road_geoms_ranks_by_proximity_not_arrival_order():
 
 def test_nearest_road_geoms_survives_missing_geometry():
     ring = [[[72.8200, 18.9700], [72.8210, 18.9700], [72.8200, 18.9700]]]
-    assert dp.nearest_road_geoms([], ring) == []
-    assert dp.nearest_road_geoms([[[72.82, 18.97]]], []) == [[[72.82, 18.97]]]
+    assert nearest_road_geoms([], ring) == []
+    assert nearest_road_geoms([[[72.82, 18.97]]], []) == [[[72.82, 18.97]]]
 
 
 def test_derive_status_partial_encumbrance():
@@ -1472,7 +1528,7 @@ def test_derive_status_partial_encumbrance():
     designations = [
         {"code": "EOS1.4", "type": "EOS", "description": "Play Ground", "overlap_sqm": 2825.32},
     ]
-    status = dp.derive_status(
+    status = derive_status(
         reservations=reservations,
         designations=designations,
         encumbered_percent=22.82,
@@ -1491,7 +1547,7 @@ def test_derive_status_full_encumbrance():
     reservations = [
         {"code": "ROS1.5", "type": "ROS", "description": "Garden/ Park", "overlap_sqm": 5000.0},
     ]
-    status = dp.derive_status(
+    status = derive_status(
         reservations=reservations,
         designations=[],
         encumbered_percent=95.0,
@@ -1525,7 +1581,7 @@ def test_dxf_exports_reservations_layer(tmp_path):
         }
     ]
     designations = [{"code": "EOS1.4", "overlap_sqm": 1200.0, "wgs_rings": des_rings}]
-    dp.export_dxf(ring, props, str(out), reservations=reservations, designations=designations)
+    export_dxf(ring, props, str(out), reservations=reservations, designations=designations)
 
     doc = ezdxf.readfile(str(out))
     msp = doc.modelspace()
@@ -1561,7 +1617,7 @@ def test_geojson_contains_reservation_subfeatures(tmp_path):
         }
     ]
     props = dict(PROPS, reservations=reservations, encumbered_percent=25.0)
-    dp.export_geojson(ring, props, str(out))
+    export_geojson(ring, props, str(out))
 
     data = json.loads(out.read_text())
     assert len(data["features"]) == 2
@@ -1572,13 +1628,13 @@ def test_geojson_contains_reservation_subfeatures(tmp_path):
 
 def test_pdf_build_with_multi_reservations(tmp_path):
     out = tmp_path / "docket.pdf"
-    img = dp.Image.new("RGB", (100, 100), (255, 255, 255))
+    img = Image.new("RGB", (100, 100), (255, 255, 255))
     dp_img_path = str(tmp_path / "dp.png")
     sat_img_path = str(tmp_path / "sat.png")
     img.save(dp_img_path)
     img.save(sat_img_path)
 
-    qr_bytes = dp.io.BytesIO()
+    qr_bytes = io.BytesIO()
     img.save(qr_bytes, format="PNG")
     qr_bytes.seek(0)
 
@@ -1615,7 +1671,7 @@ def test_pdf_build_with_multi_reservations(tmp_path):
         },
     ]
 
-    dp.write_pdf_report(
+    write_pdf_report(
         plot_report(
             output_path=str(out),
             status_badge="PARTIALLY RESERVED / DESIGNATED",
@@ -1672,7 +1728,7 @@ def test_export_html_map_generates_valid_dossier(tmp_path):
         "net_unencumbered_percent": 100.0,
     }
     out = tmp_path / "test_map.html"
-    dp.export_html_map(wgs_rings, props, str(out))
+    export_html_map(wgs_rings, props, str(out))
 
     assert out.exists()
     html_text = out.read_text(encoding="utf-8")
@@ -1720,7 +1776,7 @@ def test_export_html_map_with_reservations_and_neighbors(tmp_path):
     roads = [[[72.95, 19.169], [72.96, 19.169]]]
 
     out = tmp_path / "mulund_map.html"
-    dp.export_html_map(wgs_rings, props, str(out), neighbors=neighbors, roads=roads, reservations=reservations)
+    export_html_map(wgs_rings, props, str(out), neighbors=neighbors, roads=roads, reservations=reservations)
 
     assert out.exists()
     html_text = out.read_text(encoding="utf-8")
