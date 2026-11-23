@@ -2,144 +2,33 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import fields, replace
-from typing import Any
 
 from dp_lookup.application.contracts import ParcelContext
+from dp_lookup.authority.models import AuthorityRecord, SelectionPurpose
 from dp_lookup.authority.selection import (
+    AuthorityRegistry,
     AuthorityResolution,
-    normalize_purpose,
     recommend_authority_sources,
     source_type_label,
 )
 from dp_lookup.core.area_assessment import AREA_DIFFERENCE_THRESHOLDS, calculated_boundary_area_sqm
-from dp_lookup.core.geometry import prepare_geometry, wgs84_to_mercator
+from dp_lookup.core.geometry import prepare_geometry
 from dp_lookup.core.models import AreaAssessment, AreaQualityFlag, ReliabilityStatus
 
 
-def _value(record: Any, *names: str, default: Any = None) -> Any:
-    if isinstance(record, Mapping):
-        for name in names:
-            if name in record:
-                return record[name]
-    for name in names:
-        if hasattr(record, name):
-            return getattr(record, name)
-    return default
+def _rings(record: AuthorityRecord) -> list[list[list[float]]]:
+    return [[[x, y] for x, y in ring] for ring in record.normalized_epsg3857_rings]
 
 
-def _active_records(store: Any, village: str, cts_no: str, purpose: str) -> tuple[Any, ...]:
-    """Read only the store's explicit active selection boundary.
-
-    A store implementation may expose either ``active`` or
-    ``active_selection``. We intentionally never fall back to ``list`` here:
-    recommendations must not silently become operational inputs.
-    """
-    method = getattr(store, "active", None) or getattr(store, "active_selection", None)
-    if not callable(method):
-        return ()
-    store_purpose = {
-        "area_reconciliation": "area",
-        "geometry_reconciliation": "geometry",
-        "planning": "planning",
-    }.get(purpose, purpose)
-    attempts = (
-        {"village": village, "cts_no": cts_no, "purpose": purpose},
-        {"village": village, "cts_no": cts_no, "purpose": store_purpose},
-        {"village": village, "cts_no": cts_no, "selection_purpose": purpose},
-        {"village": village, "cts_no": cts_no, "selection_purpose": store_purpose},
-        {"village": village, "cts_no": cts_no},
-    )
-    result: Any = None
-    for kwargs in attempts:
-        try:
-            result = method(**kwargs)
-            break
-        except TypeError:
-            continue
-    if result is None:
-        return ()
-    if isinstance(result, Mapping) and not any(key in result for key in ("source_type", "status", "record_id", "id")):
-        selected = result.get(store_purpose)
-        return (selected,) if selected is not None else ()
-    if isinstance(result, (Mapping, str, bytes)):
-        return (result,)
-    try:
-        return tuple(result)
-    except TypeError:
-        return (result,)
+def _area(record: AuthorityRecord) -> float | None:
+    value = record.recorded_area_sqm if record.recorded_area_sqm is not None else record.calculated_area_sqm
+    return value if value is not None and value > 0 else None
 
 
-def _rings(record: Any) -> list[list[list[float]]] | None:
-    value = _value(
-        record,
-        "normalized_epsg3857_rings",
-        "geometry",
-        "rings",
-        "geometry_rings",
-        "boundary",
-    )
-    if isinstance(value, Mapping):
-        value = value.get("rings", value.get("coordinates"))
-    if not isinstance(value, (list, tuple)):
-        return None
-    try:
-        return [
-            [[float(point[0]), float(point[1])] for point in ring] for ring in value if isinstance(ring, (list, tuple))
-        ]
-    except (IndexError, TypeError, ValueError):
-        return None
-
-
-def _crs(record: Any) -> int:
-    if _value(record, "normalized_epsg3857_rings") is not None:
-        return 102100
-    value = _value(record, "geometry_crs", "crs", "wkid", "spatial_reference", "original_crs", default=102100)
-    if isinstance(value, Mapping):
-        value = value.get("wkid", value.get("latestWkid", 102100))
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 102100
-
-
-def _to_mercator(rings: list[list[list[float]]], crs: int) -> list[list[list[float]]]:
-    if crs not in {4326, 4269}:
-        return rings
-    return [[list(wgs84_to_mercator(float(point[0]), float(point[1]))) for point in ring] for ring in rings]
-
-
-def _area(record: Any) -> float | None:
-    value = _value(record, "area_sqm", "recorded_area_sqm", "calculated_area_sqm", "area", "plot_area_sqm")
-    try:
-        value = float(value)
-    except (TypeError, ValueError):
-        return None
-    return value if value > 0 else None
-
-
-def _label(record: Any) -> str:
-    value = _value(record, "source_label", "display_name", "document_type")
-    if value:
-        return str(value)
-    source_type = _value(record, "source_type", default="Active authority source")
-    return source_type_label(source_type)
-
-
-def _record_dict(record: Any) -> dict[str, Any]:
-    if isinstance(record, Mapping):
-        return dict(record)
-    to_dict = getattr(record, "to_dict", None)
-    if callable(to_dict):
-        value = to_dict()
-        if isinstance(value, Mapping):
-            return dict(value)
-    try:
-        return dict(vars(record))
-    except TypeError:
-        return {"value": str(record)}
+def _label(record: AuthorityRecord) -> str:
+    return source_type_label(record.source_type)
 
 
 def _working_assessment(
@@ -147,8 +36,8 @@ def _working_assessment(
     calculated: float | None,
     selected: float | None,
     *,
-    area_source: Any | None,
-    geometry_source: Any | None,
+    area_source: AuthorityRecord | None,
+    geometry_source: AuthorityRecord | None,
     area_applied: bool,
     geometry_applied: bool,
 ) -> AreaAssessment | None:
@@ -210,7 +99,7 @@ def _apply(
     if geometry_source is not None:
         replacement = _rings(geometry_source)
         if replacement:
-            working_rings = _to_mercator(replacement, _crs(geometry_source))
+            working_rings = replacement
             geometry_applied = True
     working = parcel
     if geometry_applied:
@@ -313,7 +202,7 @@ def _apply(
         attrs["_DP_AREA_ASSESSMENT"] = working_assessment.to_dict()
     attrs["_DP_AUTHORITY_RESOLUTION"] = resolution_payload
     attrs["_DP_AUTHORITY_ACTIVE"] = any_active
-    if area_record is not None:
+    if area_source is not None:
         attrs["_DP_AUTHORITY_AREA_SOURCE"] = _label(area_source)
     if geometry_source is not None:
         attrs["_DP_AUTHORITY_GEOMETRY_SOURCE"] = _label(geometry_source)
@@ -323,68 +212,27 @@ def _apply(
     return replace(working, attrs=attrs)
 
 
-def apply_authority_selection(
-    parcel: ParcelContext,
-    *,
-    area_resolution: AuthorityResolution | None = None,
-    geometry_resolution: AuthorityResolution | None = None,
-    planning_resolution: AuthorityResolution | None = None,
-) -> ParcelContext:
-    """Apply only active selections; recommendations are deliberately ignored."""
-
-    def empty(purpose: str) -> AuthorityResolution:
-        return AuthorityResolution(purpose, "authority-policy/1.0", None)
-
-    return _apply(
-        parcel,
-        area_resolution or empty("area_reconciliation"),
-        geometry_resolution or empty("geometry_reconciliation"),
-        planning_resolution or empty("planning"),
-    )
-
-
 class AuthorityResolver:
     """Resolve recommendations and apply only records explicitly active in a store."""
 
-    def __init__(self, store: Any) -> None:
+    def __init__(self, store: AuthorityRegistry) -> None:
         self.store = store
 
-    def recommend(self, parcel: ParcelContext, purpose: Any) -> AuthorityResolution:
-        purpose_value = normalize_purpose(purpose)
-        list_method = getattr(self.store, "list", None) or getattr(self.store, "records", None)
-        records: Iterable[Any] = ()
-        if callable(list_method):
-            try:
-                records = list_method(village=parcel.village, cts_no=parcel.cts_no, purpose=purpose_value)
-            except TypeError:
-                try:
-                    records = list_method(village=parcel.village, cts_no=parcel.cts_no)
-                except TypeError:
-                    records = list_method()
-        return recommend_authority_sources(
-            records,
-            purpose_value,
-            village=parcel.village,
-            cts_no=parcel.cts_no,
-        )
-
     def resolve(self, parcel: ParcelContext) -> ParcelContext:
-        resolutions = []
-        for purpose in ("area_reconciliation", "geometry_reconciliation", "planning"):
-            active = _active_records(self.store, parcel.village, parcel.cts_no, purpose)
-            resolutions.append(
-                recommend_authority_sources(
-                    active,
-                    purpose,
-                    village=parcel.village,
-                    cts_no=parcel.cts_no,
-                    active=True,
-                )
+        area, geometry, planning = (
+            recommend_authority_sources(
+                self.store.active(parcel.village, parcel.cts_no, purpose=purpose),
+                purpose,
+                village=parcel.village,
+                cts_no=parcel.cts_no,
+                active=True,
             )
-        return _apply(parcel, resolutions[0], resolutions[1], resolutions[2])
+            for purpose in (SelectionPurpose.AREA, SelectionPurpose.GEOMETRY, SelectionPurpose.PLANNING)
+        )
+        return _apply(parcel, area, geometry, planning)
 
     def __call__(self, parcel: ParcelContext) -> ParcelContext:
         return self.resolve(parcel)
 
 
-__all__ = ["AuthorityResolver", "apply_authority_selection"]
+__all__ = ["AuthorityResolver"]

@@ -545,8 +545,6 @@ class PlanningSnapshotStore(SQLiteStore):
     def query_layer(self, snapshot_id: int, layer_id: int, parcel_geometry: Any) -> list[dict[str, Any]]:
         return self._queries().query_layer(snapshot_id, layer_id, parcel_geometry)
 
-    records_intersecting = query_layer
-
     def pin_active_snapshot(self) -> PlanningSnapshot | None:
         active = self.active_snapshot_id()
         return self.snapshot(active) if active is not None else None

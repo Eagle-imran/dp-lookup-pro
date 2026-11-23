@@ -47,6 +47,33 @@ All notable changes to this project. Newest first.
   `dp_modification` objects in the lookup JSON report only the first item.
   Read the plural `reservations`, `designations` and `dp_modifications` lists;
   the singular objects will be removed in the next minor release.
+* **Breaking — one authority store contract:** the resolver and the
+  `sources recommend` command read records through `AuthorityStore.list` and
+  `AuthorityStore.active(village, cts_no, purpose=...)`, with purpose
+  `area`, `geometry` or `planning` (`SelectionPurpose`). The
+  `selection_purpose` keyword and the `area_reconciliation` /
+  `geometry_reconciliation` spellings are gone. Use
+  `AuthorityStore.active_by_purpose(...)` for the per-purpose mapping that
+  `active(...)` returned without a purpose. The authority CLI calls the store
+  directly instead of retrying a failed call with fewer arguments.
+* **Authority selection works on `AuthorityRecord`:** ranks are keyed by
+  `SourceType`, the document checksum is always the record's `source_sha256`,
+  and records are no longer hashed as a fallback. The record's `geometry`,
+  `geometry_crs`, `area_sqm`, `checksum`, `effective_date` and
+  `verification_date` properties were removed. Read
+  `normalized_epsg3857_rings`, `recorded_area_sqm`/`calculated_area_sqm`,
+  `source_sha256`, `issue_date`/`survey_date` and `reviewed_at`.
+  `normalize_purpose`, `normalize_source_type`, `apply_authority_selection`
+  and `AuthorityResolver.recommend` (all unused) were removed.
+* **Authority output:** the `source_type` in authority source references is
+  now the stored value (`cts_final_plot_plan` and `total_station_survey`
+  instead of `cts_final_plot` and `total_station`). City Survey sources are
+  labelled "City Survey measurement record" instead of "City Survey
+  Measurement".
+* **Planning snapshot stores** must provide `pin_active_snapshot` and
+  `query_layer`. The `active_snapshot` and `records_intersecting` fallbacks
+  were removed, along with the `PlanningSnapshotStore.records_intersecting`
+  alias.
 
 ### Audit fixes — 2026-11-10
 

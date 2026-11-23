@@ -8,11 +8,12 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 from shapely.errors import GEOSException
 from shapely.geometry.base import BaseGeometry
 
+from dp_lookup.clients.local_planning import PlanningSnapshotStore
 from dp_lookup.clients.responses import usable_json
 from dp_lookup.core import timestamps
 from dp_lookup.core.constants import SERVER_URL, SLIVER_AREA_THRESHOLD_SQM, SLIVER_PERCENT_THRESHOLD
@@ -322,6 +323,12 @@ def _snapshot_value(snapshot: Any, name: str, default: Any = None) -> Any:
     return getattr(snapshot, name, default)
 
 
+class PlanningEvidenceStore(PlanningSnapshotStore, Protocol):
+    """A planning snapshot store that can also pin a snapshot by ID."""
+
+    def snapshot(self, snapshot_id: int) -> Any | None: ...
+
+
 class LocalFirstPlanningEvidenceAnalyzer:
     """Run STANDARD/FULL evidence against one pinned local snapshot first.
 
@@ -333,7 +340,7 @@ class LocalFirstPlanningEvidenceAnalyzer:
 
     def __init__(
         self,
-        store: Any | None,
+        store: PlanningEvidenceStore | None,
         *,
         live_analyzer: Any = collect_planning_evidence,
         mode: str = "auto",
@@ -355,24 +362,22 @@ class LocalFirstPlanningEvidenceAnalyzer:
         self.allow_stale_local = allow_stale_local
         self.snapshot_id = snapshot_id
 
-    def _pin(self) -> Any:
+    def _store(self) -> PlanningEvidenceStore:
         if self.store is None:
             raise LocalPlanningEvidenceError("no local planning snapshot store is configured")
+        return self.store
+
+    def _pin(self) -> Any:
+        store = self._store()
         if self.snapshot_id is not None:
-            snapshot_reader = getattr(self.store, "snapshot", None)
-            if not callable(snapshot_reader):
-                raise LocalPlanningEvidenceError("planning snapshot store cannot select a snapshot by ID")
             try:
-                return snapshot_reader(self.snapshot_id)
+                return store.snapshot(self.snapshot_id)
             except Exception as exc:
                 raise LocalPlanningEvidenceError(
                     f"planning snapshot {self.snapshot_id} could not be pinned: {exc}"
                 ) from exc
-        pin = getattr(self.store, "pin_active_snapshot", None)
-        if pin is None:
-            pin = getattr(self.store, "active_snapshot", None)
         try:
-            snapshot = pin() if callable(pin) else None
+            snapshot = store.pin_active_snapshot()
         except Exception as exc:
             raise LocalPlanningEvidenceError(f"active planning snapshot could not be pinned: {exc}") from exc
         if snapshot is None:
@@ -404,11 +409,7 @@ class LocalFirstPlanningEvidenceAnalyzer:
         parcel = arcgis_rings_to_geometry(rings)
         if parcel.is_empty or parcel.area <= 0:
             raise ValueError("Parcel geometry has no valid polygon rings")
-        query = getattr(self.store, "query_layer", None)
-        if query is None:
-            query = getattr(self.store, "records_intersecting", None)
-        if not callable(query):
-            raise LocalPlanningEvidenceError("planning snapshot store has no spatial layer query method")
+        query = self._store().query_layer
 
         def query_specs(specs: Sequence[LayerSpec]) -> list[LayerQueryOutcome]:
             result: list[LayerQueryOutcome] = []

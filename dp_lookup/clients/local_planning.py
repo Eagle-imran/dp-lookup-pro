@@ -29,7 +29,7 @@ from dp_lookup.core.constants import (
 )
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
-SnapshotId = int | str
+SnapshotId = int
 PLANNING_LAYER_IDS = (
     LAYER_ZONE,
     LAYER_RESERVATION,
@@ -120,14 +120,14 @@ class LocalFirstPlanningQuery:
         self.max_snapshot_age_days = max_snapshot_age_days
         self.allow_stale_local = allow_stale_local
 
-    def _pin(self) -> Any:
+    def _store(self) -> PlanningSnapshotStore:
         if self.store is None:
             raise LocalPlanningError("no local planning snapshot store is configured")
+        return self.store
+
+    def _pin(self) -> Any:
         try:
-            pin = getattr(self.store, "pin_active_snapshot", None)
-            if pin is None:
-                pin = getattr(self.store, "active_snapshot", None)
-            snapshot = pin() if callable(pin) else None
+            snapshot = self._store().pin_active_snapshot()
         except Exception as exc:
             raise LocalPlanningError(f"active planning snapshot could not be pinned: {exc}") from exc
         if snapshot is None:
@@ -162,12 +162,7 @@ class LocalFirstPlanningQuery:
         by_layer: dict[int, list[dict[str, Any]]] = {}
         try:
             for layer_id in PLANNING_LAYER_IDS:
-                query = getattr(self.store, "query_layer", None)
-                if query is None:
-                    query = getattr(self.store, "records_intersecting", None)
-                if not callable(query):
-                    raise LocalPlanningError("planning snapshot store has no spatial layer query method")
-                records = query(snapshot_id, layer_id, parcel)
+                records = self._store().query_layer(snapshot_id, layer_id, parcel)
                 if records is None:
                     raise LocalPlanningError(
                         f"planning snapshot {snapshot_id} returned no collection for layer {layer_id}"
