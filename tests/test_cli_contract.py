@@ -1,6 +1,7 @@
 """Focused, network-free tests for the public command-line contract."""
 
 import dp_lookup.cli as cli
+from dp_lookup.cli_parser import normalize_admin_args
 from dp_lookup.planning_evidence import EvidenceMode
 
 
@@ -194,13 +195,13 @@ def test_database_command_routes_before_lookup_grammar(capsys, tmp_path):
 def test_streamlined_admin_aliases_preserve_legacy_grammars(monkeypatch):
     monkeypatch.setenv("DP_LOOKUP_DATABASE", "/tmp/configured.sqlite")
 
-    assert cli._normalize_admin_args(["db", "parcels", "status"]) == [
+    assert normalize_admin_args(["db", "parcels", "status"]) == [
         "database",
         "status",
         "--database",
         "/tmp/configured.sqlite",
     ]
-    assert cli._normalize_admin_args(["db", "refresh", "planning", "--json"]) == [
+    assert normalize_admin_args(["db", "refresh", "planning", "--json"]) == [
         "database",
         "build-planning",
         "--json",
@@ -208,7 +209,7 @@ def test_streamlined_admin_aliases_preserve_legacy_grammars(monkeypatch):
         "/tmp/configured.sqlite",
     ]
     legacy = ["database", "build-planning", "--database", "old.sqlite"]
-    assert cli._normalize_admin_args(legacy) == legacy
+    assert normalize_admin_args(legacy) == legacy
 
 
 def test_database_specific_help_is_successful(capsys):

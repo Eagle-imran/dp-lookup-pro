@@ -1,14 +1,12 @@
-"""Stable command-line entry point for DP Lookup Pro.
+"""Command-line entry point for DP Lookup Pro.
 
-This module intentionally remains a compatibility facade.  Parsing,
-dependency composition, command execution, and terminal presentation live in
-focused modules so embedded callers can reuse each boundary independently.
+Parsing, dependency composition, command execution and terminal presentation
+live in the ``cli_*`` modules; this one wires them together.
 """
 
 from __future__ import annotations
 
 import sys
-from collections.abc import Sequence
 from importlib import metadata as importlib_metadata
 from typing import Any
 
@@ -76,32 +74,6 @@ except importlib_metadata.PackageNotFoundError:
     VERSION = APPLICATION_VERSION
 
 
-def _print_villages() -> None:
-    """Compatibility wrapper for the village catalogue printer."""
-    print_villages(MCGM_VILLAGES)
-
-
-def _local_snapshot_selection(source_mode: str, database_path: str) -> tuple[str, int | None]:
-    """Compatibility wrapper used by cache-contract tests and callers."""
-    return local_snapshot_selection(source_mode, database_path)
-
-
-def _local_cache_namespace(source_mode: str, database_path: str) -> str:
-    """Return the cache namespace for a local database."""
-    return _local_snapshot_selection(source_mode, database_path)[0]
-
-
-def _default_database_path() -> str:
-    """Compatibility alias for the environment-configured DB path."""
-    from dp_lookup.cli_parser import default_database_path
-
-    return default_database_path()
-
-
-def _has_database_option(args: Sequence[str]) -> bool:
-    return any(token == "--database" or token.startswith("--database=") for token in args)
-
-
 def _compose_lookup_runtime(
     source_mode: str,
     database_path: str | None,
@@ -109,7 +81,6 @@ def _compose_lookup_runtime(
     *,
     snapshot_selector: Any,
 ) -> LookupRuntime:
-    """Compose through facade globals so legacy monkeypatches still work."""
     return compose_lookup_runtime(
         source_mode,
         database_path,
@@ -118,14 +89,6 @@ def _compose_lookup_runtime(
         base_dependencies=DEFAULT_DEPENDENCIES,
         parcel_fallback=fetch_parcel_feature,
     )
-
-
-def _normalize_admin_args(raw_args: list[str]) -> list[str]:
-    return normalize_admin_args(raw_args)
-
-
-def _parse_cli_args(raw_args: list[str]) -> dict[str, Any]:
-    return parse_cli_args(raw_args)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -141,13 +104,13 @@ def main(argv: list[str] | None = None) -> int:
         print(DATABASE_HELP)
         return EXIT_SUCCESS
 
-    raw_args = _normalize_admin_args(raw_args)
+    raw_args = normalize_admin_args(raw_args)
     dispatched = dispatch_admin_command(raw_args)
     if dispatched is not None:
         return dispatched
 
     try:
-        parsed = _parse_cli_args(raw_args)
+        parsed = parse_cli_args(raw_args)
     except ValueError as exc:
         print(f"  Error: {exc}")
         print(USAGE)
@@ -159,13 +122,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"dp-lookup-pro {VERSION}")
         return EXIT_SUCCESS
     if parsed["list_villages"]:
-        _print_villages()
+        print_villages(MCGM_VILLAGES)
         return EXIT_SUCCESS
     return execute_lookup(
         parsed,
         lookup=lookup_plot_pro,
         runtime_factory=_compose_lookup_runtime,
-        snapshot_selector=_local_snapshot_selection,
+        snapshot_selector=local_snapshot_selection,
         usage=USAGE,
     )
 

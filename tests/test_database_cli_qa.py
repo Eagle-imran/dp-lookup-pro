@@ -13,10 +13,11 @@ from pathlib import Path
 
 import pytest
 
-import dp_lookup.cli as cli
 from dp_lookup.application.contracts import ParcelContext
 from dp_lookup.application.local_spatial import LocalNeighbourProvider
 from dp_lookup.authority import AuthorityManifest, AuthorityStore, SelectionPurpose, SourceType
+from dp_lookup.cli_bootstrap import local_snapshot_selection
+from dp_lookup.cli_parser import parse_cli_args
 from dp_lookup.clients.local_parcels import LocalParcelError, LocalParcelFetcher, merge_local_features
 from dp_lookup.database_cli import EXIT_SUCCESS
 from dp_lookup.database_cli import main as database_main
@@ -51,24 +52,24 @@ def _ready_database(path: Path, records):
 
 def test_lookup_source_modes_are_explicit_and_round_trip_paths(tmp_path):
     database = str(tmp_path / "snapshot.sqlite")
-    parsed = cli._parse_cli_args(["WORLI", "733", "--source", "local", "--database", database])
+    parsed = parse_cli_args(["WORLI", "733", "--source", "local", "--database", database])
     assert parsed["source_mode"] == "local"
     assert parsed["database_path"] == database
 
-    parsed = cli._parse_cli_args(["WORLI", "733", "--source=auto", "--database=" + database])
+    parsed = parse_cli_args(["WORLI", "733", "--source=auto", "--database=" + database])
     assert parsed["source_mode"] == "auto"
     assert parsed["database_path"] == database
 
     with pytest.raises(ValueError, match="one of: live, local, auto"):
-        cli._parse_cli_args(["WORLI", "733", "--source", "remote"])
+        parse_cli_args(["WORLI", "733", "--source", "remote"])
     with pytest.raises(ValueError, match="--database PATH is required"):
-        cli._parse_cli_args(["WORLI", "733", "--source", "local"])
+        parse_cli_args(["WORLI", "733", "--source", "local"])
 
 
 def test_report_cache_namespace_changes_when_authority_registry_changes(tmp_path):
     database = tmp_path / "snapshot.sqlite"
     _ready_database(database, [_parcel(1, "733", 0)])
-    before = cli._local_cache_namespace("local", str(database))
+    before = local_snapshot_selection("local", str(database))[0]
     document = tmp_path / "property-card.pdf"
     document.write_bytes(b"property card")
     with AuthorityStore.open(database) as store:
@@ -85,7 +86,7 @@ def test_report_cache_namespace_changes_when_authority_registry_changes(tmp_path
         )
         store.verify(record.record_id, actor="reviewer")
         store.activate(record.record_id, SelectionPurpose.AREA, actor="reviewer", reason="accepted area")
-    after = cli._local_cache_namespace("local", str(database))
+    after = local_snapshot_selection("local", str(database))[0]
 
     assert before != after
     assert "authority_revision=" in after

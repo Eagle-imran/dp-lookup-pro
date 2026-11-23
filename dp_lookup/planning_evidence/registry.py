@@ -225,10 +225,6 @@ def applicable_layer_specs(
     return tuple(spec for spec in deduplicate_layer_specs(specs) if spec.is_applicable(active_context))
 
 
-get_applicable_specs = applicable_layer_specs
-deduplicated_specs = deduplicate_layer_specs
-
-
 def specs_for_mode(
     mode: EvidenceMode,
     *,

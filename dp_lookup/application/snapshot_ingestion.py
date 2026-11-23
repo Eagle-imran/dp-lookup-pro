@@ -352,13 +352,7 @@ async def ingest_layer13_snapshot(
     return SnapshotIngestionResult(tuple(received[oid] for oid in retained_ids), manifest, checkpoint_out)
 
 
-fetch_layer13_snapshot = ingest_layer13_snapshot
-Layer13SnapshotImporter = ingest_layer13_snapshot
-
-
 __all__ = [
-    "Layer13SnapshotImporter",
     "SnapshotIngestionConfig",
-    "fetch_layer13_snapshot",
     "ingest_layer13_snapshot",
 ]

@@ -157,7 +157,7 @@ def test_cli_is_a_small_compatibility_facade_over_focused_boundaries():
     for module in ("cli_parser.py", "cli_bootstrap.py", "cli_command.py", "cli_presentation.py"):
         assert (facade.parent / module).is_file()
     assert "def format_result_human(" not in source
-    assert "def _parse_cli_args(" in source
+    assert "def _parse_cli_args(" not in source
 
 
 def test_dxf_facade_delegates_policy_geometry_text_and_legend_subsystems():
