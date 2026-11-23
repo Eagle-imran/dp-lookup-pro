@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Iterable, Mapping, Optional, Protocol, Sequence, Tuple, cast
+from typing import Any, Protocol, cast
 
 from dp_lookup.application.database_health import database_health
 from dp_lookup.application.snapshot_ingestion import (
@@ -54,7 +55,7 @@ def _store_record(feature: SnapshotFeature) -> Mapping[str, Any]:
     }
 
 
-def _manifest_metadata(result: SnapshotIngestionResult) -> Dict[str, Any]:
+def _manifest_metadata(result: SnapshotIngestionResult) -> dict[str, Any]:
     """Keep full audit evidence while also exposing a compact status summary."""
     manifest = result.manifest.to_dict()
     return {
@@ -96,12 +97,12 @@ class LocalDatabaseServices:
         return asyncio.run(self._build(database))
 
     async def _build(self, database: Path) -> Mapping[str, Any]:
-        store: Optional[SnapshotStore] = None
-        snapshot_id: Optional[int] = None
+        store: SnapshotStore | None = None
+        snapshot_id: int | None = None
         resumed_records = 0
         streamed = False
 
-        async def accept_inventory(expected_ids: Tuple[int, ...], source_context: Mapping[str, Any]) -> Iterable[int]:
+        async def accept_inventory(expected_ids: tuple[int, ...], source_context: Mapping[str, Any]) -> Iterable[int]:
             nonlocal store, snapshot_id, resumed_records, streamed
             streamed = True
             if store is None:
@@ -134,11 +135,11 @@ class LocalDatabaseServices:
                 store.set_inventory(snapshot_id, expected_ids)
             else:
                 store.set_inventory(snapshot_id, expected_ids)
-            persisted: Tuple[int, ...] = store.object_ids(snapshot_id)
+            persisted: tuple[int, ...] = store.object_ids(snapshot_id)
             resumed_records = len(persisted)
             return persisted
 
-        async def accept_batch(features: Tuple[SnapshotFeature, ...]) -> None:
+        async def accept_batch(features: tuple[SnapshotFeature, ...]) -> None:
             if store is None or snapshot_id is None:
                 raise RuntimeError("snapshot inventory was not initialized")
             store.insert_batch(snapshot_id, (_store_record(feature) for feature in features))

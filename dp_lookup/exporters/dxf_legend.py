@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 
 from dp_lookup.core.constants import GENERIC_ROAD_NAMES, LAYER_PROPOSED_ROAD
 from dp_lookup.exporters.dxf_policy import DEFAULT_DXF_LAYOUT_POLICY, DXF_LEGEND_ROWS, DxfLayoutPolicy
 from dp_lookup.exporters.dxf_text import text_extents
 
 
-def dxf_title_block_lines(properties: Dict[str, Any], utm_cx: float, utm_cy: float) -> List[str]:
+def dxf_title_block_lines(properties: dict[str, Any], utm_cx: float, utm_cy: float) -> list[str]:
     return [
         "MCGM DEVELOPMENT PLAN 2034 - CAD BASE",
         f"PLOT: CTS {properties.get('cts_no')} ({properties.get('village')})",
@@ -45,7 +46,7 @@ def legend_data_row(
     label: str,
     value: Any,
     policy: DxfLayoutPolicy = DEFAULT_DXF_LAYOUT_POLICY,
-) -> List[str]:
+) -> list[str]:
     text = str(value)
     max_chars = policy.legend_value_max_chars
     label_width = policy.legend_label_width_chars
@@ -87,11 +88,11 @@ def dxf_road_label(properties: Mapping[str, Any]) -> tuple[str, str]:
 
 
 def legend_data_rows(
-    properties: Dict[str, Any],
-    setback_status: Dict[float, bool],
-    measured_area_sqm: Optional[float] = None,
+    properties: dict[str, Any],
+    setback_status: dict[float, bool],
+    measured_area_sqm: float | None = None,
     policy: DxfLayoutPolicy = DEFAULT_DXF_LAYOUT_POLICY,
-) -> List[str]:
+) -> list[str]:
     setback_3m = "drawn" if setback_status.get(3.0) else "NOT VIABLE - plot too narrow"
     setback_6m = "drawn" if setback_status.get(6.0) else "NOT VIABLE - plot too narrow"
     raw_assessment = properties.get("area_assessment")
@@ -170,8 +171,8 @@ def legend_data_rows(
 
 def draw_dxf_legend_column(
     msp: Any,
-    properties: Dict[str, Any],
-    setback_status: Dict[float, bool],
+    properties: dict[str, Any],
+    setback_status: dict[float, bool],
     utm_cx: float,
     utm_cy: float,
     legend_x: float,
@@ -181,7 +182,7 @@ def draw_dxf_legend_column(
     char_height: float,
     dimension_char_height: float,
     scale: float,
-    data_rows: Optional[List[str]] = None,
+    data_rows: list[str] | None = None,
     policy: DxfLayoutPolicy = DEFAULT_DXF_LAYOUT_POLICY,
     *,
     legend_rows: tuple[tuple[str, str], ...] = DXF_LEGEND_ROWS,

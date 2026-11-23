@@ -7,9 +7,10 @@ import os
 import sys
 import time
 import uuid
+from collections.abc import Awaitable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Dict, Iterator, TypeVar
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 
@@ -25,8 +26,8 @@ class RunDiagnostics:
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     _started: float = field(default_factory=time.perf_counter, init=False, repr=False)
     _last_mark: float = field(default_factory=time.perf_counter, init=False, repr=False)
-    stages_ms: Dict[str, float] = field(default_factory=dict)
-    spans_ms: Dict[str, float] = field(default_factory=dict)
+    stages_ms: dict[str, float] = field(default_factory=dict)
+    spans_ms: dict[str, float] = field(default_factory=dict)
 
     def mark(self, stage: str, **details: Any) -> None:
         now = time.perf_counter()
@@ -64,7 +65,7 @@ class RunDiagnostics:
         finally:
             self.record_span(name, started)
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
             "elapsed_ms": round((time.perf_counter() - self._started) * 1000, 1),

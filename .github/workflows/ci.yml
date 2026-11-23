@@ -27,7 +27,7 @@ jobs:
       - run: uv lock --check
       - run: uv sync --frozen --all-extras --dev
       - run: uv run ruff check .
-      - run: uv run python tools/check_format.py
+      - run: uv run ruff format --check .
       - run: uv run python tools/check_comments.py
       - run: uv run python -m compileall -q cts_dp_lookup_pro.py dp_lookup tests
 

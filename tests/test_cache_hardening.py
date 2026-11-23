@@ -38,7 +38,7 @@ def test_new_writes_include_metadata_and_old_analysis_entries_are_not_replayed(t
     output = str(tmp_path)
     cache.write_cache_entry(output, "NEW", _result(tmp_path, "new.pdf"))
 
-    with open(cache.cache_path_for(output), "r", encoding="utf-8") as handle:
+    with open(cache.cache_path_for(output), encoding="utf-8") as handle:
         payload = json.load(handle)
     assert payload[cache.CACHE_METADATA_KEY] == {
         "schema_version": cache.CACHE_SCHEMA_VERSION,
@@ -153,7 +153,7 @@ def test_concurrent_writers_keep_all_distinct_entries(tmp_path):
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(write, range(20)))
 
-    with open(cache.cache_path_for(output), "r", encoding="utf-8") as handle:
+    with open(cache.cache_path_for(output), encoding="utf-8") as handle:
         payload = json.load(handle)
     assert all(f"KEY-{index}" in payload for index in range(20))
 
@@ -169,7 +169,7 @@ def test_multiprocess_writers_keep_all_distinct_entries(tmp_path):
     with context.Pool(processes=4) as pool:
         pool.map(_child_cache_writer, jobs)
 
-    with open(cache.cache_path_for(output), "r", encoding="utf-8") as handle:
+    with open(cache.cache_path_for(output), encoding="utf-8") as handle:
         payload = json.load(handle)
     assert all(f"PROCESS-{index}" in payload for index in range(12))
 
@@ -182,7 +182,7 @@ def test_writes_prune_entries_that_can_never_be_served(tmp_path):
     cache.write_cache_entry(output, "EXPIRED", _result(tmp_path, "expired.pdf"))
     cache.write_cache_entry(output, "OLD_SCHEMA", _result(tmp_path, "old.pdf"))
     path = cache.cache_path_for(output)
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         payload = json.load(handle)
     payload["EXPIRED"]["cached_at"] -= cache.DEFAULT_CACHE_TTL_SECONDS + 60
     payload["OLD_SCHEMA"]["cache_schema_version"] = cache.CACHE_SCHEMA_VERSION - 1
@@ -194,7 +194,7 @@ def test_writes_prune_entries_that_can_never_be_served(tmp_path):
 
     cache.write_cache_entry(output, "NEW", _result(tmp_path, "new.pdf"))
 
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         remaining = json.load(handle)
     assert set(remaining) == {"FRESH", "NEW", cache.CACHE_METADATA_KEY}
 

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, Iterable, List, Mapping, Tuple
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 from shapely.geometry.base import BaseGeometry
 
@@ -25,10 +26,10 @@ def adjoining_parcels(
     *,
     tolerance_m: float = ADJACENCY_TOLERANCE_M,
     min_shared_boundary_m: float = MIN_SHARED_BOUNDARY_M,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     subject_village = str(parcel.attrs.get("VILLAGE") or parcel.village).strip().casefold()
     subject_cts = str(parcel.attrs.get("CTS_CS_NO") or parcel.cts_no).strip().casefold()
-    grouped: Dict[Tuple[str, str], List[Mapping[str, Any]]] = defaultdict(list)
+    grouped: dict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
     for row in candidates:
         village = str(row.get("village") or "").strip()
         cts_no = str(row.get("cts_no") or "").strip()
@@ -36,9 +37,9 @@ def adjoining_parcels(
             continue
         grouped[(village, cts_no)].append(row)
 
-    neighbours: List[Dict[str, Any]] = []
+    neighbours: list[dict[str, Any]] = []
     for (village, cts_no), parts in grouped.items():
-        rings: List[Any] = []
+        rings: list[Any] = []
         for part in parts:
             part_rings = part.get("rings")
             if isinstance(part_rings, list):

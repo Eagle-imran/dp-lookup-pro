@@ -1,7 +1,8 @@
 """Composition root for replaceable network, export, and rendering adapters."""
 
+from collections.abc import Awaitable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Dict, List, Optional, Protocol, Sequence, Tuple
+from typing import Any, Protocol
 
 from PIL import Image
 
@@ -37,7 +38,7 @@ class ClientFactory(Protocol):
 
 
 class ParcelFetcher(Protocol):
-    def __call__(self, client: Any, village: str, cts_no: str) -> Awaitable[Optional[Dict[str, Any]]]: ...
+    def __call__(self, client: Any, village: str, cts_no: str) -> Awaitable[dict[str, Any] | None]: ...
 
 
 class ParcelAuthorityResolver(Protocol):
@@ -51,32 +52,32 @@ def no_authority_resolution(parcel: ParcelContext) -> ParcelContext:
 
 
 class NeighbourProvider(Protocol):
-    def __call__(self, parcel: ParcelContext) -> Optional[NeighbourContext]: ...
+    def __call__(self, parcel: ParcelContext) -> NeighbourContext | None: ...
 
 
-def no_local_neighbours(parcel: ParcelContext) -> Optional[NeighbourContext]:
+def no_local_neighbours(parcel: ParcelContext) -> NeighbourContext | None:
     del parcel
     return None
 
 
 class RoadProvider(Protocol):
-    def __call__(self, parcel: ParcelContext) -> Optional[RoadContext]: ...
+    def __call__(self, parcel: ParcelContext) -> RoadContext | None: ...
 
 
-def no_local_roads(parcel: ParcelContext) -> Optional[RoadContext]:
+def no_local_roads(parcel: ParcelContext) -> RoadContext | None:
     del parcel
     return None
 
 
 class SpatialPlanningQuery(Protocol):
-    def __call__(self, client: Any, rings: List[Any]) -> Awaitable[Dict[str, Any]]: ...
+    def __call__(self, client: Any, rings: list[Any]) -> Awaitable[dict[str, Any]]: ...
 
 
 class PlanningEvidenceAnalyzer(Protocol):
     def __call__(
         self,
         client: Any,
-        rings: List[Any],
+        rings: list[Any],
         village: str,
         mode: EvidenceMode,
     ) -> Awaitable[PlanningEvidenceReport]: ...
@@ -89,16 +90,16 @@ class TileFetcher(Protocol):
         zoom: int,
         ytile: int,
         xtile: int,
-        tile_dir: Optional[str] = None,
-    ) -> Awaitable[Optional[bytes]]: ...
+        tile_dir: str | None = None,
+    ) -> Awaitable[bytes | None]: ...
 
 
 class ResultCacheReader(Protocol):
-    def __call__(self, output_dir: str, key: str, ttl_seconds: int) -> Optional[Dict[str, Any]]: ...
+    def __call__(self, output_dir: str, key: str, ttl_seconds: int) -> dict[str, Any] | None: ...
 
 
 class ResultCacheWriter(Protocol):
-    def __call__(self, output_dir: str, key: str, result: Dict[str, Any]) -> None: ...
+    def __call__(self, output_dir: str, key: str, result: dict[str, Any]) -> None: ...
 
 
 class ArtifactProcedure(Protocol):
@@ -110,23 +111,23 @@ class ArtifactProcedure(Protocol):
 class DpMapRenderer(Protocol):
     def __call__(
         self,
-        base_png: Optional[bytes],
-        rings: List[Any],
-        bbox: Tuple[float, float, float, float],
-        size: Tuple[int, int],
-        labels: Dict[str, Any],
+        base_png: bytes | None,
+        rings: list[Any],
+        bbox: tuple[float, float, float, float],
+        size: tuple[int, int],
+        labels: dict[str, Any],
     ) -> Image.Image: ...
 
 
 class SatelliteRenderer(Protocol):
     def __call__(
         self,
-        tiles: List[Any],
-        coords: List[Tuple[int, int]],
+        tiles: list[Any],
+        coords: list[tuple[int, int]],
         grid_dim: int,
-        wgs_rings: List[List[List[float]]],
-        bounds: Tuple[float, float, float, float],
-        labels: Dict[str, Any],
+        wgs_rings: list[list[list[float]]],
+        bounds: tuple[float, float, float, float],
+        labels: dict[str, Any],
     ) -> Image.Image: ...
 
 
@@ -155,12 +156,12 @@ class LookupDependencies:
     html_writer: RichVectorWriter = export_html_map
     artifact_exporters: Sequence[ArtifactExporter] = field(default_factory=tuple)
     report_artifact_exporters: Sequence[ReportArtifactExporter] = field(default_factory=tuple)
-    pdf_report_writer: Optional[PdfReportWriter] = None
-    excel_register_writer: Optional[ExcelRegisterWriter] = None
+    pdf_report_writer: PdfReportWriter | None = None
+    excel_register_writer: ExcelRegisterWriter | None = None
     pdf_data_writer: PdfDataWriter = write_pdf_report
     excel_data_writer: ExcelDataWriter = write_excel_register
-    pdf_writer: Optional[ArtifactProcedure] = None
-    excel_writer: Optional[ArtifactProcedure] = None
+    pdf_writer: ArtifactProcedure | None = None
+    excel_writer: ArtifactProcedure | None = None
     dp_map_renderer: DpMapRenderer = render_dp_map
     satellite_renderer: SatelliteRenderer = stitch_satellite
     planning_evidence_analyzer: PlanningEvidenceAnalyzer = collect_planning_evidence

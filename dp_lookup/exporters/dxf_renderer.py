@@ -1,7 +1,9 @@
 """ezdxf implementation for the scale-accurate cadastral CAD sheet."""
 
+import contextlib
 import math
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import ezdxf
 from ezdxf.enums import TextEntityAlignment
@@ -107,21 +109,19 @@ def new_dxf_document(has_reservations: bool = False) -> ezdxf.document.Drawing:
             attrs["linetype"] = linetype
         doc.layers.add(**attrs)
     if has_reservations:
-        try:
+        with contextlib.suppress(Exception):
             doc.layers.add(name="C-RESERVATIONS", color=6, linetype="DASHED", lineweight=25)
-        except Exception:
-            pass
     return doc
 
 
 def export_dxf(
-    wgs_rings: List[List[List[float]]],
+    wgs_rings: list[list[list[float]]],
     properties: ExportPayload,
     output_path: str,
-    neighbors: Optional[List[Dict[str, Any]]] = None,
-    roads: Optional[Sequence[Sequence[Sequence[float]]]] = None,
-    reservations: Optional[List[Dict[str, Any]]] = None,
-    designations: Optional[List[Dict[str, Any]]] = None,
+    neighbors: list[dict[str, Any]] | None = None,
+    roads: Sequence[Sequence[Sequence[float]]] | None = None,
+    reservations: list[dict[str, Any]] | None = None,
+    designations: list[dict[str, Any]] | None = None,
     *,
     layout_policy: DxfLayoutPolicy = DEFAULT_DXF_LAYOUT_POLICY,
 ) -> None:
@@ -547,12 +547,10 @@ def export_dxf(
 
     view_bounds = parcel_geometry.bounds if not parcel_geometry.is_empty else (min_x, min_y, max_x, max_y)
     view_left, view_bottom, view_right, view_top = view_bounds
-    try:
+    with contextlib.suppress(Exception):
         doc.set_modelspace_vport(
             height=max(1.0, view_right - view_left, view_top - view_bottom) * layout_policy.vport_height_fraction,
             center=((view_left + view_right) / 2.0, (view_bottom + view_top) / 2.0),
         )
-    except Exception:
-        pass
 
     doc.saveas(output_path)

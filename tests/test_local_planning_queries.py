@@ -3,7 +3,7 @@
 import asyncio
 import math
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -66,7 +66,7 @@ def _live_result():
 
 def test_local_query_pins_one_snapshot_and_passes_parcel_geometry_to_every_layer():
     store = FakePlanningStore(
-        PlanningSnapshot("planning-17", finalized_at=datetime.now(timezone.utc)),
+        PlanningSnapshot("planning-17", finalized_at=datetime.now(UTC)),
         {LAYER_ZONE: [_feature(_ring(0, 0, 10, 10), ZONE_CODE2="R")]},
     )
     query = LocalFirstPlanningQuery(store, max_snapshot_age_days=None)
@@ -105,7 +105,7 @@ def test_auto_falls_back_to_live_for_unavailable_local_snapshot():
 
 
 def test_stale_snapshot_falls_back_and_reports_staleness_reason():
-    old = datetime.now(timezone.utc) - timedelta(days=211)
+    old = datetime.now(UTC) - timedelta(days=211)
     store = FakePlanningStore(PlanningSnapshot(4, finalized_at=old))
 
     async def live(_client, _rings):
@@ -124,9 +124,7 @@ def test_live_mode_does_not_touch_local_store():
     async def live(_client, _rings):
         return _live_result()
 
-    result = asyncio.run(
-        LocalFirstPlanningQuery(store, mode="live", live_query=live)(object(), [_ring(0, 0, 10, 10)])
-    )
+    result = asyncio.run(LocalFirstPlanningQuery(store, mode="live", live_query=live)(object(), [_ring(0, 0, 10, 10)]))
 
     assert result == _live_result()
     assert store.pin_calls == 0
@@ -152,15 +150,13 @@ def test_constructor_and_timestamp_guards_are_explicit():
 
 
 def test_strict_local_allows_stale_snapshot_only_when_requested():
-    old = datetime.now(timezone.utc) - timedelta(days=400)
+    old = datetime.now(UTC) - timedelta(days=400)
     store = FakePlanningStore(
         PlanningSnapshot(8, finalized_at=old),
         {LAYER_ZONE: [_feature(_ring(0, 0, 10, 10), ZONE_CODE2="R")]},
     )
     result = asyncio.run(
-        LocalFirstPlanningQuery(store, mode="local", allow_stale_local=True)(
-            object(), [_ring(0, 0, 10, 10)]
-        )
+        LocalFirstPlanningQuery(store, mode="local", allow_stale_local=True)(object(), [_ring(0, 0, 10, 10)])
     )
     assert result["provenance"]["snapshot_stale"] is True
     assert "stale" in result["warnings"][0]
@@ -170,7 +166,7 @@ def test_strict_local_allows_stale_snapshot_only_when_requested():
     "snapshot,message",
     [
         (None, "no active"),
-        (PlanningSnapshot("", finalized_at=datetime.now(timezone.utc)), "no valid snapshot ID"),
+        (PlanningSnapshot("", finalized_at=datetime.now(UTC)), "no valid snapshot ID"),
         (PlanningSnapshot(1, finalized_at=None), "no finalized timestamp"),
         (PlanningSnapshot(1, finalized_at="not-a-date"), "invalid finalized timestamp"),
     ],
@@ -188,7 +184,7 @@ def test_strict_local_rejects_malformed_store_collections(records, message):
             del snapshot_id, layer_id, parcel_geometry
             return records
 
-    store = Store(PlanningSnapshot(1, finalized_at=datetime.now(timezone.utc)))
+    store = Store(PlanningSnapshot(1, finalized_at=datetime.now(UTC)))
     with pytest.raises(LocalPlanningError, match=message):
         asyncio.run(LocalFirstPlanningQuery(store, mode="local")(object(), [_ring(0, 0, 10, 10)]))
 
@@ -196,7 +192,7 @@ def test_strict_local_rejects_malformed_store_collections(records, message):
 def test_legacy_store_seams_and_query_failures_are_supported_safely():
     class LegacyStore:
         def active_snapshot(self):
-            return {"snapshot_id": 3, "finalized_at": datetime.now(timezone.utc)}
+            return {"snapshot_id": 3, "finalized_at": datetime.now(UTC)}
 
         def records_intersecting(self, snapshot_id, layer_id, parcel):
             del snapshot_id, parcel
@@ -204,29 +200,23 @@ def test_legacy_store_seams_and_query_failures_are_supported_safely():
                 return [_feature(_ring(0, 0, 10, 10), ZONE_CODE2="R")]
             return []
 
-    result = asyncio.run(
-        LocalFirstPlanningQuery(LegacyStore(), mode="local")(object(), [_ring(0, 0, 10, 10)])
-    )
+    result = asyncio.run(LocalFirstPlanningQuery(LegacyStore(), mode="local")(object(), [_ring(0, 0, 10, 10)]))
     assert result["primary_zone"] == "R"
 
     class MissingQuery:
         def pin_active_snapshot(self):
-            return PlanningSnapshot(1, finalized_at=datetime.now(timezone.utc))
+            return PlanningSnapshot(1, finalized_at=datetime.now(UTC))
 
     with pytest.raises(LocalPlanningError, match="no spatial layer query"):
-        asyncio.run(
-            LocalFirstPlanningQuery(MissingQuery(), mode="local")(object(), [_ring(0, 0, 10, 10)])
-        )
+        asyncio.run(LocalFirstPlanningQuery(MissingQuery(), mode="local")(object(), [_ring(0, 0, 10, 10)]))
 
     class ExplodingStore(FakePlanningStore):
         def query_layer(self, *_args):
             raise ValueError("bad index")
 
-    exploding = ExplodingStore(PlanningSnapshot(1, finalized_at=datetime.now(timezone.utc)))
+    exploding = ExplodingStore(PlanningSnapshot(1, finalized_at=datetime.now(UTC)))
     with pytest.raises(LocalPlanningError, match="bad index"):
-        asyncio.run(
-            LocalFirstPlanningQuery(exploding, mode="local")(object(), [_ring(0, 0, 10, 10)])
-        )
+        asyncio.run(LocalFirstPlanningQuery(exploding, mode="local")(object(), [_ring(0, 0, 10, 10)]))
 
     with pytest.raises(LocalPlanningError, match="no valid polygon rings"):
         asyncio.run(LocalFirstPlanningQuery(LegacyStore(), mode="local")(object(), [[]]))

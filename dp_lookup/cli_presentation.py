@@ -4,10 +4,12 @@ The lookup use case returns a JSON-compatible mapping.  Keeping terminal
 formatting here means the command runner can be reused by other frontends
 without importing the report-generation stack.
 """
+
 from __future__ import annotations
 
 import os
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 
 def _source_summary_rows(metadata: Mapping[str, Any]) -> list[tuple[str, str]]:
@@ -102,7 +104,13 @@ def format_result_human(result: Mapping[str, Any]) -> str:
         )
     authority = ident.get("authority_resolution")
     if isinstance(authority, dict) and authority.get("active_record_ids"):
-        rows.append(("Authority source", f"{authority.get('status', 'active')} - records " + ", ".join(str(value) for value in authority["active_record_ids"])))
+        rows.append(
+            (
+                "Authority source",
+                f"{authority.get('status', 'active')} - records "
+                + ", ".join(str(value) for value in authority["active_record_ids"]),
+            )
+        )
     rows += [
         ("Zone", plan.get("zone")),
         ("Reservation", res_txt),
@@ -114,8 +122,14 @@ def format_result_human(result: Mapping[str, Any]) -> str:
     if enc.get("encumbered_percent", 0) > 0:
         rows.extend(
             [
-                ("Encumbered area", f"{enc.get('encumbered_area_sqm', 0):,.2f} m² ({enc.get('encumbered_percent', 0):.2f}% of plot)"),
-                ("Net developable", f"{enc.get('net_unencumbered_sqm', 0):,.2f} m² ({enc.get('net_unencumbered_percent', 0):.2f}% - Zone {plan.get('zone')})"),
+                (
+                    "Encumbered area",
+                    f"{enc.get('encumbered_area_sqm', 0):,.2f} m² ({enc.get('encumbered_percent', 0):.2f}% of plot)",
+                ),
+                (
+                    "Net developable",
+                    f"{enc.get('net_unencumbered_sqm', 0):,.2f} m² ({enc.get('net_unencumbered_percent', 0):.2f}% - Zone {plan.get('zone')})",
+                ),
             ]
         )
 
@@ -144,7 +158,11 @@ def format_result_human(result: Mapping[str, Any]) -> str:
         out.append(f"    {'Neighbours':<17} CTS " + ", ".join(str(item) for item in neighbours))
 
     bundle_f_count = len(
-        [path for key, path in (files or {}).items() if key not in ("bundle_folder", "master_excel_register") and path and os.path.exists(path)]
+        [
+            path
+            for key, path in (files or {}).items()
+            if key not in ("bundle_folder", "master_excel_register") and path and os.path.exists(path)
+        ]
     )
     out += [
         "",
@@ -154,7 +172,9 @@ def format_result_human(result: Mapping[str, Any]) -> str:
     ]
 
     if meta.get("cached_result"):
-        out.append(f"\n    Cached result from {meta.get('cached_at')} ({meta.get('cache_age_days')} days old). Use --no-cache to refetch.")
+        out.append(
+            f"\n    Cached result from {meta.get('cached_at')} ({meta.get('cache_age_days')} days old). Use --no-cache to refetch."
+        )
     else:
         out.append(f"\n    Fetched in {meta.get('execution_time_ms', 0) / 1000:.1f}s")
     out.extend(f"    Note: {note}" for note in meta.get("notes") or [])

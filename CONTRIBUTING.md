@@ -16,7 +16,7 @@ CI enforces the same gates locally and remotely:
 ```bash
 uv lock --check
 uv run ruff check .
-uv run python tools/check_format.py
+uv run ruff format --check .
 uv run python tools/check_comments.py
 uv run mypy
 uv run pytest -q --cov --cov-report=term-missing
@@ -26,8 +26,7 @@ uv run pip-audit -r /tmp/dp-lookup-runtime.txt
 ```
 
 The test suite never touches the MCGM servers, so it is safe to run repeatedly.
-Apply the same scoped formatting with `uv run python tools/check_format.py --fix`.
-The target list lives in that helper so local checks and CI cannot drift.
+Apply formatting with `uv run ruff format .`; it covers the whole repository.
 
 ## What CI checks
 

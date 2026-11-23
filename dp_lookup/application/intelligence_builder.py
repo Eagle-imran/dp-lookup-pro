@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import sqlite3
 from collections import Counter
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Lock
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
 from shapely.geometry.base import BaseGeometry
 
@@ -40,7 +41,7 @@ from dp_lookup.planning_evidence.registry import SERVER_URL, get_canonical_spec
 from dp_lookup.planning_snapshot import PlanningSnapshotStore
 from dp_lookup.spatial_store import SnapshotStore
 
-CORE_LAYER_IDS: Tuple[int, ...] = (
+CORE_LAYER_IDS: tuple[int, ...] = (
     LAYER_ZONE,
     LAYER_RESERVATION,
     LAYER_DESIGNATION,
@@ -57,7 +58,7 @@ def _source_fingerprint(
     parcel_metadata: Mapping[str, Any],
     planning_snapshot_id: int,
     planning_hash: str,
-    authority_revision: Optional[int],
+    authority_revision: int | None,
 ) -> str:
     return source_fingerprint(
         parcel_snapshot_id,
@@ -69,7 +70,7 @@ def _source_fingerprint(
     )
 
 
-def _authority_registry_revision(database: Path) -> Optional[int]:
+def _authority_registry_revision(database: Path) -> int | None:
     """Return the additive registry revision, or None when no registry exists."""
     try:
         with AuthorityStore.open(database, create=False) as store:
@@ -82,15 +83,15 @@ def _identity_rows(
     store: SnapshotStore,
     snapshot_id: int,
     *,
-    limit: Optional[int],
+    limit: int | None,
     offset: int,
-) -> List[Tuple[str, str]]:
+) -> list[tuple[str, str]]:
     sql = (
         "SELECT village,cts_no FROM parcels WHERE snapshot_id=? "
         "AND village IS NOT NULL AND village<>'' AND cts_no IS NOT NULL AND cts_no<>'' "
         "GROUP BY village,cts_no ORDER BY village,cts_no"
     )
-    params: List[Any] = [snapshot_id]
+    params: list[Any] = [snapshot_id]
     if limit is not None:
         sql += " LIMIT ? OFFSET ?"
         params.extend([limit, offset])
@@ -115,8 +116,8 @@ def _core_refs(
     parcel: Any,
     by_layer: Mapping[int, Sequence[Mapping[str, Any]]],
     area_scale: float,
-) -> List[Dict[str, Any]]:
-    refs: List[Dict[str, Any]] = []
+) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
     for layer_id, records in by_layer.items():
         spec = get_canonical_spec(layer_id)
         for record in records:
@@ -160,8 +161,8 @@ def _core_refs(
     return refs
 
 
-def _evidence_refs(report: Any, area_scale: float) -> List[Dict[str, Any]]:
-    result: List[Dict[str, Any]] = []
+def _evidence_refs(report: Any, area_scale: float) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
     for finding in report.findings:
         if finding.object_id is None:
             continue
@@ -172,7 +173,7 @@ def _evidence_refs(report: Any, area_scale: float) -> List[Dict[str, Any]]:
     return result
 
 
-def _compact(items: Sequence[Mapping[str, Any]]) -> Tuple[Mapping[str, Any], ...]:
+def _compact(items: Sequence[Mapping[str, Any]]) -> tuple[Mapping[str, Any], ...]:
     """Keep computed facts; canonical raw attributes/geometry stay in source tables."""
     return tuple(
         {key: value for key, value in item.items() if key not in {"raw_attributes", "wgs_rings"}} for item in items
@@ -188,13 +189,13 @@ class PlotIntelligenceBuilder:
     def build(
         self,
         *,
-        limit: Optional[int] = None,
+        limit: int | None = None,
         offset: int = 0,
         include_neighbours: bool = True,
         evidence_mode: EvidenceMode = EvidenceMode.FULL,
-        progress: Optional[ProgressCallback] = None,
-        parcel_snapshot_id: Optional[int] = None,
-        planning_snapshot_id: Optional[int] = None,
+        progress: ProgressCallback | None = None,
+        parcel_snapshot_id: int | None = None,
+        planning_snapshot_id: int | None = None,
         workers: int = 1,
     ) -> Mapping[str, Any]:
         if limit is not None and limit < 1:
@@ -246,7 +247,7 @@ class PlotIntelligenceBuilder:
                 authority_revision,
             )
             parcel_snapshot_date = (
-                datetime.fromtimestamp(float(parcel_snapshot.finalized_at), timezone.utc).isoformat()
+                datetime.fromtimestamp(float(parcel_snapshot.finalized_at), UTC).isoformat()
                 if parcel_snapshot.finalized_at is not None
                 else None
             )
@@ -272,7 +273,7 @@ class PlotIntelligenceBuilder:
             progress_count = [len(completed)]
             cancelled = Event()
 
-            def derive(shard: Sequence[Tuple[str, str]]) -> int:
+            def derive(shard: Sequence[tuple[str, str]]) -> int:
                 shard_failures = 0
                 worker_authority = (
                     AuthorityStore.open(self.database, create=False) if authority_revision is not None else None
@@ -367,15 +368,15 @@ class PlotIntelligenceBuilder:
         parcels: SnapshotStore,
         planning: PlanningSnapshotStore,
         parcel_snapshot_id: int,
-        parcel_snapshot_date: Optional[str],
+        parcel_snapshot_date: str | None,
         planning_snapshot_id: int,
         village: str,
         cts_no: str,
         road_provider: LocalRoadProvider,
-        neighbour_provider: Optional[LocalNeighbourProvider],
+        neighbour_provider: LocalNeighbourProvider | None,
         evidence_analyzer: LocalFirstPlanningEvidenceAnalyzer,
         evidence_mode: EvidenceMode,
-        authority_resolver: Optional[AuthorityResolver] = None,
+        authority_resolver: AuthorityResolver | None = None,
     ) -> PlotIntelligence:
         rows = parcels.lookup(village, cts_no, snapshot_id=parcel_snapshot_id)
         feature = merge_local_features(rows)
@@ -402,7 +403,7 @@ class PlotIntelligenceBuilder:
         neighbours = neighbour_provider(parcel) if neighbour_provider is not None else None
         report = evidence_analyzer._local_report(parcel.rings, village, evidence_mode)
 
-        source_refs: List[Dict[str, Any]] = [
+        source_refs: list[dict[str, Any]] = [
             {
                 "evidence_type": "cadastral",
                 "layer_id": 13,
@@ -483,7 +484,7 @@ class PlotIntelligenceBuilder:
             ),
         }
         source_objectids = tuple(sorted(int(row["objectid"]) for row in rows))
-        calculated_at = datetime.now(timezone.utc).isoformat()
+        calculated_at = datetime.now(UTC).isoformat()
         plot = PlotIntelligence(
             village=village,
             cts_no=cts_no,

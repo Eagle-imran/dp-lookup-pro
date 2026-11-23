@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
 
 METRES_PER_DEG_LAT = 111132.0
 METRES_PER_DEG_LON_EQUATOR = 111319.5
-Point = Tuple[float, float]
+Point = tuple[float, float]
 Ring = Sequence[Sequence[float]]
 
 
@@ -20,14 +21,14 @@ def polygon_signed_area(ring: Ring) -> float:
     return sum(ring[i][0] * ring[(i + 1) % n][1] - ring[(i + 1) % n][0] * ring[i][1] for i in range(n)) / 2.0
 
 
-def inset_polygon_parts(geometry: BaseGeometry, distance: float) -> List[Polygon]:
+def inset_polygon_parts(geometry: BaseGeometry, distance: float) -> list[Polygon]:
     """Offset the land as a whole, preserving any excluded interior areas."""
     inset = geometry.buffer(-distance, join_style=2)
     parts = inset.geoms if isinstance(inset, MultiPolygon) else (inset,)
     return [part for part in parts if isinstance(part, Polygon) and part.area >= 1.0]
 
 
-def offset_polygon_inward(ring: Ring, distance: float) -> List[List[Point]]:
+def offset_polygon_inward(ring: Ring, distance: float) -> list[list[Point]]:
     """Return the viable parts of a true parallel inward polygon offset."""
     pts = list(ring)
     if (
@@ -49,7 +50,7 @@ def offset_polygon_inward(ring: Ring, distance: float) -> List[List[Point]]:
     return [list(part.exterior.coords)[:-1] for part in parts]
 
 
-def project_rings_to_local_metres(wgs_rings: Sequence[Ring]) -> Dict[str, Any]:
+def project_rings_to_local_metres(wgs_rings: Sequence[Ring]) -> dict[str, Any]:
     """Project WGS84 degrees into a local metric frame at the first ring's vertex average."""
     r0 = wgs_rings[0]
     lon0 = sum(p[0] for p in r0) / len(r0)
@@ -71,7 +72,7 @@ def to_local_metres(
     lat0: float,
     mpd_lon: float,
     mpd_lat: float,
-) -> List[Point]:
+) -> list[Point]:
     """Project a WGS84 path into an existing local metric frame."""
     return [((p[0] - lon0) * mpd_lon, (p[1] - lat0) * mpd_lat) for p in points]
 
@@ -83,7 +84,7 @@ def clip_segment_to_box(
     y_lo: float,
     x_hi: float,
     y_hi: float,
-) -> Optional[Tuple[Point, Point]]:
+) -> tuple[Point, Point] | None:
     """Clip a segment to a bounding box with the Liang-Barsky algorithm."""
     x1, y1 = float(p1[0]), float(p1[1])
     x2, y2 = float(p2[0]), float(p2[1])
@@ -112,10 +113,10 @@ def clip_path_to_window(
     y_lo: float,
     x_hi: float,
     y_hi: float,
-) -> List[List[Point]]:
+) -> list[list[Point]]:
     """Return contiguous runs of a path clipped to the window."""
-    runs: List[List[Point]] = []
-    run: List[Point] = []
+    runs: list[list[Point]] = []
+    run: list[Point] = []
     for index in range(len(path) - 1):
         segment = clip_segment_to_box(path[index], path[index + 1], x_lo, y_lo, x_hi, y_hi)
         if segment is None:

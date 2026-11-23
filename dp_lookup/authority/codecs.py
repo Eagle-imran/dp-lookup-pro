@@ -5,8 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 from dp_lookup.authority.errors import AuthorityStoreError, AuthorityValidationError
@@ -24,7 +25,7 @@ def json_value(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False, default=str)
 
 
-def loads(value: Optional[str], default: Any) -> Any:
+def loads(value: str | None, default: Any) -> Any:
     if not value:
         return default
     try:
@@ -45,7 +46,7 @@ def file_sha256(path: Path) -> str:
     return hasher.hexdigest()
 
 
-def document_path(uri: str, manifest_dir: Optional[Path | str]) -> Optional[Path]:
+def document_path(uri: str, manifest_dir: Path | str | None) -> Path | None:
     parsed = urlparse(uri)
     if parsed.scheme in {"http", "https"}:
         return None
@@ -73,7 +74,7 @@ def sha256_value(value: str, field: str) -> str:
     return result
 
 
-def positive_area(value: Any) -> Optional[float]:
+def positive_area(value: Any) -> float | None:
     if value is None:
         return None
     if isinstance(value, bool):
@@ -87,14 +88,13 @@ def positive_area(value: Any) -> Optional[float]:
     return number
 
 
-def crs_wkid(value: Any) -> Optional[int]:
+def crs_wkid(value: Any) -> int | None:
     if value is None or value == "":
         return None
     if isinstance(value, Mapping):
         value = value.get("wkid", value.get("latestWkid"))
     text = str(value).strip().upper()
-    if text.startswith("EPSG:"):
-        text = text[5:]
+    text = text.removeprefix("EPSG:")
     try:
         wkid = int(text)
     except (TypeError, ValueError) as exc:
@@ -104,7 +104,7 @@ def crs_wkid(value: Any) -> Optional[int]:
     return wkid
 
 
-def extract_rings(geometry: Any) -> Optional[List[List[List[float]]]]:
+def extract_rings(geometry: Any) -> list[list[list[float]]] | None:
     if geometry is None:
         return None
     value = geometry
@@ -119,11 +119,11 @@ def extract_rings(geometry: Any) -> Optional[List[List[List[float]]]]:
                 value = [ring for polygon in polygons for ring in polygon]
     if not isinstance(value, list) or not value:
         raise AuthorityValidationError("original_geometry must contain polygon rings")
-    result: List[List[List[float]]] = []
+    result: list[list[list[float]]] = []
     for ring in value:
         if not isinstance(ring, list) or len(ring) < 4:
             raise AuthorityValidationError("each geometry ring must contain at least four points")
-        normalized_ring: List[List[float]] = []
+        normalized_ring: list[list[float]] = []
         for point in ring:
             if not isinstance(point, (list, tuple)) or len(point) < 2:
                 raise AuthorityValidationError("geometry points must contain x and y")
@@ -138,9 +138,7 @@ def extract_rings(geometry: Any) -> Optional[List[List[List[float]]]]:
     return result
 
 
-def normalise_geometry(
-    geometry: Any, crs: Optional[int]
-) -> Tuple[Optional[str], Optional[int], Optional[str], Optional[float]]:
+def normalise_geometry(geometry: Any, crs: int | None) -> tuple[str | None, int | None, str | None, float | None]:
     rings = extract_rings(geometry)
     if rings is None:
         if crs is not None:
@@ -164,7 +162,7 @@ def normalise_geometry(
     return normalized_json, 3857, geometry_hash, calculated
 
 
-def _wgs84_to_mercator(lon: float, lat: float) -> List[float]:
+def _wgs84_to_mercator(lon: float, lat: float) -> list[float]:
     safe_lat = max(-85.05112878, min(85.05112878, lat))
     return [
         WEB_MERCATOR_R * math.radians(lon),
@@ -175,10 +173,10 @@ def _wgs84_to_mercator(lon: float, lat: float) -> List[float]:
 def manifest_payload(
     manifest: AuthorityManifest,
     version: int,
-    normalized_json: Optional[str],
-    geometry_hash: Optional[str],
-    calculated: Optional[float],
-) -> Dict[str, Any]:
+    normalized_json: str | None,
+    geometry_hash: str | None,
+    calculated: float | None,
+) -> dict[str, Any]:
     return {
         "village": manifest.village,
         "cts_no": manifest.cts_no,

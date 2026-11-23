@@ -50,9 +50,7 @@ def result(features, *, expected=None, missing=()):
         rejected_ids=(),
         content_hash="abc123",
     )
-    return SnapshotIngestionResult(
-        tuple(features), manifest, SnapshotCheckpoint(expected_ids, ids)
-    )
+    return SnapshotIngestionResult(tuple(features), manifest, SnapshotCheckpoint(expected_ids, ids))
 
 
 class ClientContext:
@@ -102,10 +100,18 @@ def test_incomplete_download_is_not_written(tmp_path):
 
 def test_duplicate_cts_parts_are_combined_instead_of_first_feature_winning():
     rows = [
-        {"objectid": 2, "area_app_sqm": None, "raw_attrs": feature(2, "9", 10).attributes,
-         "geometry": feature(2, "9", 10).geometry},
-        {"objectid": 1, "area_app_sqm": None, "raw_attrs": feature(1, "9", 0).attributes,
-         "geometry": feature(1, "9", 0).geometry},
+        {
+            "objectid": 2,
+            "area_app_sqm": None,
+            "raw_attrs": feature(2, "9", 10).attributes,
+            "geometry": feature(2, "9", 10).geometry,
+        },
+        {
+            "objectid": 1,
+            "area_app_sqm": None,
+            "raw_attrs": feature(1, "9", 0).attributes,
+            "geometry": feature(1, "9", 0).geometry,
+        },
     ]
     merged = merge_local_features(rows)
     assert merged is not None

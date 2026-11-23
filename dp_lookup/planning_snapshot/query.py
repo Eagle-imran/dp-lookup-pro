@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections import OrderedDict
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
+from collections.abc import Callable, Mapping
+from typing import Any
 
 from shapely.geometry import LineString, MultiLineString
 from shapely.geometry.base import BaseGeometry
@@ -16,7 +17,7 @@ from dp_lookup.planning_evidence.registry import canonical_layer_id
 _RUNTIME_GEOMETRY_KEY = "_dp_runtime_geometry"
 
 
-def feature_dict(row: sqlite3.Row) -> Dict[str, Any]:
+def feature_dict(row: sqlite3.Row) -> dict[str, Any]:
     """Decode one archived feature row without losing the raw payload."""
     result = dict(row)
     result["attributes"] = json.loads(result["attributes_json"])
@@ -33,7 +34,7 @@ class PlanningFeatureQuery:
         connection: sqlite3.Connection,
         *,
         rtree_available: bool,
-        active_snapshot_id: Callable[[], Optional[int]],
+        active_snapshot_id: Callable[[], int | None],
         runtime_cache_size: int = 512,
     ) -> None:
         if runtime_cache_size < 0:
@@ -42,12 +43,12 @@ class PlanningFeatureQuery:
         self.rtree_available = rtree_available
         self.active_snapshot_id = active_snapshot_id
         self.runtime_cache_size = runtime_cache_size
-        self._runtime_cache: OrderedDict[Tuple[int, int, int], Dict[str, Any]] = OrderedDict()
+        self._runtime_cache: OrderedDict[tuple[int, int, int], dict[str, Any]] = OrderedDict()
 
     def clear_runtime_cache(self) -> None:
         self._runtime_cache.clear()
 
-    def _runtime_feature(self, snapshot_id: int, layer_id: int, object_id: int) -> Dict[str, Any]:
+    def _runtime_feature(self, snapshot_id: int, layer_id: int, object_id: int) -> dict[str, Any]:
         key = (snapshot_id, layer_id, object_id)
         if key not in self._runtime_cache:
             row = self.connection.execute(
@@ -58,7 +59,7 @@ class PlanningFeatureQuery:
             if row is None:
                 raise KeyError(f"missing planning feature {key}")
             geometry = None if row["geometry_json"] is None else json.loads(row["geometry_json"])
-            runtime: Optional[BaseGeometry] = None
+            runtime: BaseGeometry | None = None
             if isinstance(geometry, Mapping):
                 rings = geometry.get("rings")
                 paths = geometry.get("paths")
@@ -90,9 +91,9 @@ class PlanningFeatureQuery:
         min_y: float,
         max_y: float,
         *,
-        snapshot_id: Optional[int],
+        snapshot_id: int | None,
         include_archive_payload: bool,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         sid = snapshot_id if snapshot_id is not None else self.active_snapshot_id()
         if sid is None:
             return []
@@ -123,7 +124,7 @@ class PlanningFeatureQuery:
             return [feature_dict(row) for row in rows]
         return [self._runtime_feature(sid, canonical_id, int(row["object_id"])) for row in rows]
 
-    def query_layer(self, snapshot_id: int, layer_id: int, parcel_geometry: Any) -> List[Dict[str, Any]]:
+    def query_layer(self, snapshot_id: int, layer_id: int, parcel_geometry: Any) -> list[dict[str, Any]]:
         """Return exact intersections after an indexed bounding-box query."""
         bounds = getattr(parcel_geometry, "bounds", None)
         if not bounds or len(bounds) != 4:
@@ -137,7 +138,7 @@ class PlanningFeatureQuery:
             snapshot_id=snapshot_id,
             include_archive_payload=False,
         )
-        result: List[Dict[str, Any]] = []
+        result: list[dict[str, Any]] = []
         for candidate in candidates:
             geometry = candidate.get("geometry") or {}
             rings = geometry.get("rings") if isinstance(geometry, Mapping) else None

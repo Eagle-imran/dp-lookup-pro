@@ -17,6 +17,7 @@ Usage:
 
 Requires the dev extra:  uv pip install -e ".[dev]"
 """
+
 import argparse
 import os
 import sys
@@ -26,8 +27,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Render a dp-lookup-pro DXF to PNG.")
     ap.add_argument("dxf", help="path to the .dxf file")
     ap.add_argument("-o", "--out", help="output PNG (default: alongside the DXF)")
-    ap.add_argument("--zoom", action="store_true",
-                    help="frame the plot boundary instead of the whole sheet")
+    ap.add_argument("--zoom", action="store_true", help="frame the plot boundary instead of the whole sheet")
     ap.add_argument("--dpi", type=int, default=120)
     args = ap.parse_args(argv)
 
@@ -37,14 +37,14 @@ def main(argv=None):
 
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import ezdxf
         import matplotlib.pyplot as plt
         from ezdxf.addons.drawing import Frontend, RenderContext
         from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
     except ImportError as exc:
-        print(f"missing dependency ({exc}). Install with: uv pip install -e \".[dev]\"",
-              file=sys.stderr)
+        print(f'missing dependency ({exc}). Install with: uv pip install -e ".[dev]"', file=sys.stderr)
         return 1
 
     doc = ezdxf.readfile(args.dxf)
@@ -57,8 +57,7 @@ def main(argv=None):
     Frontend(RenderContext(doc), MatplotlibBackend(ax)).draw_layout(msp, finalize=not args.zoom)
 
     if args.zoom:
-        pts = [p for e in msp.query("LWPOLYLINE[layer=='C-PLOT-BDY']")
-               for p in e.get_points("xy")]
+        pts = [p for e in msp.query("LWPOLYLINE[layer=='C-PLOT-BDY']") for p in e.get_points("xy")]
         if pts:
             xs = [p[0] for p in pts]
             ys = [p[1] for p in pts]
@@ -67,8 +66,7 @@ def main(argv=None):
             ax.set_ylim(min(ys) - pad, max(ys) + pad)
             ax.set_aspect("equal")
 
-    out = args.out or os.path.splitext(args.dxf)[0] + (
-        "_zoom.png" if args.zoom else "_render.png")
+    out = args.out or os.path.splitext(args.dxf)[0] + ("_zoom.png" if args.zoom else "_render.png")
     fig.savefig(out, dpi=args.dpi, facecolor="white")
     plt.close(fig)
     print(f"rendered -> {out}  ({os.path.getsize(out) / 1024:.0f} KB)")

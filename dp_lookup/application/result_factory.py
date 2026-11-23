@@ -1,7 +1,8 @@
 """Construction of the stable public lookup result from typed stage outputs."""
 
 import time
-from typing import Any, Dict, List, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 
 from dp_lookup.application.contracts import NeighbourContext, OutputPaths, ParcelContext, PlanningContext, RoadContext
 from dp_lookup.core.constants import APPLICATION_VERSION, RESULT_SCHEMA_VERSION
@@ -27,12 +28,12 @@ def build_lookup_result(
     map_link: str,
     execution_time_ms: float,
     documents_pending: bool,
-    warnings: List[str],
-    notes: List[str],
-    diagnostics: Optional[Mapping[str, Any]] = None,
-    additional_artifacts: Optional[Mapping[str, str]] = None,
-    planning_due_diligence: Optional[Mapping[str, Any]] = None,
-) -> Dict[str, Any]:
+    warnings: list[str],
+    notes: list[str],
+    diagnostics: Mapping[str, Any] | None = None,
+    additional_artifacts: Mapping[str, str] | None = None,
+    planning_due_diligence: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Serialize typed stage contracts to the backwards-compatible wire shape."""
     evidence = dict(planning.evidence)
     parcel_warning_items: list[str] = []

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any
 
 from dp_lookup.application.contracts import PlanningContext
 from dp_lookup.clients.arcgis_models import ArcGISPayload, decode_arcgis_response
@@ -16,7 +17,7 @@ class PlanningEvidenceError(RuntimeError):
     """Required planning evidence was unavailable or unusable."""
 
 
-def _mapping_items(value: Any) -> List[Dict[str, Any]]:
+def _mapping_items(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, (list, tuple)):
         return []
     return [dict(item) for item in value if isinstance(item, Mapping)]
@@ -35,9 +36,9 @@ def _safe_percent(value: Any) -> tuple[float, bool]:
 def _fallback_item(
     attributes: Mapping[str, Any],
     area_sqm: float,
-    wgs_rings: List[List[List[float]]],
+    wgs_rings: list[list[list[float]]],
     kind: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     copied_attributes = dict(attributes)
     if kind == "reservation":
         proposed_code = attributes.get("NEW_RES_CODE_31")
@@ -89,7 +90,7 @@ def _fallback_item(
     }
 
 
-def _identified_by_layer(payload: Optional[ArcGISPayload]) -> Dict[int, Mapping[str, Any]]:
+def _identified_by_layer(payload: ArcGISPayload | None) -> dict[int, Mapping[str, Any]]:
     if payload is None:
         return {}
     return {item.layer_id: item.attributes for item in payload.results if item.layer_id is not None}
@@ -99,7 +100,7 @@ def normalize_planning_evidence(
     spatial_result: Any,
     identify_response: Any,
     area_sqm: float,
-    wgs_rings: List[List[List[float]]],
+    wgs_rings: list[list[list[float]]],
     crz_layer_ids: Sequence[int],
 ) -> PlanningContext:
     """Reconcile polygon queries with point identify while preserving failures."""
@@ -110,14 +111,14 @@ def normalize_planning_evidence(
             "(the identify/spatial request failed or timed out)."
         )
 
-    warnings: List[str] = []
+    warnings: list[str] = []
     method = "spatial_polygon"
     successful_set: set[int] = set()
-    planning_provenance: Dict[str, Any] = {}
-    zones: List[Dict[str, Any]]
-    reservations: List[Dict[str, Any]]
-    designations: List[Dict[str, Any]]
-    modifications: List[Dict[str, Any]]
+    planning_provenance: dict[str, Any] = {}
+    zones: list[dict[str, Any]]
+    reservations: list[dict[str, Any]]
+    designations: list[dict[str, Any]]
+    modifications: list[dict[str, Any]]
     if isinstance(spatial_result, dict):
         raw_provenance = spatial_result.get("provenance")
         if isinstance(raw_provenance, Mapping):

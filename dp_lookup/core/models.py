@@ -7,10 +7,11 @@ legacy wire format for CLI, cache, and third-party callers.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any
 
 
 class EvidenceState(str, Enum):
@@ -39,7 +40,7 @@ class AreaQualityFlag:
     severity: str
     message: str
 
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self) -> dict[str, str]:
         return {"code": self.code, "severity": self.severity, "message": self.message}
 
 
@@ -47,22 +48,22 @@ class AreaQualityFlag:
 class AreaAssessment:
     """Recorded and geometry-calculated parcel areas kept explicitly separate."""
 
-    recorded_area_sqm: Optional[float]
-    calculated_boundary_area_sqm: Optional[float]
-    selected_area_sqm: Optional[float]
+    recorded_area_sqm: float | None
+    calculated_boundary_area_sqm: float | None
+    selected_area_sqm: float | None
     selected_area_basis: str
     calculation_method: str
     recorded_area_source: str
     geometry_source: str
-    difference_sqm: Optional[float]
-    difference_percent: Optional[float]
+    difference_sqm: float | None
+    difference_percent: float | None
     thresholds_exceeded: Sequence[int]
     reliability_status: ReliabilityStatus
     flags: Sequence[AreaQualityFlag] = field(default_factory=tuple)
     source_objectids: Sequence[int] = field(default_factory=tuple)
     feature_part_count: int = 1
-    source_snapshot_id: Optional[int] = None
-    source_snapshot_date: Optional[str] = None
+    source_snapshot_id: int | None = None
+    source_snapshot_date: str | None = None
 
     @property
     def reliability_label(self) -> str:
@@ -73,7 +74,7 @@ class AreaAssessment:
             ReliabilityStatus.CERTIFIED: "Certified",
         }[self.reliability_status]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "recorded_plot_area_sqm": self.recorded_area_sqm,
             "calculated_boundary_area_sqm": self.calculated_boundary_area_sqm,
@@ -123,13 +124,13 @@ class ExportData:
     encumbered_percent: float
     net_unencumbered_sqm: float
     net_unencumbered_percent: float
-    area_assessment: Optional[AreaAssessment] = None
-    authority_resolution: Optional[Mapping[str, Any]] = None
-    road_source_layer_id: Optional[int] = None
-    road_gap_m: Optional[float] = None
-    road_method: Optional[str] = None
+    area_assessment: AreaAssessment | None = None
+    authority_resolution: Mapping[str, Any] | None = None
+    road_source_layer_id: int | None = None
+    road_gap_m: float | None = None
+    road_method: str | None = None
 
-    def to_legacy_dict(self) -> Dict[str, Any]:
+    def to_legacy_dict(self) -> dict[str, Any]:
         """Adapt at a legacy renderer edge without leaking mutable state."""
         result = {
             "village": self.village,
@@ -179,10 +180,10 @@ class SourceEvidence:
     source: str
     method: str
     layer_ids: Sequence[int] = field(default_factory=tuple)
-    retrieved_at: Optional[str] = None
+    retrieved_at: str | None = None
     warnings: Sequence[str] = field(default_factory=tuple)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "value": deepcopy(self.value),
             "state": self.state.value,
@@ -200,14 +201,14 @@ class PlotIdentity:
     cts_no: str
     ward: str
     plot_type: str
-    area_sqm: Optional[float]
+    area_sqm: float | None
     area_source: str
     latitude: float
     longitude: float
-    area_assessment: Optional[AreaAssessment] = None
-    authority_resolution: Optional[Mapping[str, Any]] = None
+    area_assessment: AreaAssessment | None = None
+    authority_resolution: Mapping[str, Any] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         result = {
             "village": self.village,
             "cts_no": self.cts_no,
@@ -241,7 +242,7 @@ class PlanningRemarks:
     net_unencumbered_sqm: float
     net_unencumbered_percent: float
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         reservations = deepcopy(list(self.reservations))
         designations = deepcopy(list(self.designations))
         modifications = deepcopy(list(self.modifications))
@@ -285,7 +286,7 @@ class RegulatoryInfrastructure:
     road_name: str
     road_width: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "crz_status": self.crz_status,
             "metro_buffer": self.metro_buffer,
@@ -298,8 +299,8 @@ class SpatialCluster:
     neighbours: Sequence[Mapping[str, Any]]
     method: str = "probe"
 
-    def to_dict(self) -> Dict[str, Any]:
-        public_neighbours: List[Dict[str, Any]] = [
+    def to_dict(self) -> dict[str, Any]:
+        public_neighbours: list[dict[str, Any]] = [
             {key: deepcopy(value) for key, value in neighbour.items() if key != "rings"}
             for neighbour in self.neighbours
         ]
@@ -323,7 +324,7 @@ class ArtifactManifest:
     master_excel_register: str
     additional_files: Mapping[str, str] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self) -> dict[str, str]:
         manifest = {
             "bundle_folder": self.bundle_folder,
             "pdf_report": self.pdf_report,
@@ -355,7 +356,7 @@ class RunMetadata:
     evidence: Mapping[str, Any] = field(default_factory=dict)
     diagnostics: Mapping[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "source": self.source,
             "lookup_datetime": self.lookup_datetime,
@@ -382,7 +383,7 @@ class LookupResult:
     export_files: ArtifactManifest
     metadata: RunMetadata
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "plot_identity": self.plot_identity.to_dict(),
             "planning_remarks": self.planning_remarks.to_dict(),

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Tuple
 
 DXF_LAYERS = (
     ("0_GRID_AXIS", 8, "DASHED", 9),
@@ -48,15 +47,15 @@ class DxfLayoutPolicy:
     char_height_fraction: float = 0.035
     dim_char_height_fraction: float = 0.025
     label_min_value_chars: int = 8
-    grid_breaks: Tuple[Tuple[float, float], ...] = ((1000.0, 500.0), (400.0, 200.0), (150.0, 100.0), (60.0, 50.0))
+    grid_breaks: tuple[tuple[float, float], ...] = ((1000.0, 500.0), (400.0, 200.0), (150.0, 100.0), (60.0, 50.0))
     default_grid_step: float = 25.0
     grid_extent_fraction: float = 0.25
     grid_label_offset: float = 0.5
     grid_label_height_fraction: float = 0.8
     plot_line_min_width: float = 0.15
     plot_line_width_fraction: float = 0.005
-    setback_distances: Tuple[float, ...] = (3.0, 6.0)
-    setback_marker_offsets: Tuple[float, ...] = (2.5, 4.0)
+    setback_distances: tuple[float, ...] = (3.0, 6.0)
+    setback_marker_offsets: tuple[float, ...] = (2.5, 4.0)
     setback_nudge_step_fraction: float = 1.3
     setback_nudge_limit: int = 6
     dimension_min_length: float = 1.0

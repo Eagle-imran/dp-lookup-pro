@@ -335,13 +335,15 @@ If you are building a custom Python agent with OpenAI Codex or Function Calling:
    from cts_dp_lookup_pro import lookup_plot_pro
    import asyncio
 
+
    async def main():
        # Call tool programmatically
        result = await lookup_plot_pro(village="BANDRA-A", cts_number="409")
-       
+
        # Print PDF report & DXF file path
        print("PDF Report generated at:", result["export_files"]["pdf_report"])
        print("AutoCAD DXF generated at:", result["export_files"]["autocad_dxf"])
+
 
    asyncio.run(main())
    ```
@@ -349,15 +351,17 @@ Pass `on_data=` to receive the planning result as soon as it is known — roughl
 ten times sooner than waiting for the map image:
 
 ```python
-def show(snapshot):          # metadata.documents_pending is True here
+def show(snapshot):  # metadata.documents_pending is True here
     print(snapshot["regulatory_and_infrastructure"]["crz_status"])
 
-result = await lookup_plot_pro("WORLI", "733", on_data=show)   # returned dict is final
+
+result = await lookup_plot_pro("WORLI", "733", on_data=show)  # returned dict is final
 ```
 
 2. Or register it as an Agent Tool:
    ```python
    from langchain.tools import tool
+
 
    @tool
    async def run_mumbai_dp_lookup(village: str, cts_number: str) -> dict:

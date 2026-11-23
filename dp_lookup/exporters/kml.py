@@ -2,7 +2,8 @@
 Google Earth KML 3D Exporter.
 """
 
-from typing import Any, Iterable, List, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any
 from xml.sax.saxutils import escape as xml_escape
 
 from shapely.geometry import MultiPolygon, Polygon
@@ -62,7 +63,7 @@ def _polygon_xml(polygon: Polygon) -> str:
     )
 
 
-def _geometry_xml(wgs_rings: List[List[List[float]]]) -> str:
+def _geometry_xml(wgs_rings: list[list[list[float]]]) -> str:
     geometry = arcgis_rings_to_geometry(wgs_rings)
     if isinstance(geometry, Polygon):
         return _polygon_xml(geometry)
@@ -72,7 +73,7 @@ def _geometry_xml(wgs_rings: List[List[List[float]]]) -> str:
 
 
 def export_kml(
-    wgs_rings: List[List[List[float]]],
+    wgs_rings: list[list[list[float]]],
     properties: ExportPayload,
     output_path: str,
 ) -> None:

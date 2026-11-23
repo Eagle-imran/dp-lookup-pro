@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Mapping, Optional, Protocol, Sequence, Union, cast
+from typing import Any, Protocol, cast
 
 from dp_lookup.clients.planning_queries import (
     build_spatial_planning_result,
@@ -30,7 +31,7 @@ from dp_lookup.core.constants import (
 )
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
-SnapshotId = Union[int, str]
+SnapshotId = int | str
 PLANNING_LAYER_IDS = (
     LAYER_ZONE,
     LAYER_RESERVATION,
@@ -47,8 +48,8 @@ class PlanningSnapshot:
     """Pinned planning snapshot metadata returned by a repository."""
 
     snapshot_id: SnapshotId
-    finalized_at: Optional[Any] = None
-    source: Optional[str] = None
+    finalized_at: Any | None = None
+    source: str | None = None
 
 
 class PlanningSnapshotStore(Protocol):
@@ -60,7 +61,7 @@ class PlanningSnapshotStore(Protocol):
     village or CTS are deliberately not part of this contract.
     """
 
-    def pin_active_snapshot(self) -> Optional[Any]:
+    def pin_active_snapshot(self) -> Any | None:
         """Return the active snapshot's metadata, or ``None`` when unavailable."""
 
     def query_layer(
@@ -82,7 +83,7 @@ def _snapshot_value(snapshot: Any, name: str, default: Any = None) -> Any:
     return getattr(snapshot, name, default)
 
 
-def _age_days(finalized_at: Any) -> Optional[float]:
+def _age_days(finalized_at: Any) -> float | None:
     """Return snapshot age in days for common repository timestamp forms."""
     if finalized_at is None:
         return None
@@ -93,7 +94,7 @@ def _age_days(finalized_at: Any) -> Optional[float]:
     else:
         text = str(finalized_at).strip()
         try:
-            timestamp = datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+            timestamp = datetime.fromisoformat(text).timestamp()
         except ValueError:
             try:
                 timestamp = float(text)
@@ -104,7 +105,7 @@ def _age_days(finalized_at: Any) -> Optional[float]:
     return round(max(0.0, (time.time() - timestamp) / 86_400.0), 3)
 
 
-def _with_provenance(result: Dict[str, Any], provenance: Dict[str, Any], *extra_warnings: str) -> Dict[str, Any]:
+def _with_provenance(result: dict[str, Any], provenance: dict[str, Any], *extra_warnings: str) -> dict[str, Any]:
     """Attach additive provenance without changing legacy planning fields."""
     result = dict(result)
     if extra_warnings:
@@ -125,11 +126,11 @@ class LocalFirstPlanningQuery:
 
     def __init__(
         self,
-        store: Optional[PlanningSnapshotStore],
+        store: PlanningSnapshotStore | None,
         *,
         live_query: Any = query_spatial_planning_layers,
         mode: str = "auto",
-        max_snapshot_age_days: Optional[float] = DEFAULT_MAX_PLANNING_SNAPSHOT_AGE_DAYS,
+        max_snapshot_age_days: float | None = DEFAULT_MAX_PLANNING_SNAPSHOT_AGE_DAYS,
         allow_stale_local: bool = False,
     ) -> None:
         selected_mode = str(mode).strip().lower()
@@ -160,7 +161,7 @@ class LocalFirstPlanningQuery:
             raise LocalPlanningError("active planning snapshot has no valid snapshot ID")
         return snapshot
 
-    def _local_result(self, rings: List[Any]) -> Dict[str, Any]:
+    def _local_result(self, rings: list[Any]) -> dict[str, Any]:
         snapshot = self._pin()
         snapshot_id = _snapshot_value(snapshot, "snapshot_id")
         finalized_at = _snapshot_value(snapshot, "finalized_at")
@@ -182,7 +183,7 @@ class LocalFirstPlanningQuery:
         if parcel.is_empty or parcel.area <= 0:
             raise ValueError("Parcel geometry has no valid polygon rings")
         area_scale = web_mercator_ground_area_scale(rings, float(parcel.area)) or 1.0
-        by_layer: Dict[int, List[Dict[str, Any]]] = {}
+        by_layer: dict[int, list[dict[str, Any]]] = {}
         try:
             for layer_id in PLANNING_LAYER_IDS:
                 query = getattr(self.store, "query_layer", None)
@@ -226,9 +227,9 @@ class LocalFirstPlanningQuery:
             area_scale=area_scale,
         )
 
-    async def __call__(self, client: Any, rings: List[Any]) -> Dict[str, Any]:
+    async def __call__(self, client: Any, rings: list[Any]) -> dict[str, Any]:
         if self.mode == "live":
-            return cast(Dict[str, Any], await self.live_query(client, rings))
+            return cast(dict[str, Any], await self.live_query(client, rings))
         try:
             return self._local_result(rings)
         except Exception as exc:
@@ -237,7 +238,7 @@ class LocalFirstPlanningQuery:
                     raise
                 raise LocalPlanningError(str(exc)) from exc
             reason = str(exc)
-            live_result = cast(Dict[str, Any], await self.live_query(client, rings))
+            live_result = cast(dict[str, Any], await self.live_query(client, rings))
             provenance = {
                 "source": "live_arcgis",
                 "method": "spatial_polygon",

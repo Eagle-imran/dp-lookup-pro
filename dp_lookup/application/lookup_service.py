@@ -1,10 +1,12 @@
 """Stable application facade coordinating one complete DP plot lookup."""
 
 import asyncio
+import contextlib
 import os
 import sys
 import time
-from typing import Any, Awaitable, Callable, Dict, Optional
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from dp_lookup.application.contracts import ArtifactContext, NeighbourContext
 from dp_lookup.application.dependencies import DEFAULT_DEPENDENCIES, LookupDependencies
@@ -53,10 +55,8 @@ async def _cancel_and_drain(task: Any) -> None:
     if task.done():
         return
     task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass
 
 
 async def lookup_plot_pro(
@@ -66,10 +66,10 @@ async def lookup_plot_pro(
     use_cache: bool = True,
     cache_ttl_seconds: int = DEFAULT_CACHE_TTL_SECONDS,
     timeout_seconds: float = 20.0,
-    on_data: Optional[Callable[[Dict[str, Any]], None]] = None,
+    on_data: Callable[[dict[str, Any]], None] | None = None,
     verify_tls: bool = True,
-    dependencies: Optional[LookupDependencies] = None,
-) -> Dict[str, Any]:
+    dependencies: LookupDependencies | None = None,
+) -> dict[str, Any]:
     """Look up one parcel and generate its planning evidence bundle."""
     started = time.perf_counter()
     diagnostics = RunDiagnostics()
@@ -103,10 +103,8 @@ async def lookup_plot_pro(
             diagnostics.mark("cache_lookup", outcome="hit")
             cached.setdefault("metadata", {})["diagnostics"] = diagnostics.snapshot()
             if on_data is not None:
-                try:
+                with contextlib.suppress(Exception):
                     on_data(cached)
-                except Exception:
-                    pass
             return cached
     diagnostics.mark("cache_lookup", outcome="miss" if use_cache else "disabled")
     warnings, notes = [], []

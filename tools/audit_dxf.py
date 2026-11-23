@@ -21,6 +21,7 @@ Usage:
 
 Exit code is 1 when any fault is found, so CI can gate on it.
 """
+
 import argparse
 import os
 import sys
@@ -133,7 +134,7 @@ def main(argv=None):
     drawing = [(i, e, b) for i, (e, b) in enumerate(texts) if i not in inside_panel]
     collisions = 0
     for idx, (_i, e1, b1) in enumerate(drawing):
-        for _j, e2, b2 in drawing[idx + 1:]:
+        for _j, e2, b2 in drawing[idx + 1 :]:
             if boxes_overlap(b1, b2):
                 collisions += 1
                 faults.append(f"collision: {entity_text(e1)[:30]!r} x {entity_text(e2)[:30]!r}")
@@ -161,10 +162,7 @@ def main(argv=None):
                     break
                 except ValueError:
                     continue
-    discloses = any(
-        "CALCULATED (BDY)" in entity_text(e) or "MEASURED (BDY)" in entity_text(e)
-        for e, _ in texts
-    )
+    discloses = any("CALCULATED (BDY)" in entity_text(e) or "MEASURED (BDY)" in entity_text(e) for e, _ in texts)
     if printed is not None:
         say(f"  printed on sheet  : {printed:10.2f} m2")
         if bdy_area:
@@ -173,7 +171,8 @@ def main(argv=None):
             if abs(d) > 2.0 and not discloses:
                 faults.append(
                     f"boundary measures {d:+.2f}% vs the printed area, and the sheet "
-                    "does not disclose the measured value")
+                    "does not disclose the measured value"
+                )
             elif abs(d) > 2.0:
                 say(f"  -> {d:+.2f}% gap, disclosed on the sheet via CALCULATED (BDY)")
     else:
@@ -193,14 +192,15 @@ def main(argv=None):
                 worst = (ratio, e, b)
         if worst:
             ratio, e, b = worst
-            say(f"  widest annotation : {b[2]-b[0]:.2f} m = {ratio:.2f}x plot width")
+            say(f"  widest annotation : {b[2] - b[0]:.2f} m = {ratio:.2f}x plot width")
             say(f"                      {entity_text(e)[:60]!r}")
             if ratio > 3.0:
-                faults.append(
-                    f"annotation is {ratio:.2f}x the plot width - unreadable at plot scale")
+                faults.append(f"annotation is {ratio:.2f}x the plot width - unreadable at plot scale")
             elif ratio > 1.5:
-                say(f"  -> note: {ratio:.2f}x plot width. Acceptable (it sits outside the "
-                    "boundary) but cramped on a small plot.")
+                say(
+                    f"  -> note: {ratio:.2f}x plot width. Acceptable (it sits outside the "
+                    "boundary) but cramped on a small plot."
+                )
 
     say("\n=== layers ===")
     used = {e.dxf.layer for e in msp}
@@ -211,8 +211,9 @@ def main(argv=None):
         say(f"  EMPTY: {', '.join(empty)}")
     else:
         say(f"  all {len(declared)} declared layers carry entities")
-    flat = sorted(lay.dxf.name for lay in doc.layers
-                  if lay.dxf.name not in ("0", "Defpoints") and lay.dxf.lineweight < 0)
+    flat = sorted(
+        lay.dxf.name for lay in doc.layers if lay.dxf.name not in ("0", "Defpoints") and lay.dxf.lineweight < 0
+    )
     if flat:
         faults.append(f"{len(flat)} layers have no lineweight and will plot flat")
         say(f"  NO LINEWEIGHT ({len(flat)}): {', '.join(flat)}")
@@ -223,22 +224,24 @@ def main(argv=None):
     road_row = next((entity_text(e) for e, _ in texts if "ABUTTING ROAD" in entity_text(e)), "")
     claimed = road_row.split(":", 1)[-1].strip() if road_row else ""
     has_name = bool(claimed) and claimed.lower() not in ("n/a", "none", "none (none)", "")
-    road_polys = [e for e in msp if e.dxf.layer == "C-ROAD-ALIGN"
-                  and e.dxftype() == "LWPOLYLINE"]
+    road_polys = [e for e in msp if e.dxf.layer == "C-ROAD-ALIGN" and e.dxftype() == "LWPOLYLINE"]
     say(f"  PLOT DATA says   : {claimed[:60]!r}")
     say(f"  road polylines   : {len(road_polys)}")
     if has_name and not road_polys:
         faults.append(
             f"PLOT DATA names a frontage ({claimed[:40]!r}) but no road geometry is "
-            "drawn, so the front setback cannot be identified")
+            "drawn, so the front setback cannot be identified"
+        )
     elif not has_name:
         say("  -> no frontage named by MCGM; nothing to draw")
 
     hatches = list(msp.query("HATCH"))
     for h in hatches:
         opaque = h.dxf.solid_fill and not h.dxf.hasattr("transparency")
-        say(f"  hatch on {h.dxf.layer}: pattern={h.dxf.pattern_name} "
-            f"solid={h.dxf.solid_fill} {'OPAQUE' if opaque else 'transparent'}")
+        say(
+            f"  hatch on {h.dxf.layer}: pattern={h.dxf.pattern_name} "
+            f"solid={h.dxf.solid_fill} {'OPAQUE' if opaque else 'transparent'}"
+        )
         if opaque:
             faults.append("hatch is an opaque solid fill and will hide any underlay")
 

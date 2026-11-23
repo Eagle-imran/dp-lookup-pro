@@ -13,10 +13,11 @@ import asyncio
 import hashlib
 import json
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
+from typing import Any, cast
 
 from shapely.geometry import MultiPolygon, Polygon, mapping
 from shapely.geometry.base import BaseGeometry
@@ -34,7 +35,7 @@ from dp_lookup.exporters.kml import export_kml
 from dp_lookup.planning_snapshot import PlanningSnapshotStore
 from dp_lookup.spatial_store import SnapshotStore
 
-Identity = Tuple[str, str]
+Identity = tuple[str, str]
 ASSEMBLY_SCHEMA = "experimental-plot-assembly/0.1"
 DISCLAIMER = (
     "Experimental feasibility screening only. This result does not establish title, ownership, access, "
@@ -55,7 +56,7 @@ def _public(value: Any) -> Any:
     return value
 
 
-def _positive_area(value: Any) -> Optional[float]:
+def _positive_area(value: Any) -> float | None:
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -63,7 +64,7 @@ def _positive_area(value: Any) -> Optional[float]:
     return number if number > 0 else None
 
 
-def _geometry_rings(geometry: BaseGeometry) -> List[List[List[float]]]:
+def _geometry_rings(geometry: BaseGeometry) -> list[list[list[float]]]:
     """Encode a Polygon/MultiPolygon as lossless ArcGIS-style rings."""
     polygons: Sequence[Polygon]
     if isinstance(geometry, Polygon):
@@ -72,14 +73,14 @@ def _geometry_rings(geometry: BaseGeometry) -> List[List[List[float]]]:
         polygons = tuple(geometry.geoms)
     else:
         raise ValueError("assembly union did not produce polygon geometry")
-    rings: List[List[List[float]]] = []
+    rings: list[list[list[float]]] = []
     for polygon in polygons:
         rings.append([[float(x), float(y)] for x, y in polygon.exterior.coords])
         rings.extend([[float(x), float(y)] for x, y in interior.coords] for interior in polygon.interiors)
     return rings
 
 
-def _wgs_rings(rings: Sequence[Sequence[Sequence[float]]]) -> List[List[List[float]]]:
+def _wgs_rings(rings: Sequence[Sequence[Sequence[float]]]) -> list[list[list[float]]]:
     return [[mercator_to_wgs84(float(point[0]), float(point[1]), precision=10) for point in ring] for ring in rings]
 
 
@@ -92,7 +93,7 @@ def _source_feature(
     store: SnapshotStore,
     snapshot_id: int,
     identity: Identity,
-) -> tuple[ParcelAssemblyInput, List[List[List[float]]], Dict[str, Any]]:
+) -> tuple[ParcelAssemblyInput, list[list[list[float]]], dict[str, Any]]:
     village, cts_no = identity
     rows = store.lookup(village, cts_no, snapshot_id=snapshot_id)
     if not rows:
@@ -135,7 +136,7 @@ def _source_feature(
     return parcel, rings, member
 
 
-def _snapshot_provenance(store: SnapshotStore, snapshot_id: int) -> Dict[str, Any]:
+def _snapshot_provenance(store: SnapshotStore, snapshot_id: int) -> dict[str, Any]:
     status = store.status(snapshot_id)
     snapshot = status.get("snapshot")
     snapshot = snapshot if isinstance(snapshot, Mapping) else {}
@@ -150,7 +151,7 @@ def _snapshot_provenance(store: SnapshotStore, snapshot_id: int) -> Dict[str, An
     }
 
 
-def _planning_result(database: Path, combined_rings: List[List[List[float]]]) -> Dict[str, Any]:
+def _planning_result(database: Path, combined_rings: list[list[list[float]]]) -> dict[str, Any]:
     """Run the existing deterministic planning policy against the union."""
     with PlanningSnapshotStore.open(database) as store:
         query = LocalFirstPlanningQuery(
@@ -166,7 +167,7 @@ def _export_properties(
     analysis: Mapping[str, Any],
     planning: Mapping[str, Any],
     provenance: Mapping[str, Any],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     recorded = analysis.get("gross_recorded_area_sqm")
     calculated_value = analysis.get("calculated_combined_boundary_area_sqm")
     if not isinstance(calculated_value, (int, float)):
@@ -242,7 +243,7 @@ def _slug(value: str) -> str:
     return cleaned or "plot"
 
 
-def _output_directory(output: Optional[Path], identities: Sequence[Identity]) -> Path:
+def _output_directory(output: Path | None, identities: Sequence[Identity]) -> Path:
     if output is not None:
         return Path(output)
     village, cts = identities[0]
@@ -251,11 +252,11 @@ def _output_directory(output: Optional[Path], identities: Sequence[Identity]) ->
 
 def _write_outputs(
     directory: Path,
-    result: Dict[str, Any],
+    result: dict[str, Any],
     identities: Sequence[Identity],
-    combined_rings: List[List[List[float]]],
+    combined_rings: list[list[list[float]]],
     member_rings: Sequence[Sequence[Sequence[Sequence[float]]]],
-) -> Dict[str, str]:
+) -> dict[str, str]:
     directory.mkdir(parents=True, exist_ok=True)
     wgs_union = _wgs_rings(combined_rings)
     properties = _export_properties(identities, result["geometry"], result["planning"], result["source"])
@@ -301,7 +302,7 @@ class LocalAssemblyServices:
         self,
         database: Path,
         identities: Sequence[Identity],
-        output: Optional[Path],
+        output: Path | None,
         gap_tolerance_m: float,
     ) -> Mapping[str, Any]:
         database = Path(database)
@@ -311,9 +312,9 @@ class LocalAssemblyServices:
         if len(normalized) < 2:
             raise ValueError("plot assembly analysis requires at least two CTS identities")
 
-        parcels: List[ParcelAssemblyInput] = []
-        member_rings: List[List[List[List[float]]]] = []
-        members: List[Dict[str, Any]] = []
+        parcels: list[ParcelAssemblyInput] = []
+        member_rings: list[list[list[list[float]]]] = []
+        members: list[dict[str, Any]] = []
         with SnapshotStore.open(database) as store:
             snapshot_id = store.active_snapshot_id()
             if snapshot_id is None:
@@ -330,7 +331,7 @@ class LocalAssemblyServices:
         web_geometries = [arcgis_rings_to_geometry(rings) for rings in member_rings]
         combined_web = unary_union(web_geometries)
         combined_rings = _geometry_rings(combined_web)
-        runtime_warnings: List[Dict[str, str]] = []
+        runtime_warnings: list[dict[str, str]] = []
         try:
             planning = _planning_result(database, combined_rings)
         except Exception as exc:
@@ -344,7 +345,7 @@ class LocalAssemblyServices:
             )
 
         warnings = list(geometry_result.get("warnings", [])) + runtime_warnings
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "schema_version": ASSEMBLY_SCHEMA,
             "experimental": True,
             "authority_status": "screening",

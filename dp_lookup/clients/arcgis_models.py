@@ -7,8 +7,9 @@ should not repeatedly rediscover whether ``features``, ``results``,
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional, Tuple
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -17,17 +18,17 @@ class ArcGISFeature:
 
     attributes: Mapping[str, Any]
     geometry: Mapping[str, Any]
-    layer_id: Optional[int]
+    layer_id: int | None
     raw: Mapping[str, Any]
 
     @classmethod
-    def from_value(cls, value: Any) -> Optional["ArcGISFeature"]:
+    def from_value(cls, value: Any) -> ArcGISFeature | None:
         if not isinstance(value, Mapping):
             return None
         attributes = value.get("attributes")
         geometry = value.get("geometry")
         raw_layer_id = value.get("layerId")
-        layer_id: Optional[int]
+        layer_id: int | None
         try:
             layer_id = int(raw_layer_id) if raw_layer_id is not None else None
         except (TypeError, ValueError):
@@ -45,13 +46,13 @@ class ArcGISPayload:
     """A successfully decoded ArcGIS JSON object."""
 
     raw: Mapping[str, Any]
-    features: Tuple[ArcGISFeature, ...]
-    results: Tuple[ArcGISFeature, ...]
+    features: tuple[ArcGISFeature, ...]
+    results: tuple[ArcGISFeature, ...]
     features_valid: bool
     results_valid: bool
 
     @classmethod
-    def from_mapping(cls, value: Any) -> Optional["ArcGISPayload"]:
+    def from_mapping(cls, value: Any) -> ArcGISPayload | None:
         if not isinstance(value, Mapping) or "error" in value:
             return None
         raw_features = value.get("features", [])
@@ -65,14 +66,14 @@ class ArcGISPayload:
         )
 
 
-def _feature_collection(value: Any) -> Tuple[ArcGISFeature, ...]:
+def _feature_collection(value: Any) -> tuple[ArcGISFeature, ...]:
     if not isinstance(value, (list, tuple)):
         return ()
     features = (ArcGISFeature.from_value(item) for item in value)
     return tuple(feature for feature in features if feature is not None)
 
 
-def decode_arcgis_response(response: Any) -> Optional[ArcGISPayload]:
+def decode_arcgis_response(response: Any) -> ArcGISPayload | None:
     """Decode a successful HTTP response once, at the transport boundary."""
     if response is None or isinstance(response, Exception):
         return None

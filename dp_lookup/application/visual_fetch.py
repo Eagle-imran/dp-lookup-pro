@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Any, List, Tuple
+from typing import Any
 
 from dp_lookup.application.contracts import MapFetchContext, ParcelContext
 from dp_lookup.application.dependencies import LookupDependencies
@@ -21,9 +21,9 @@ class VisualFetchSession:
 
     task: Any
     started: float
-    satellite_coordinates: List[Tuple[int, int]]
-    bbox: Tuple[float, float, float, float]
-    size: Tuple[int, int]
+    satellite_coordinates: list[tuple[int, int]]
+    bbox: tuple[float, float, float, float]
+    size: tuple[int, int]
     tile_x: int
     tile_y: int
     zoom: int
@@ -88,7 +88,7 @@ def start_visual_fetch(
             break
         zoom -= 1
     half_grid = grid_dimension // 2
-    coordinates: List[Tuple[int, int]] = []
+    coordinates: list[tuple[int, int]] = []
     tiles = []
     for delta_y in range(-half_grid, half_grid + 1):
         for delta_x in range(-half_grid, half_grid + 1):

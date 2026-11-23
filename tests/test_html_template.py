@@ -195,7 +195,7 @@ def test_every_popup_interpolation_is_escaped():
     import re
 
     script = resources.files("dp_lookup.exporters.templates").joinpath("dossier.js").read_text(encoding="utf-8")
-    popups = re.findall(r"bindPopup\(`(.*?)`\)", script, flags=re.S)
+    popups = re.findall(r"bindPopup\(`(.*?)`\)", script, flags=re.DOTALL)
     assert len(popups) >= 6
     expressions = [expr for popup in popups for expr in re.findall(r"\$\{(.*?)\}", popup)]
     assert expressions

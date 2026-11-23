@@ -17,8 +17,9 @@ import importlib
 import json
 import math
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Protocol, Sequence, TextIO, Tuple, cast
+from typing import Any, Protocol, TextIO, cast
 
 from dp_lookup.cli_parser import default_database_path
 
@@ -43,7 +44,7 @@ Each identity uses VILLAGE:CTS.  Split occurs at the first colon so quoted
 CTS values containing additional punctuation remain intact.
 """
 
-Identity = Tuple[str, str]
+Identity = tuple[str, str]
 
 
 class AssemblyService(Protocol):
@@ -53,7 +54,7 @@ class AssemblyService(Protocol):
         self,
         database: Path,
         identities: Sequence[Identity],
-        output: Optional[Path],
+        output: Path | None,
         gap_tolerance_m: float,
     ) -> Mapping[str, Any]: ...
 
@@ -79,7 +80,7 @@ def _number(value: str) -> float:
     return parsed
 
 
-def parse_assembly_args(argv: Sequence[str]) -> Dict[str, Any]:
+def parse_assembly_args(argv: Sequence[str]) -> dict[str, Any]:
     """Parse the isolated experimental grammar without process side effects."""
     tokens = list(argv)
     if len(tokens) < 3 or tokens[:2] != ["experimental", "assembly"]:
@@ -90,8 +91,8 @@ def parse_assembly_args(argv: Sequence[str]) -> Dict[str, Any]:
         raise ValueError("expected experimental assembly command: analyze")
 
     identities: list[Identity] = []
-    database: Optional[Path] = None
-    output: Optional[Path] = None
+    database: Path | None = None
+    output: Path | None = None
     gap_tolerance_m = 0.25
     as_json = False
     index = 3
@@ -207,14 +208,15 @@ def _human(result: Mapping[str, Any], identities: Sequence[Identity], gap_tolera
     planning = result.get("planning")
     if isinstance(planning, Mapping):
         lines.append(f"Combined planning zone: {planning.get('primary_zone', 'Unknown')}")
-        lines.append(f"Reservations / designations: {len(planning.get('reservations') or [])} / {len(planning.get('designations') or [])}")
-        lines.append(f"CRZ / Metro: {planning.get('crz_status', 'Unknown')} / {planning.get('metro_buffer', 'Unknown')}")
+        lines.append(
+            f"Reservations / designations: {len(planning.get('reservations') or [])} / {len(planning.get('designations') or [])}"
+        )
+        lines.append(
+            f"CRZ / Metro: {planning.get('crz_status', 'Unknown')} / {planning.get('metro_buffer', 'Unknown')}"
+        )
     warnings = result.get("warnings")
     if isinstance(warnings, Sequence) and not isinstance(warnings, (str, bytes)):
-        messages = [
-            str(item.get("message")) if isinstance(item, Mapping) else str(item)
-            for item in warnings
-        ]
+        messages = [str(item.get("message")) if isinstance(item, Mapping) else str(item) for item in warnings]
         lines.append("Warnings: " + ("; ".join(messages) or "none"))
     outputs = result.get("outputs")
     if isinstance(outputs, Mapping) and outputs:
@@ -223,10 +225,10 @@ def _human(result: Mapping[str, Any], identities: Sequence[Identity], gap_tolera
 
 
 def main(
-    argv: Optional[Sequence[str]] = None,
+    argv: Sequence[str] | None = None,
     *,
-    service: Optional[AssemblyService] = None,
-    out: Optional[TextIO] = None,
+    service: AssemblyService | None = None,
+    out: TextIO | None = None,
 ) -> int:
     """Run the explicit experimental assembly command."""
     output_stream = out or sys.stdout
@@ -258,10 +260,7 @@ def main(
                         "command": "experimental assembly analyze",
                         "database": str(parsed["database"]),
                         "gap_tolerance_m": parsed["gap_tolerance_m"],
-                        "identities": [
-                            {"village": village, "cts": cts}
-                            for village, cts in parsed["identities"]
-                        ],
+                        "identities": [{"village": village, "cts": cts} for village, cts in parsed["identities"]],
                         "error": str(exc),
                     },
                     sort_keys=True,

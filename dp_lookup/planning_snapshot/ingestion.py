@@ -9,8 +9,9 @@ planning snapshot store.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Optional, Sequence, Union
+from typing import Any
 
 from dp_lookup.planning_snapshot.models import PlanningSnapshot, utc_now
 from dp_lookup.planning_snapshot.store import PlanningSnapshotStore
@@ -21,11 +22,11 @@ class PlanningLayerInput:
     layer_id: int
     features: Iterable[Any]
     name: str = ""
-    geometry_type: Optional[str] = None
+    geometry_type: str | None = None
     object_id_field: str = "OBJECTID"
-    expected_count: Optional[int] = None
+    expected_count: int | None = None
     metadata: Mapping[str, Any] = None  # type: ignore[assignment]
-    inventory: Optional[Sequence[int]] = None
+    inventory: Sequence[int] | None = None
 
     def __post_init__(self) -> None:
         if self.metadata is None:
@@ -34,11 +35,11 @@ class PlanningLayerInput:
 
 def ingest_planning_snapshot(
     store: PlanningSnapshotStore,
-    layers: Union[Mapping[int, Iterable[Any]], Iterable[PlanningLayerInput]],
+    layers: Mapping[int, Iterable[Any]] | Iterable[PlanningLayerInput],
     *,
-    source_url: Optional[str] = None,
-    metadata: Optional[Mapping[str, Any]] = None,
-    version: Optional[int] = None,
+    source_url: str | None = None,
+    metadata: Mapping[str, Any] | None = None,
+    version: int | None = None,
     batch_size: int = 1000,
 ) -> PlanningSnapshot:
     """Persist and finalize one captured planning-layer snapshot.
@@ -51,7 +52,9 @@ def ingest_planning_snapshot(
     if isinstance(batch_size, bool) or batch_size < 1:
         raise ValueError("batch_size must be positive")
     if isinstance(layers, Mapping):
-        inputs = tuple(PlanningLayerInput(layer_id=int(layer_id), features=features) for layer_id, features in layers.items())
+        inputs = tuple(
+            PlanningLayerInput(layer_id=int(layer_id), features=features) for layer_id, features in layers.items()
+        )
     else:
         inputs = tuple(layers)
     snapshot_id = store.begin_snapshot(source_url=source_url, metadata=metadata, version=version)

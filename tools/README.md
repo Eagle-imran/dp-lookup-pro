@@ -2,8 +2,6 @@
 
 These scripts are developer utilities, not public CLI commands:
 
-- `check_format.py` checks the shared local/CI Ruff formatting scope. Pass
-  `--fix` to apply formatting to that same target list.
 - `check_comments.py` bans code comments with a per-file ratchet stored in
   `comment_baseline.json`. Pass `--update` after removing comments to lower the
   baseline. See [the ADR](../docs/decisions/2026-11-24-no-code-comments.md).

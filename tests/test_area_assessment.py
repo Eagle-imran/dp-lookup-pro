@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Optional
 
 import pytest
 
@@ -29,7 +28,7 @@ def _square(
     ]
 
 
-def _attrs(recorded_area: Optional[float] = None, **extra: object) -> dict[str, object]:
+def _attrs(recorded_area: float | None = None, **extra: object) -> dict[str, object]:
     attrs: dict[str, object] = {
         "OBJECTID": 733,
         "VILLAGE": "WORLI",

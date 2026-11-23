@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import builtins
 import contextlib
 import sqlite3
-from datetime import datetime, timezone
+from collections.abc import Iterator, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union, cast
+from typing import Any, cast
 
 from dp_lookup.authority.codecs import (
     crs_wkid as _crs_wkid,
@@ -48,19 +50,19 @@ from dp_lookup.authority.schema import AUTHORITY_SCHEMA_VERSION, SCHEMA
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class AuthorityStore:
     """Durable authority registry sharing the project's existing SQLite file."""
 
-    def __init__(self, connection: sqlite3.Connection, path: Union[str, Path], owns_connection: bool = True) -> None:
+    def __init__(self, connection: sqlite3.Connection, path: str | Path, owns_connection: bool = True) -> None:
         self.connection = connection
         self.path = Path(path)
         self._owns_connection = owns_connection
 
     @classmethod
-    def open(cls, path: Union[str, Path], create: bool = True) -> "AuthorityStore":
+    def open(cls, path: str | Path, create: bool = True) -> AuthorityStore:
         path_obj = Path(path)
         if not create and not path_obj.is_file():
             raise FileNotFoundError(path_obj)
@@ -96,7 +98,7 @@ class AuthorityStore:
         return cls(connection, path_obj)
 
     @classmethod
-    def from_connection(cls, connection: sqlite3.Connection, path: Union[str, Path] = "") -> "AuthorityStore":
+    def from_connection(cls, connection: sqlite3.Connection, path: str | Path = "") -> AuthorityStore:
         connection.executescript(SCHEMA)
         connection.execute(
             "INSERT INTO authority_meta(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO NOTHING",
@@ -109,7 +111,7 @@ class AuthorityStore:
         if self._owns_connection:
             self.connection.close()
 
-    def __enter__(self) -> "AuthorityStore":
+    def __enter__(self) -> AuthorityStore:
         return self
 
     def __exit__(self, *_: Any) -> None:
@@ -139,9 +141,9 @@ class AuthorityStore:
         connection: sqlite3.Connection,
         record_id: int,
         event_type: str,
-        actor: Optional[str],
-        reason: Optional[str],
-        details: Optional[Mapping[str, Any]] = None,
+        actor: str | None,
+        reason: str | None,
+        details: Mapping[str, Any] | None = None,
     ) -> None:
         connection.execute(
             "INSERT INTO authority_events(record_id,event_type,actor,event_at,reason,details_json) VALUES(?,?,?,?,?,?)",
@@ -150,10 +152,10 @@ class AuthorityStore:
 
     def register(
         self,
-        manifest: Union[AuthorityManifest, Mapping[str, Any]],
+        manifest: AuthorityManifest | Mapping[str, Any],
         *,
-        manifest_dir: Optional[Union[str, Path]] = None,
-        actor: Optional[str] = None,
+        manifest_dir: str | Path | None = None,
+        actor: str | None = None,
     ) -> AuthorityRecord:
         """Register an immutable record, returning an existing checksum match idempotently."""
         item = manifest if isinstance(manifest, AuthorityManifest) else AuthorityManifest.from_mapping(manifest)
@@ -255,14 +257,14 @@ class AuthorityStore:
 
     def list(
         self,
-        village: Optional[str] = None,
-        cts_no: Optional[str] = None,
+        village: str | None = None,
+        cts_no: str | None = None,
         *,
-        source_type: Optional[Union[SourceType, str]] = None,
-        status: Optional[Union[SourceStatus, str]] = None,
-    ) -> Tuple[AuthorityRecord, ...]:
-        clauses: List[str] = []
-        values: List[Any] = []
+        source_type: SourceType | str | None = None,
+        status: SourceStatus | str | None = None,
+    ) -> tuple[AuthorityRecord, ...]:
+        clauses: list[str] = []
+        values: list[Any] = []
         if village is not None:
             clauses.append("village=?")
             values.append(_normalised_identity(village))
@@ -283,32 +285,32 @@ class AuthorityStore:
 
     def add_manifest(
         self,
-        items: Union[AuthorityManifest, Mapping[str, Any], Sequence[Union[AuthorityManifest, Mapping[str, Any]]]],
+        items: AuthorityManifest | Mapping[str, Any] | Sequence[AuthorityManifest | Mapping[str, Any]],
         *,
-        actor: Optional[str] = None,
-        manifest_dir: Optional[Union[str, Path]] = None,
-    ) -> List[Dict[str, Any]]:
+        actor: str | None = None,
+        manifest_dir: str | Path | None = None,
+    ) -> builtins.list[dict[str, Any]]:
         """CLI-friendly batch registration returning JSON-safe records."""
         if isinstance(items, (AuthorityManifest, Mapping)):
-            iterable: Sequence[Union[AuthorityManifest, Mapping[str, Any]]] = (items,)
+            iterable: Sequence[AuthorityManifest | Mapping[str, Any]] = (items,)
         else:
             iterable = items
         return [self.register(item, actor=actor, manifest_dir=manifest_dir).to_dict() for item in iterable]
 
     def list_sources(
         self,
-        village: Optional[str] = None,
-        cts: Optional[str] = None,
+        village: str | None = None,
+        cts: str | None = None,
         *,
-        cts_no: Optional[str] = None,
-        source_type: Optional[Union[SourceType, str]] = None,
-        status: Optional[Union[SourceStatus, str]] = None,
-    ) -> Dict[str, Any]:
+        cts_no: str | None = None,
+        source_type: SourceType | str | None = None,
+        status: SourceStatus | str | None = None,
+    ) -> dict[str, Any]:
         """Return a stable JSON envelope for the authority CLI."""
         records = self.list(village, cts_no or cts, source_type=source_type, status=status)
         return {"records": [record.to_dict() for record in records], "revision": self.revision(village, cts_no or cts)}
 
-    def get_source(self, record_id: Union[int, str]) -> Dict[str, Any]:
+    def get_source(self, record_id: int | str) -> dict[str, Any]:
         return self.get(int(record_id)).to_dict()
 
     def verify(
@@ -316,8 +318,8 @@ class AuthorityStore:
         record_id: int,
         *,
         actor: str,
-        manifest_dir: Optional[Union[str, Path]] = None,
-        notes: Optional[str] = None,
+        manifest_dir: str | Path | None = None,
+        notes: str | None = None,
     ) -> AuthorityRecord:
         """Verify a record only when its local document hash and issuer agree."""
         if not str(actor).strip():
@@ -363,12 +365,12 @@ class AuthorityStore:
 
     def verify_source(
         self,
-        record_id: Union[int, str],
+        record_id: int | str,
         *,
         reviewed_by: str,
-        manifest_dir: Optional[Union[str, Path]] = None,
-        notes: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        manifest_dir: str | Path | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
         return self.verify(int(record_id), actor=reviewed_by, manifest_dir=manifest_dir, notes=notes).to_dict()
 
     def withdraw(self, record_id: int, *, actor: str, reason: str) -> AuthorityRecord:
@@ -391,7 +393,7 @@ class AuthorityStore:
             )
         return self.get(record_id)
 
-    def withdraw_source(self, record_id: Union[int, str], *, actor: str, reason: str) -> Dict[str, Any]:
+    def withdraw_source(self, record_id: int | str, *, actor: str, reason: str) -> dict[str, Any]:
         return self.withdraw(int(record_id), actor=actor, reason=reason).to_dict()
 
     def _suitable(self, record: AuthorityRecord, purpose: SelectionPurpose) -> bool:
@@ -403,9 +405,7 @@ class AuthorityStore:
             return record.has_geometry
         return record.source_type is SourceType.DP_REMARKS
 
-    def activate(
-        self, record_id: int, purpose: Union[SelectionPurpose, str], *, actor: str, reason: str
-    ) -> AuthorityRecord:
+    def activate(self, record_id: int, purpose: SelectionPurpose | str, *, actor: str, reason: str) -> AuthorityRecord:
         selected_purpose = SelectionPurpose.parse(purpose)
         if not str(actor).strip() or not str(reason).strip():
             raise AuthorityValidationError("actor and reason are required to activate a source")
@@ -436,12 +436,12 @@ class AuthorityStore:
 
     def activate_source(
         self,
-        record_id: Union[int, str],
+        record_id: int | str,
         *,
-        purpose: Union[SelectionPurpose, str],
+        purpose: SelectionPurpose | str,
         activated_by: str,
-        reason: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        reason: str | None = None,
+    ) -> dict[str, Any]:
         return self.activate(
             int(record_id), purpose, actor=activated_by, reason=reason or "explicit source activation"
         ).to_dict()
@@ -451,11 +451,11 @@ class AuthorityStore:
         village: str,
         cts_no: str,
         *,
-        purpose: Optional[Union[SelectionPurpose, str]] = None,
-        selection_purpose: Optional[Union[SelectionPurpose, str]] = None,
-    ) -> Union[Dict[str, AuthorityRecord], Tuple[AuthorityRecord, ...]]:
+        purpose: SelectionPurpose | str | None = None,
+        selection_purpose: SelectionPurpose | str | None = None,
+    ) -> dict[str, AuthorityRecord] | tuple[AuthorityRecord, ...]:
         selected_purpose = purpose if purpose is not None else selection_purpose
-        purpose_value: Optional[str] = None
+        purpose_value: str | None = None
         if selected_purpose is not None:
             raw_purpose = str(getattr(selected_purpose, "value", selected_purpose)).strip().casefold()
             purpose_aliases = {
@@ -469,7 +469,7 @@ class AuthorityStore:
                 else SelectionPurpose.parse(raw_purpose).value
             )
         clauses = " AND s.purpose=?" if purpose_value is not None else ""
-        values: List[Any] = [_normalised_identity(village), _normalised_identity(cts_no), SourceStatus.VERIFIED.value]
+        values: list[Any] = [_normalised_identity(village), _normalised_identity(cts_no), SourceStatus.VERIFIED.value]
         if purpose_value is not None:
             values.append(purpose_value)
         rows = self.connection.execute(
@@ -482,7 +482,7 @@ class AuthorityStore:
             return records
         return {str(row["purpose"]): record for row, record in zip(rows, records, strict=False)}
 
-    def revision(self, village: Optional[str] = None, cts_no: Optional[str] = None) -> int:
+    def revision(self, village: str | None = None, cts_no: str | None = None) -> int:
         """Return a plot revision, or a monotonic global registry revision."""
         if village is None and cts_no is None:
             row = self.connection.execute(
@@ -497,7 +497,7 @@ class AuthorityStore:
         ).fetchone()
         return int(row[0])
 
-    def audit(self, record_id: Optional[int] = None) -> Union[Tuple[Mapping[str, Any], ...], Dict[str, Any]]:
+    def audit(self, record_id: int | None = None) -> tuple[Mapping[str, Any], ...] | dict[str, Any]:
         if record_id is None:
             counts = {
                 str(row["status"]): int(row["count"])

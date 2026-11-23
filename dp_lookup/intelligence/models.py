@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any
 
 ALGORITHM_VERSION = "plot-intelligence/1.4.1"
 
@@ -19,11 +20,11 @@ class IntelligenceBuild:
     expected_count: int
     record_count: int
     created_at: str
-    finalized_at: Optional[str] = None
+    finalized_at: str | None = None
     source_fingerprint: str = ""
     validation: Mapping[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "build_id": self.build_id,
             "state": self.state,
@@ -44,8 +45,8 @@ class IntelligenceBuild:
 class PlotIntelligence:
     village: str
     cts_no: str
-    ward: Optional[str]
-    source_objectids: Tuple[int, ...]
+    ward: str | None
+    source_objectids: tuple[int, ...]
     feature_part_count: int
     area_sqm: float
     area_source: str
@@ -53,10 +54,10 @@ class PlotIntelligence:
     centroid_x: float
     centroid_y: float
     primary_zone: str
-    zones: Tuple[Mapping[str, Any], ...] = ()
-    reservations: Tuple[Mapping[str, Any], ...] = ()
-    designations: Tuple[Mapping[str, Any], ...] = ()
-    modifications: Tuple[Mapping[str, Any], ...] = ()
+    zones: tuple[Mapping[str, Any], ...] = ()
+    reservations: tuple[Mapping[str, Any], ...] = ()
+    designations: tuple[Mapping[str, Any], ...] = ()
+    modifications: tuple[Mapping[str, Any], ...] = ()
     metro_buffer: str = "UNKNOWN"
     crz_status: str = "UNKNOWN"
     encumbered_area_sqm: float = 0.0
@@ -65,17 +66,17 @@ class PlotIntelligence:
     net_unencumbered_percent: float = 0.0
     road_name: str = "None"
     road_width: str = "N/A"
-    road_distance_m: Optional[float] = None
+    road_distance_m: float | None = None
     neighbour_count: int = 0
-    neighbours: Tuple[Mapping[str, Any], ...] = ()
+    neighbours: tuple[Mapping[str, Any], ...] = ()
     evidence_summary: Mapping[str, Any] = field(default_factory=dict)
-    warnings: Tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
     confidence: str = "verified"
-    source_refs: Tuple[Mapping[str, Any], ...] = ()
+    source_refs: tuple[Mapping[str, Any], ...] = ()
     facts_hash: str = ""
     calculated_at: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         assessment = self.evidence_summary.get("area_assessment")
         return {
             "plot_identity": {

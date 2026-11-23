@@ -1,8 +1,10 @@
 """Pure parsing and compatibility aliases for the main lookup CLI."""
+
 from __future__ import annotations
 
 import os
-from typing import Any, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from dp_lookup.core.constants import APPLICATION_VERSION
 from dp_lookup.planning_evidence.models import EvidenceMode
@@ -42,7 +44,10 @@ Examples:
 Village must be one of the 128 exact MCGM revenue village names
 (e.g. BANDRA-A, not BANDRA). See START-HERE.md for the full list."""
 
-HELP = USAGE + "\n\nOptions:\n  -h, --help        show this help message and exit\n  --version         show the installed version and exit"
+HELP = (
+    USAGE
+    + "\n\nOptions:\n  -h, --help        show this help message and exit\n  --version         show the installed version and exit"
+)
 
 DATABASE_HELP = """Database administration:
   dp-lookup-pro db health [--database PATH] [--json]
@@ -61,8 +66,23 @@ The existing `database build`, `database build-planning`, and related flat
 commands remain supported for scripts. DP_LOOKUP_DATABASE sets the default
 database; otherwise data/mcgm-layer13.sqlite is used by the new aliases."""
 
-_PARCEL_DATABASE_ACTIONS = {"build": "build", "refresh": "build", "status": "status", "verify": "verify", "diff": "diff", "activate": "activate", "rollback": "rollback"}
-_PLANNING_DATABASE_ACTIONS = {"build": "build-planning", "refresh": "build-planning", "status": "status-planning", "verify": "verify-planning", "activate": "activate-planning", "rollback": "rollback-planning"}
+_PARCEL_DATABASE_ACTIONS = {
+    "build": "build",
+    "refresh": "build",
+    "status": "status",
+    "verify": "verify",
+    "diff": "diff",
+    "activate": "activate",
+    "rollback": "rollback",
+}
+_PLANNING_DATABASE_ACTIONS = {
+    "build": "build-planning",
+    "refresh": "build-planning",
+    "status": "status-planning",
+    "verify": "verify-planning",
+    "activate": "activate-planning",
+    "rollback": "rollback-planning",
+}
 
 
 def default_database_path() -> str:
@@ -103,7 +123,7 @@ def parse_cli_args(raw_args: Sequence[str]) -> dict[str, Any]:
     use_cache = True
     evidence_mode = EvidenceMode.BASIC
     source_mode = "auto"
-    database_path: Optional[str] = None
+    database_path: str | None = None
     index = 0
     tokens = list(raw_args)
     while index < len(tokens):

@@ -1,16 +1,17 @@
 """Deterministic, local spatial operations on cadastral parcel records."""
+
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Iterable, Optional, Sequence, Tuple
 
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
-Ring = Tuple[Tuple[float, float], ...]
-Rings = Tuple[Ring, ...]
+Ring = tuple[tuple[float, float], ...]
+Rings = tuple[Ring, ...]
 
 
 def _freeze_rings(rings: Sequence[Sequence[Sequence[float]]]) -> Rings:
@@ -22,9 +23,9 @@ class ParcelGeometryRecord:
     objectid: int
     village: str
     cts_no: str
-    area_sqm: Optional[float]
+    area_sqm: float | None
     rings: Rings
-    ward: Optional[str] = None
+    ward: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "rings", _freeze_rings(self.rings))
@@ -57,18 +58,20 @@ class AdjacencyResult:
 class AmalgamatedGeometry:
     geometry: BaseGeometry
     area_sqm: float
-    member_objectids: Tuple[int, ...]
+    member_objectids: tuple[int, ...]
 
 
 @dataclass(frozen=True)
 class SearchCriteria:
-    village: Optional[str] = None
-    ward: Optional[str] = None
-    min_area_sqm: Optional[float] = None
-    max_area_sqm: Optional[float] = None
+    village: str | None = None
+    ward: str | None = None
+    min_area_sqm: float | None = None
+    max_area_sqm: float | None = None
 
 
-def find_adjacent(subject: ParcelGeometryRecord, candidates: Iterable[ParcelGeometryRecord], tolerance_m: float = 0.5) -> Tuple[AdjacencyResult, ...]:
+def find_adjacent(
+    subject: ParcelGeometryRecord, candidates: Iterable[ParcelGeometryRecord], tolerance_m: float = 0.5
+) -> tuple[AdjacencyResult, ...]:
     """Return edge-touching or near-gap parcels, deterministically ordered."""
     if tolerance_m < 0:
         raise ValueError("tolerance_m must be non-negative")
@@ -110,14 +113,20 @@ def amalgamate(records: Iterable[ParcelGeometryRecord]) -> AmalgamatedGeometry:
     return AmalgamatedGeometry(geometry, float(geometry.area), tuple(sorted(record.objectid for record in members)))
 
 
-def filter_parcels(records: Iterable[ParcelGeometryRecord], criteria: SearchCriteria, *, wards: Optional[dict[int, str]] = None) -> Tuple[ParcelGeometryRecord, ...]:
+def filter_parcels(
+    records: Iterable[ParcelGeometryRecord], criteria: SearchCriteria, *, wards: dict[int, str] | None = None
+) -> tuple[ParcelGeometryRecord, ...]:
     """Filter official parcel area and identity fields, with stable objectid order.
 
     ``wards`` is optional because the compact parcel record intentionally stores
     only the requested identity fields; callers with ward metadata can provide
     an objectid-to-ward mapping.
     """
-    if criteria.min_area_sqm is not None and criteria.max_area_sqm is not None and criteria.min_area_sqm > criteria.max_area_sqm:
+    if (
+        criteria.min_area_sqm is not None
+        and criteria.max_area_sqm is not None
+        and criteria.min_area_sqm > criteria.max_area_sqm
+    ):
         raise ValueError("minimum area cannot exceed maximum area")
     village = criteria.village.casefold() if criteria.village is not None else None
     ward = criteria.ward.casefold() if criteria.ward is not None else None
@@ -136,4 +145,12 @@ def filter_parcels(records: Iterable[ParcelGeometryRecord], criteria: SearchCrit
     return tuple(sorted(selected, key=lambda record: record.objectid))
 
 
-__all__ = ["AdjacencyResult", "AmalgamatedGeometry", "ParcelGeometryRecord", "SearchCriteria", "amalgamate", "filter_parcels", "find_adjacent"]
+__all__ = [
+    "AdjacencyResult",
+    "AmalgamatedGeometry",
+    "ParcelGeometryRecord",
+    "SearchCriteria",
+    "amalgamate",
+    "filter_parcels",
+    "find_adjacent",
+]

@@ -26,9 +26,10 @@ import sqlite3
 import sys
 import time
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT))
@@ -89,7 +90,7 @@ def _json_hash(value: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _positive_float(value: Any) -> Optional[float]:
+def _positive_float(value: Any) -> float | None:
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -115,7 +116,7 @@ def _active_snapshot_ids(database: Path) -> tuple[int, int]:
     return int(parcel_id), int(planning_id)
 
 
-def _candidate_cases(database: Path, snapshot_id: int) -> List[AuditCase]:
+def _candidate_cases(database: Path, snapshot_id: int) -> list[AuditCase]:
     with sqlite3.connect(str(database)) as connection:
         rows = connection.execute(
             """SELECT village, cts_no, COALESCE(ward, ''), COUNT(*)
@@ -134,13 +135,13 @@ def _candidate_cases(database: Path, snapshot_id: int) -> List[AuditCase]:
     ]
 
 
-def select_cases(database: Path, snapshot_id: int, sample_size: int, seed: int) -> List[AuditCase]:
+def select_cases(database: Path, snapshot_id: int, sample_size: int, seed: int) -> list[AuditCase]:
     """Select five changed-area controls plus seeded random single/multipart CTS cases."""
     if not 15 <= sample_size <= 25:
         raise ValueError("sample-size must be between 15 and 25")
     candidates = _candidate_cases(database, snapshot_id)
     by_identity = {(case.village, case.cts_no): case for case in candidates}
-    selected: List[AuditCase] = []
+    selected: list[AuditCase] = []
     for identities, selection in (
         (DEFAULT_CHANGE_CONTROLS, "change_control"),
         (DEFAULT_CONSTRAINT_CONTROLS, "constraint_control"),
@@ -155,9 +156,7 @@ def select_cases(database: Path, snapshot_id: int, sample_size: int, seed: int) 
     rng = random.Random(seed)
     excluded = {(case.village, case.cts_no) for case in selected}
     multipart = [
-        case
-        for case in candidates
-        if 2 <= case.part_count <= 10 and (case.village, case.cts_no) not in excluded
+        case for case in candidates if 2 <= case.part_count <= 10 and (case.village, case.cts_no) not in excluded
     ]
     rng.shuffle(multipart)
     for case in multipart:
@@ -185,14 +184,14 @@ def select_cases(database: Path, snapshot_id: int, sample_size: int, seed: int) 
     return selected
 
 
-def _local_rows(store: SnapshotStore, case: AuditCase, snapshot_id: int) -> List[Dict[str, Any]]:
+def _local_rows(store: SnapshotStore, case: AuditCase, snapshot_id: int) -> list[dict[str, Any]]:
     rows = store.lookup(case.village, case.cts_no, snapshot_id=snapshot_id)
     if not rows:
         raise RuntimeError("identity missing from active local parcel snapshot")
     return rows
 
 
-async def _live_rows(client: Any, case: AuditCase) -> List[Dict[str, Any]]:
+async def _live_rows(client: Any, case: AuditCase) -> list[dict[str, Any]]:
     response = await client.get(
         f"{SERVER_URL}/13/query",
         params={
@@ -226,8 +225,8 @@ async def _live_rows(client: Any, case: AuditCase) -> List[Dict[str, Any]]:
     return rows
 
 
-def _geometry_by_objectid(rows: Iterable[Mapping[str, Any]]) -> Dict[int, str]:
-    result: Dict[int, str] = {}
+def _geometry_by_objectid(rows: Iterable[Mapping[str, Any]]) -> dict[int, str]:
+    result: dict[int, str] = {}
     for row in rows:
         geometry = row.get("geometry")
         rings = geometry.get("rings") if isinstance(geometry, Mapping) else row.get("rings")
@@ -260,8 +259,8 @@ def _strip_planning_noise(value: Any) -> Any:
     return value
 
 
-async def _live_planning_with_retry(client: Any, rings: List[Any], attempts: int = 3) -> Dict[str, Any]:
-    result: Dict[str, Any] = {}
+async def _live_planning_with_retry(client: Any, rings: list[Any], attempts: int = 3) -> dict[str, Any]:
+    result: dict[str, Any] = {}
     for attempt in range(1, attempts + 1):
         result = await query_spatial_planning_layers(client, rings)
         if not result.get("warnings"):
@@ -271,13 +270,13 @@ async def _live_planning_with_retry(client: Any, rings: List[Any], attempts: int
     return result
 
 
-def _validate_artifacts(result: Mapping[str, Any], output_root: Path) -> Dict[str, int]:
+def _validate_artifacts(result: Mapping[str, Any], output_root: Path) -> dict[str, int]:
     export_files = result.get("export_files")
     if not isinstance(export_files, Mapping):
         raise RuntimeError("lookup result has no export_files mapping")
-    sizes: Dict[str, int] = {}
+    sizes: dict[str, int] = {}
     root = output_root.resolve()
-    paths: Dict[str, Path] = {}
+    paths: dict[str, Path] = {}
     for key in EXPECTED_ARTIFACTS:
         raw_path = export_files.get(key)
         if not raw_path:
@@ -319,8 +318,8 @@ async def _run_output_acceptance(
     output_root: Path,
     *,
     expect_fail_closed: bool = False,
-) -> Dict[str, Any]:
-    case_root = output_root / f"{case.village.lower().replace(' ', '-')}_{case.cts_no.replace('/', '-') }"
+) -> dict[str, Any]:
+    case_root = output_root / f"{case.village.lower().replace(' ', '-')}_{case.cts_no.replace('/', '-')}"
     with compose_lookup_runtime("auto", str(database), EvidenceMode.BASIC) as runtime:
         started = time.perf_counter()
         result = await lookup_plot_pro(
@@ -385,7 +384,7 @@ async def audit_case(
     planning_query: LocalFirstPlanningQuery,
     client: Any,
     output_root: Path,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     started = time.perf_counter()
     local_rows = _local_rows(parcel_store, case, parcel_snapshot_id)
     live_rows = await _live_rows(client, case)
@@ -460,13 +459,13 @@ async def audit_case(
     }
 
 
-async def run(args: argparse.Namespace) -> Dict[str, Any]:
+async def run(args: argparse.Namespace) -> dict[str, Any]:
     database = Path(args.database).expanduser().resolve()
     output_root = Path(args.output_dir).expanduser().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     parcel_snapshot_id, planning_snapshot_id = _active_snapshot_ids(database)
     cases = select_cases(database, parcel_snapshot_id, args.sample_size, args.seed)
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     started = time.perf_counter()
     with SnapshotStore.open(database) as parcel_store, PlanningSnapshotStore.open(database) as planning_store:
         planning_query = LocalFirstPlanningQuery(planning_store, mode="local", allow_stale_local=True)
@@ -491,7 +490,11 @@ async def run(args: argparse.Namespace) -> Dict[str, Any]:
                 except Exception as exc:
                     result = {**asdict(case), "passed": False, "error": f"{type(exc).__name__}: {exc}"}
                 results.append(result)
-                print("  PASS" if result["passed"] else f"  FAIL: {result.get('error') or result.get('checks')}", file=sys.stderr, flush=True)
+                print(
+                    "  PASS" if result["passed"] else f"  FAIL: {result.get('error') or result.get('checks')}",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 if args.delay > 0 and index < len(cases):
                     await asyncio.sleep(args.delay)
     passed = sum(1 for result in results if result["passed"])
@@ -516,7 +519,7 @@ async def run(args: argparse.Namespace) -> Dict[str, Any]:
     }
 
 
-def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", default="data/mcgm-layer13.sqlite")
     parser.add_argument("--output-dir", required=True)
@@ -528,7 +531,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
         report = asyncio.run(run(args))

@@ -10,8 +10,9 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import contextmanager
-from typing import Any, Dict, Iterator, Optional
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
+from typing import Any
 
 from dp_lookup.clients.responses import usable_json as usable_json
 from dp_lookup.clients.tile_cache import _TILE_CACHE as _TILE_CACHE
@@ -23,7 +24,7 @@ from dp_lookup.core.constants import (
     DEFAULT_CACHE_TTL_SECONDS,
 )
 
-_STORES: Dict[str, Dict[str, Any]] = {}
+_STORES: dict[str, dict[str, Any]] = {}
 
 _CACHE_LOCK = threading.RLock()
 
@@ -65,12 +66,10 @@ def _disk_lock(path: str) -> Iterator[None]:
         parent = os.path.dirname(path)
         if parent:
             os.makedirs(parent, exist_ok=True)
-        lock_handle = open(_lock_path(path), "a+b")
+        lock_handle = open(_lock_path(path), "a+b")  # noqa: SIM115
         if fcntl is not None:
-            try:
+            with suppress(OSError):
                 fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-            except OSError:
-                pass
     except OSError:
         pass
     try:
@@ -78,21 +77,17 @@ def _disk_lock(path: str) -> Iterator[None]:
     finally:
         if lock_handle is not None:
             if fcntl is not None:
-                try:
+                with suppress(OSError):
                     fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
-                except OSError:
-                    pass
-            try:
+            with suppress(OSError):
                 lock_handle.close()
-            except OSError:
-                pass
 
 
-def _read_store(path: str) -> Dict[str, Any]:
-    store: Dict[str, Any] = {}
+def _read_store(path: str) -> dict[str, Any]:
+    store: dict[str, Any] = {}
     if os.path.exists(path):
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 loaded = json.load(f)
             if isinstance(loaded, dict):
                 store = loaded
@@ -101,14 +96,14 @@ def _read_store(path: str) -> Dict[str, Any]:
     return store
 
 
-def _cache_metadata() -> Dict[str, Any]:
+def _cache_metadata() -> dict[str, Any]:
     return {
         "schema_version": CACHE_SCHEMA_VERSION,
         "app_version": CACHE_APP_VERSION,
     }
 
 
-def _save_store(path: str, store: Dict[str, Any]) -> None:
+def _save_store(path: str, store: dict[str, Any]) -> None:
     """Write a complete cache document without exposing a partial target."""
     parent = os.path.dirname(path)
     if parent:
@@ -123,18 +118,14 @@ def _save_store(path: str, store: Dict[str, Any]) -> None:
         os.replace(temp_path, path)
     except Exception:
         if fd != -1:
-            try:
+            with suppress(OSError):
                 os.close(fd)
-            except OSError:
-                pass
-        try:
+        with suppress(OSError):
             os.unlink(temp_path)
-        except OSError:
-            pass
         raise
 
 
-def load_disk_cache(output_dir: str) -> Dict[str, Any]:
+def load_disk_cache(output_dir: str) -> dict[str, Any]:
     path = cache_path_for(output_dir)
     with _CACHE_LOCK:
         if path in _STORES:
@@ -171,7 +162,7 @@ def save_disk_cache(output_dir: str) -> None:
             _STORES[path] = store
 
 
-def bundle_is_intact(result: Dict[str, Any]) -> bool:
+def bundle_is_intact(result: dict[str, Any]) -> bool:
     """True when every file the cached result promises still exists on disk."""
     files = result.get("export_files")
     if not isinstance(files, dict):
@@ -191,9 +182,7 @@ def bundle_is_intact(result: Dict[str, Any]) -> bool:
     return True
 
 
-def read_cache_entry(
-    output_dir: str, key: str, ttl_seconds: int = DEFAULT_CACHE_TTL_SECONDS
-) -> Optional[Dict[str, Any]]:
+def read_cache_entry(output_dir: str, key: str, ttl_seconds: int = DEFAULT_CACHE_TTL_SECONDS) -> dict[str, Any] | None:
     """
     Return a cached result, or None when it is absent, expired, has a known
     incompatible schema, or is no longer backed by files on disk.
@@ -236,7 +225,7 @@ def read_cache_entry(
     return result
 
 
-def _entry_is_servable(entry: Any, now: float, retention_seconds: Optional[int]) -> bool:
+def _entry_is_servable(entry: Any, now: float, retention_seconds: int | None) -> bool:
     """True while an entry could still be returned by ``read_cache_entry``."""
     if not isinstance(entry, dict) or not isinstance(entry.get("result"), dict):
         return False
@@ -252,7 +241,7 @@ def _entry_is_servable(entry: Any, now: float, retention_seconds: Optional[int])
     return bundle_is_intact(entry["result"])
 
 
-def prune_cache_store(store: Dict[str, Any], retention_seconds: Optional[int] = DEFAULT_CACHE_TTL_SECONDS) -> int:
+def prune_cache_store(store: dict[str, Any], retention_seconds: int | None = DEFAULT_CACHE_TTL_SECONDS) -> int:
     """Drop entries that can never be served again; return how many were removed.
 
     That is: malformed entries, entries from another cache schema, entries
@@ -273,8 +262,8 @@ def prune_cache_store(store: Dict[str, Any], retention_seconds: Optional[int] = 
 def write_cache_entry(
     output_dir: str,
     key: str,
-    result: Dict[str, Any],
-    retention_seconds: Optional[int] = DEFAULT_CACHE_TTL_SECONDS,
+    result: dict[str, Any],
+    retention_seconds: int | None = DEFAULT_CACHE_TTL_SECONDS,
 ) -> None:
     """Persist a clean lookup result and prune entries that can no longer be served."""
     path = cache_path_for(output_dir)

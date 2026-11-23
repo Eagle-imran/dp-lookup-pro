@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
 from dp_lookup.exporters.dxf_policy import DEFAULT_DXF_LAYOUT_POLICY, DxfLayoutPolicy
 
-Box = Tuple[float, float, float, float]
-Point = Tuple[float, float]
+Box = tuple[float, float, float, float]
+Point = tuple[float, float]
 
 
 def fit_label_to_width(
@@ -16,7 +17,7 @@ def fit_label_to_width(
     value: str,
     max_width: float,
     char_h: float,
-    min_value_chars: Optional[int] = None,
+    min_value_chars: int | None = None,
     *,
     policy: DxfLayoutPolicy = DEFAULT_DXF_LAYOUT_POLICY,
 ) -> str:
@@ -29,7 +30,7 @@ def fit_label_to_width(
     return template.format(value[:keep].rstrip(" ,.") + "...")
 
 
-def text_extents(entity: Any) -> Optional[Box]:
+def text_extents(entity: Any) -> Box | None:
     """Return the rendered bounding box of a TEXT entity."""
     try:
         from ezdxf.tools.text_size import text_size
@@ -74,7 +75,7 @@ def text_extents(entity: Any) -> Optional[Box]:
     return (min(xs), min(ys), max(xs), max(ys))
 
 
-def boxes_overlap(a: Optional[Box], b: Optional[Box], slack: float = 0.0) -> bool:
+def boxes_overlap(a: Box | None, b: Box | None, slack: float = 0.0) -> bool:
     """Return whether two axis-aligned bounding boxes intersect."""
     if a is None or b is None:
         return False

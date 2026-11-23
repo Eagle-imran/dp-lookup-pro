@@ -1,10 +1,12 @@
 """Composition root for the lookup CLI's local/live adapters."""
+
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from dp_lookup.application.authority_resolver import AuthorityResolver
 from dp_lookup.application.dependencies import DEFAULT_DEPENDENCIES, LookupDependencies
@@ -19,20 +21,20 @@ from dp_lookup.planning_evidence.models import EvidenceMode
 from dp_lookup.planning_snapshot import PlanningSnapshotStore
 from dp_lookup.spatial_store import SnapshotStore, SpatialStoreError
 
-SnapshotSelector = Callable[[str, str], tuple[str, Optional[int]]]
+SnapshotSelector = Callable[[str, str], tuple[str, int | None]]
 
 
-def local_snapshot_selection(source_mode: str, database_path: str) -> tuple[str, Optional[int]]:
+def local_snapshot_selection(source_mode: str, database_path: str) -> tuple[str, int | None]:
     """Pin active parcel/planning versions in the report-cache namespace."""
     path = Path(database_path).expanduser().resolve()
-    active_snapshot_id: Optional[int] = None
+    active_snapshot_id: int | None = None
     try:
         if path.is_file():
             with SnapshotStore.open(path) as store:
                 active_snapshot_id = store.active_snapshot_id()
     except (OSError, sqlite3.DatabaseError, SpatialStoreError):
         active_snapshot_id = None
-    planning_snapshot_id: Optional[int] = None
+    planning_snapshot_id: int | None = None
     try:
         if path.is_file():
             with PlanningSnapshotStore.open(path) as planning_store:
@@ -60,9 +62,9 @@ class LookupRuntime:
     """Owned resources and immutable dependencies for one CLI invocation."""
 
     dependencies: LookupDependencies
-    planning_store: Optional[Any] = None
-    authority_store: Optional[AuthorityStore] = None
-    parcel_store: Optional[SnapshotStore] = None
+    planning_store: Any | None = None
+    authority_store: AuthorityStore | None = None
+    parcel_store: SnapshotStore | None = None
 
     def close(self) -> None:
         """Close stores opened while composing local adapters."""
@@ -76,7 +78,7 @@ class LookupRuntime:
             self.authority_store.close()
             self.authority_store = None
 
-    def __enter__(self) -> "LookupRuntime":
+    def __enter__(self) -> LookupRuntime:
         return self
 
     def __exit__(self, _exc_type: Any, _exc: Any, _traceback: Any) -> None:
@@ -85,7 +87,7 @@ class LookupRuntime:
 
 def compose_lookup_runtime(
     source_mode: str,
-    database_path: Optional[str],
+    database_path: str | None,
     evidence_mode: EvidenceMode,
     *,
     snapshot_selector: SnapshotSelector = local_snapshot_selection,
@@ -94,9 +96,9 @@ def compose_lookup_runtime(
 ) -> LookupRuntime:
     """Build one lookup's dependency graph and retain owned store handles."""
     dependencies = replace(base_dependencies, planning_evidence_mode=evidence_mode)
-    parcel_store: Optional[SnapshotStore] = None
-    planning_store: Optional[Any] = None
-    authority_store: Optional[AuthorityStore] = None
+    parcel_store: SnapshotStore | None = None
+    planning_store: Any | None = None
+    authority_store: AuthorityStore | None = None
     if source_mode != "live":
         if database_path is None:
             raise ValueError("--database PATH is required for local source mode")

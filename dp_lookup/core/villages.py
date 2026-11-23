@@ -1,12 +1,12 @@
 """Village catalogue queries shared by the CLI and application services."""
 
 import difflib
-from typing import Any, List
+from typing import Any
 
 from dp_lookup.core.constants import MCGM_VILLAGES
 
 
-def suggest_villages(name: Any, limit: int = 8) -> List[str]:
+def suggest_villages(name: Any, limit: int = 8) -> list[str]:
     """Return the nearest valid MCGM village names for a user-supplied value."""
     query = str(name or "").strip().upper()
     if not query:

@@ -8,10 +8,10 @@ their optional dependencies.
 
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 
-def dispatch_admin_command(raw_args: Sequence[str]) -> Optional[int]:
+def dispatch_admin_command(raw_args: Sequence[str]) -> int | None:
     """Dispatch a recognized namespace, returning ``None`` for a lookup.
 
     Imports remain inside branches deliberately: a normal lookup should not
@@ -50,4 +50,3 @@ def dispatch_admin_command(raw_args: Sequence[str]) -> Optional[int]:
 
 
 __all__ = ["dispatch_admin_command"]
-

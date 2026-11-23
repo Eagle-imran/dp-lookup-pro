@@ -1,7 +1,8 @@
 """
 Planning Status Classification & Municipal Attribute Derivation.
 """
-from typing import Any, Dict, List, Optional
+
+from typing import Any
 
 from dp_lookup.core.constants import GENERIC_ROAD_NAMES
 
@@ -26,17 +27,18 @@ def bundle_folder_name(village: Any, cts_number: Any) -> str:
     return f"{village_clean}_cts_{cts_clean}"
 
 
-def select_road(road_map: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def select_road(road_map: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """
     Pick the abutting road to report, best evidence first:
       1. a real name AND a recorded width
       2. a real name OR a recorded width
       3. whatever was found, so the field is never empty when something matched
     """
-    def real_name(road: Dict[str, Any]) -> bool:
+
+    def real_name(road: dict[str, Any]) -> bool:
         return str(road.get("name") or "").strip().casefold() not in GENERIC_ROAD_NAMES
 
-    def real_width(road: Dict[str, Any]) -> bool:
+    def real_width(road: dict[str, Any]) -> bool:
         return road.get("width") != "N/A"
 
     values = list(road_map.values())
@@ -55,7 +57,7 @@ def select_road(road_map: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     return result
 
 
-def crz_flag_from(crz_item: Optional[Dict[str, Any]]) -> str:
+def crz_flag_from(crz_item: dict[str, Any] | None) -> str:
     """Report the CRZ sub-tier rather than a bare yes."""
     if not crz_item:
         return "NO (Outside CRZ Buffer)"
@@ -82,14 +84,14 @@ def derive_status(
     res_type: str = "None",
     mod_approval: str = "None",
     *,
-    reservations: Optional[List[Dict[str, Any]]] = None,
-    designations: Optional[List[Dict[str, Any]]] = None,
-    modifications: Optional[List[Dict[str, Any]]] = None,
-    encumbered_percent: Optional[float] = None,
-    encumbered_area_sqm: Optional[float] = None,
-    total_area_sqm: Optional[float] = None,
-    net_unencumbered_sqm: Optional[float] = None,
-) -> Dict[str, str]:
+    reservations: list[dict[str, Any]] | None = None,
+    designations: list[dict[str, Any]] | None = None,
+    modifications: list[dict[str, Any]] | None = None,
+    encumbered_percent: float | None = None,
+    encumbered_area_sqm: float | None = None,
+    total_area_sqm: float | None = None,
+    net_unencumbered_sqm: float | None = None,
+) -> dict[str, str]:
     """
     Planning status badge and one-line summary, in precedence order:
       1. DP Modification Order (Sanctions / EPs) -> 🟡 MODIFIED
@@ -98,18 +100,18 @@ def derive_status(
       4. Clear Parcel (0% encumbered) -> 🟢 CLEAR
     """
     if mod_item or (modifications and len(modifications) > 0):
-        appr = mod_approval if mod_approval != "None" else (
-            modifications[0].get("approval_no", "DP Mod") if modifications else "Order"
+        appr = (
+            mod_approval
+            if mod_approval != "None"
+            else (modifications[0].get("approval_no", "DP Mod") if modifications else "Order")
         )
-        return {"badge": "\U0001F7E1 MODIFIED (DP Notification Order)",
-                "summary": f"Modified via {appr}"}
+        return {"badge": "\U0001f7e1 MODIFIED (DP Notification Order)", "summary": f"Modified via {appr}"}
 
     if encumbered_percent is not None and (reservations is not None or designations is not None):
         res_list = reservations or []
         des_list = designations or []
         if encumbered_percent <= 0.0 or (not res_list and not des_list):
-            return {"badge": "\U0001F7E2 CLEAR (No Reservation)",
-                    "summary": "Unreserved Land Parcel"}
+            return {"badge": "\U0001f7e2 CLEAR (No Reservation)", "summary": "Unreserved Land Parcel"}
 
         if encumbered_percent < 90.0:
             partial_codes = [r["code"] for r in res_list] + [d["code"] for d in des_list]
@@ -124,29 +126,29 @@ def derive_status(
                 badge_type = "PARTIALLY RESERVED / DESIGNATED"
 
             return {
-                "badge": f"\U0001F7E1 {badge_type} ({encumbered_percent:.1f}% - {code_str})",
+                "badge": f"\U0001f7e1 {badge_type} ({encumbered_percent:.1f}% - {code_str})",
                 "summary": f"Partially encumbered ({enc_txt}). Net developable: {net_txt}",
             }
 
         if des_list and not res_list:
             d0 = des_list[0]
             return {
-                "badge": f"\U0001F534 RESERVED / DESIGNATED ({d0.get('description', 'Designation')})",
+                "badge": f"\U0001f534 RESERVED / DESIGNATED ({d0.get('description', 'Designation')})",
                 "summary": f"Designated as {d0.get('description', 'Designation')} ({d0.get('code', 'Des')})",
             }
         if res_list:
             reservation_types = ", ".join(r.get("type", "Reservation") for r in res_list[:2])
             reservation_codes = ", ".join(r.get("code", "Res") for r in res_list[:2])
             return {
-                "badge": f"\U0001F534 RESERVED ({reservation_types})",
+                "badge": f"\U0001f534 RESERVED ({reservation_types})",
                 "summary": f"Reserved under {reservation_codes}",
             }
 
     if des_item and des_desc != "None":
-        return {"badge": f"\U0001F534 RESERVED / DESIGNATED ({des_desc})",
-                "summary": f"Designated as {des_desc} ({des_code})"}
+        return {
+            "badge": f"\U0001f534 RESERVED / DESIGNATED ({des_desc})",
+            "summary": f"Designated as {des_desc} ({des_code})",
+        }
     if rv_item and res_code != "None":
-        return {"badge": f"\U0001F534 RESERVED ({res_type})",
-                "summary": f"Reserved under {res_code}"}
-    return {"badge": "\U0001F7E2 CLEAR (No Reservation)",
-            "summary": "Unreserved Land Parcel"}
+        return {"badge": f"\U0001f534 RESERVED ({res_type})", "summary": f"Reserved under {res_code}"}
+    return {"badge": "\U0001f7e2 CLEAR (No Reservation)", "summary": "Unreserved Land Parcel"}

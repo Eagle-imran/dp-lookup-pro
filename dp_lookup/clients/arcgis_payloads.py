@@ -1,6 +1,6 @@
 """Pure ArcGIS REST payload construction."""
 
-from typing import Dict, Sequence
+from collections.abc import Sequence
 
 from dp_lookup.core.constants import PLANNING_LAYER_IDS
 
@@ -14,7 +14,7 @@ def identify_payload(
     d: float,
     tolerance: int,
     return_geometry: bool,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     return {
         "geometry": f"{x},{y}",
         "geometryType": "esriGeometryPoint",
@@ -28,7 +28,7 @@ def identify_payload(
     }
 
 
-def spatial_query_payload(bbox_str: str, out_sr: str = "102100") -> Dict[str, str]:
+def spatial_query_payload(bbox_str: str, out_sr: str = "102100") -> dict[str, str]:
     return {
         "geometry": bbox_str,
         "geometryType": "esriGeometryEnvelope",
@@ -54,7 +54,7 @@ def map_export_params(
     width: int = 1000,
     height: int = 1000,
     dpi: int = 144,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     return {
         "bbox": f"{x0},{y0},{x1},{y1}",
         "bboxSR": "102100",

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Any, List, Mapping, Optional, Tuple, cast
+from collections.abc import Mapping
+from typing import Any, cast
 
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
@@ -24,12 +25,14 @@ def json_value(value: Any, *, field: str) -> str:
 
 def canonical_json_value(value: Any, *, field: str) -> str:
     try:
-        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False, default=str)
+        return json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False, default=str
+        )
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{field} cannot be encoded as canonical JSON") from exc
 
 
-def number(value: Any, *, field: str) -> Optional[float]:
+def number(value: Any, *, field: str) -> float | None:
     if value is None:
         return None
     try:
@@ -41,7 +44,7 @@ def number(value: Any, *, field: str) -> Optional[float]:
     return result
 
 
-def identity_text(value: Any, *, uppercase: bool = False) -> Optional[str]:
+def identity_text(value: Any, *, uppercase: bool = False) -> str | None:
     if value is None:
         return None
     normalized = str(value).strip()
@@ -50,7 +53,7 @@ def identity_text(value: Any, *, uppercase: bool = False) -> Optional[str]:
     return normalized.upper() if uppercase else normalized
 
 
-def polygon_validation_error(geometry: Any) -> Optional[str]:
+def polygon_validation_error(geometry: Any) -> str | None:
     """Return a reason when an ArcGIS polygon cannot be used safely."""
     rings = geometry.get("rings", geometry.get("coordinates")) if isinstance(geometry, Mapping) else geometry
     if not isinstance(rings, list) or not rings:
@@ -58,7 +61,7 @@ def polygon_validation_error(geometry: Any) -> Optional[str]:
     for ring in rings:
         if not isinstance(ring, list) or len(ring) < 4:
             return "polygon contains a ring with fewer than four coordinates"
-        distinct: set[Tuple[float, float]] = set()
+        distinct: set[tuple[float, float]] = set()
         for point in ring:
             if not isinstance(point, (list, tuple)) or len(point) < 2:
                 return "polygon contains an invalid coordinate"
@@ -82,7 +85,7 @@ def polygon_validation_error(geometry: Any) -> Optional[str]:
     return None
 
 
-def bbox_from_geometry(geometry: Any) -> Optional[Tuple[float, float, float, float]]:
+def bbox_from_geometry(geometry: Any) -> tuple[float, float, float, float] | None:
     if geometry is None:
         return None
     if isinstance(geometry, Mapping):
@@ -92,7 +95,7 @@ def bbox_from_geometry(geometry: Any) -> Optional[Tuple[float, float, float, flo
             geometry = geometry["coordinates"]
         elif "wkb" in geometry:
             return None
-    points: List[Tuple[float, float]] = []
+    points: list[tuple[float, float]] = []
 
     def walk(value: Any) -> None:
         if isinstance(value, (list, tuple)):
@@ -114,7 +117,7 @@ def bbox_from_geometry(geometry: Any) -> Optional[Tuple[float, float, float, flo
     return min(xs), max(xs), min(ys), max(ys)
 
 
-def record_geometry(record: Mapping[str, Any]) -> Tuple[Any, str, Optional[Tuple[float, float, float, float]]]:
+def record_geometry(record: Mapping[str, Any]) -> tuple[Any, str, tuple[float, float, float, float] | None]:
     geometry = record.get("geometry", record.get("rings", record.get("geometry_rings", record.get("geometry_json"))))
     geom_format = record.get("geom_format")
     if isinstance(geometry, Mapping) and "wkb" in geometry:
@@ -130,7 +133,7 @@ def record_geometry(record: Mapping[str, Any]) -> Tuple[Any, str, Optional[Tuple
         values = [number(value, field="bbox") for value in bbox]
         if any(value is None for value in values):
             raise ValueError("bbox values cannot be null")
-        bbox = tuple(cast(List[float], values))
+        bbox = tuple(cast(list[float], values))
     else:
         bbox = bbox_from_geometry(geometry) if geom_format == "rings_json" else None
     if geometry is not None and geom_format != "wkb":
@@ -144,4 +147,12 @@ def record_geometry(record: Mapping[str, Any]) -> Tuple[Any, str, Optional[Tuple
     return geometry_value, geom_format, bbox
 
 
-__all__ = ["bbox_from_geometry", "canonical_json_value", "identity_text", "json_value", "number", "polygon_validation_error", "record_geometry"]
+__all__ = [
+    "bbox_from_geometry",
+    "canonical_json_value",
+    "identity_text",
+    "json_value",
+    "number",
+    "polygon_validation_error",
+    "record_geometry",
+]

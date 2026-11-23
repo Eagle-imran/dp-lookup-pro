@@ -204,8 +204,11 @@ def test_pdf_and_excel_default_to_native_typed_data_writers():
     assert "class ExcelRegisterData" in contracts_source
     assert "pdf_data_writer: PdfDataWriter = write_pdf_report" in dependencies_source
     assert "excel_data_writer: ExcelDataWriter = write_excel_register" in dependencies_source
-    assert "pdf_writer: Optional[ArtifactProcedure] = None" in dependencies_source
-    assert "excel_writer: Optional[ArtifactProcedure] = None" in dependencies_source
+    from dp_lookup.application.dependencies import LookupDependencies
+
+    defaults = LookupDependencies()
+    assert defaults.pdf_writer is None
+    assert defaults.excel_writer is None
 
 
 def test_planning_snapshot_spatial_reads_are_separate_from_lifecycle_store():

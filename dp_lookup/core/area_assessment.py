@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import math
-from typing import Any, List, Mapping, Optional, Sequence, Tuple
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from shapely.geometry import MultiPolygon, Polygon
 
@@ -18,7 +19,7 @@ AREA_DIFFERENCE_THRESHOLDS = (2, 5, 10)
 UNUSUALLY_SMALL_AREA_SQM = 1.0
 
 
-def _positive_number(value: Any) -> Optional[float]:
+def _positive_number(value: Any) -> float | None:
     if value is None or isinstance(value, bool):
         return None
     try:
@@ -28,7 +29,7 @@ def _positive_number(value: Any) -> Optional[float]:
     return number if math.isfinite(number) and number > 0 else None
 
 
-def _recorded_area(attrs: Mapping[str, Any]) -> Optional[float]:
+def _recorded_area(attrs: Mapping[str, Any]) -> float | None:
     for key in ("AREA_APP_SQ_MTRS", "Area_App_Sq_Mtrs", "area_app_sq_mtrs"):
         value = _positive_number(attrs.get(key))
         if value is not None:
@@ -52,8 +53,8 @@ def _raw_geometry_invalid(rings: Sequence[Sequence[Sequence[float]]]) -> bool:
     return False
 
 
-def _utm_rings(rings: Sequence[Sequence[Sequence[float]]]) -> List[List[List[float]]]:
-    projected: List[List[List[float]]] = []
+def _utm_rings(rings: Sequence[Sequence[Sequence[float]]]) -> list[list[list[float]]]:
+    projected: list[list[list[float]]] = []
     for ring in rings:
         projected_ring = []
         for point in ring:
@@ -64,7 +65,7 @@ def _utm_rings(rings: Sequence[Sequence[Sequence[float]]]) -> List[List[List[flo
     return projected
 
 
-def calculated_boundary_area_sqm(rings: Sequence[Sequence[Sequence[float]]]) -> Optional[float]:
+def calculated_boundary_area_sqm(rings: Sequence[Sequence[Sequence[float]]]) -> float | None:
     """Calculate ground area without treating raw Web Mercator square metres as ground area."""
     try:
         geometry = arcgis_rings_to_geometry(_utm_rings(rings))
@@ -78,8 +79,8 @@ def calculated_boundary_area_sqm(rings: Sequence[Sequence[Sequence[float]]]) -> 
 
 def web_mercator_ground_area_scale(
     rings: Sequence[Sequence[Sequence[float]]],
-    web_mercator_area_sqm: Optional[float] = None,
-) -> Optional[float]:
+    web_mercator_area_sqm: float | None = None,
+) -> float | None:
     """Return the factor that converts local EPSG:3857 square units to UTM ground square metres."""
     try:
         source_geometry = arcgis_rings_to_geometry(rings)
@@ -103,13 +104,10 @@ def web_mercator_ground_area_scale(
     return calculated / raw_area
 
 
-def _source_objectids(attrs: Mapping[str, Any]) -> Tuple[int, ...]:
+def _source_objectids(attrs: Mapping[str, Any]) -> tuple[int, ...]:
     raw = attrs.get("SOURCE_OBJECTIDS")
     values: Sequence[Any]
-    if isinstance(raw, (list, tuple)):
-        values = raw
-    else:
-        values = (attrs.get("OBJECTID"),)
+    values = raw if isinstance(raw, (list, tuple)) else (attrs.get("OBJECTID"),)
     result = []
     for value in values:
         try:
@@ -120,7 +118,7 @@ def _source_objectids(attrs: Mapping[str, Any]) -> Tuple[int, ...]:
     return tuple(sorted(set(result)))
 
 
-def _optional_int(value: Any) -> Optional[int]:
+def _optional_int(value: Any) -> int | None:
     try:
         return int(value) if value is not None else None
     except (TypeError, ValueError):
@@ -135,11 +133,11 @@ def assess_plot_area(
     attrs: Mapping[str, Any],
     rings: Sequence[Sequence[Sequence[float]]],
     *,
-    requested_village: Optional[str] = None,
-    requested_cts_no: Optional[str] = None,
+    requested_village: str | None = None,
+    requested_cts_no: str | None = None,
 ) -> AreaAssessment:
     """Build one area decision from preserved source attributes and rings."""
-    flags: List[AreaQualityFlag] = []
+    flags: list[AreaQualityFlag] = []
     recorded = _recorded_area(attrs)
     raw_invalid = _raw_geometry_invalid(rings)
     try:
@@ -257,9 +255,9 @@ def assess_plot_area(
             )
         )
 
-    difference_sqm: Optional[float] = None
-    difference_percent: Optional[float] = None
-    thresholds_exceeded: Tuple[int, ...] = ()
+    difference_sqm: float | None = None
+    difference_percent: float | None = None
+    thresholds_exceeded: tuple[int, ...] = ()
     if recorded is not None and calculated is not None:
         difference_sqm = calculated - recorded
         difference_percent = abs(difference_sqm) / recorded * 100.0

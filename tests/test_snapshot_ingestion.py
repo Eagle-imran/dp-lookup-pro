@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 import pytest
@@ -13,16 +13,16 @@ from dp_lookup.clients.parcel_snapshot import SnapshotCheckpoint
 
 
 class Response:
-    def __init__(self, payload: Dict[str, Any], status_code: int = 200, headers: Optional[Dict[str, str]] = None):
+    def __init__(self, payload: dict[str, Any], status_code: int = 200, headers: dict[str, str] | None = None):
         self.payload = payload
         self.status_code = status_code
         self.headers = headers or {}
 
-    def json(self) -> Dict[str, Any]:
+    def json(self) -> dict[str, Any]:
         return self.payload
 
 
-def feature(object_id: int, *, name: str = "parcel") -> Dict[str, Any]:
+def feature(object_id: int, *, name: str = "parcel") -> dict[str, Any]:
     return {
         "attributes": {"OBJECTID": object_id, "VILLAGE": "WORLI", "CTS_CS_NO": str(object_id), "NAME": name},
         "geometry": {"rings": [[[72.8, 19.0], [72.81, 19.0], [72.81, 19.01], [72.8, 19.0]]]},
@@ -30,12 +30,12 @@ def feature(object_id: int, *, name: str = "parcel") -> Dict[str, Any]:
 
 
 class FakeClient:
-    def __init__(self, responses: List[Any]):
+    def __init__(self, responses: list[Any]):
         self.responses = list(responses)
-        self.calls: List[tuple[str, Dict[str, Any]]] = []
-        self.methods: List[str] = []
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.methods: list[str] = []
 
-    async def get(self, url: str, *, params: Dict[str, Any]) -> Any:
+    async def get(self, url: str, *, params: dict[str, Any]) -> Any:
         self.methods.append("GET")
         self.calls.append((url, params))
         item = self.responses.pop(0)
@@ -43,7 +43,7 @@ class FakeClient:
             raise item
         return item
 
-    async def post(self, url: str, *, data: Dict[str, Any]) -> Any:
+    async def post(self, url: str, *, data: dict[str, Any]) -> Any:
         self.methods.append("POST")
         self.calls.append((url, data))
         item = self.responses.pop(0)
@@ -91,7 +91,7 @@ def test_partial_batch_is_not_complete_and_reports_missing_without_claiming_publ
 
 
 def test_malformed_feature_is_rejected_and_embedded_error_is_retried():
-    sleeps: List[float] = []
+    sleeps: list[float] = []
     client = FakeClient(
         [
             Response({"objectIds": [10, 11]}),
@@ -113,12 +113,14 @@ def test_malformed_feature_is_rejected_and_embedded_error_is_retried():
     assert sleeps == [0.01]
 
 
-async def _record_sleep(sleeps: List[float], delay: float) -> None:
+async def _record_sleep(sleeps: list[float], delay: float) -> None:
     sleeps.append(delay)
 
 
 def test_transport_timeout_retries_then_accepts_batch():
-    client = FakeClient([Response({"objectIds": [7]}), httpx.ReadTimeout("temporary"), Response({"features": [feature(7)]})])
+    client = FakeClient(
+        [Response({"objectIds": [7]}), httpx.ReadTimeout("temporary"), Response({"features": [feature(7)]})]
+    )
     result = run(client, config=SnapshotIngestionConfig(base_delay_seconds=0, max_delay_seconds=0))
     assert result.complete
     assert len(client.calls) == 3

@@ -6,6 +6,15 @@ All notable changes to this project. Newest first.
 
 ## [Unreleased] — 2026-11-05
 
+### Code cleanup — 2026-11-24
+
+* **No code comments:** comments were removed; the non-obvious decisions they
+  held now live in [decision records](../decisions/README.md), and
+  `tools/check_comments.py` stops new comments being added.
+* **Formatting and lint:** `ruff format` now covers the whole repository instead
+  of a 45-file list (`tools/check_format.py` was removed). Ruff also enforces
+  Python 3.11 idioms (`UP`, `SIM`, `PIE`, `FURB`). No behaviour change.
+
 ### Audit fixes — 2026-11-10
 
 * **Security:** escape every MCGM-sourced value in HTML map popups, which

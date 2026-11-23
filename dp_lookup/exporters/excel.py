@@ -6,8 +6,9 @@ import datetime
 import os
 import tempfile
 import threading
-from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Optional
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
+from typing import Any
 
 from openpyxl import Workbook, load_workbook
 
@@ -33,21 +34,17 @@ def _register_file_lock(register_path: str) -> Iterator[None]:
     lock_path = f"{register_path}.lock"
     lock_handle = None
     try:
-        lock_handle = open(lock_path, "a+b")
+        lock_handle = open(lock_path, "a+b")  # noqa: SIM115
         if fcntl is not None:
-            try:
+            with suppress(OSError):
                 fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-            except OSError:
-                pass
         elif msvcrt is not None:
             lock_handle.seek(0)
             lock_handle.write(b"0")
             lock_handle.flush()
             lock_handle.seek(0)
-            try:
+            with suppress(OSError):
                 msvcrt.locking(lock_handle.fileno(), msvcrt.LK_LOCK, 1)
-            except OSError:
-                pass
     except OSError:
         pass
     try:
@@ -55,20 +52,16 @@ def _register_file_lock(register_path: str) -> Iterator[None]:
     finally:
         if lock_handle is not None:
             if fcntl is not None:
-                try:
+                with suppress(OSError):
                     fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
-                except OSError:
-                    pass
             elif msvcrt is not None:
                 try:
                     lock_handle.seek(0)
                     msvcrt.locking(lock_handle.fileno(), msvcrt.LK_UNLCK, 1)
                 except OSError:
                     pass
-            try:
+            with suppress(OSError):
                 lock_handle.close()
-            except OSError:
-                pass
 
 
 def _save_workbook_atomic(workbook: Workbook, register_path: str) -> None:
@@ -84,10 +77,8 @@ def _save_workbook_atomic(workbook: Workbook, register_path: str) -> None:
         workbook.save(temporary_path)
         os.replace(temporary_path, register_path)
     finally:
-        try:
+        with suppress(OSError):
             os.unlink(temporary_path)
-        except OSError:
-            pass
 
 
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
@@ -108,7 +99,7 @@ def _write_cell(worksheet: Any, row: int, column: int, value: Any) -> None:
         cell.quotePrefix = True
 
 
-def _append_register_row(worksheet: Any, headers: List[str], values: List[Any]) -> None:
+def _append_register_row(worksheet: Any, headers: list[str], values: list[Any]) -> None:
     """Append by header name so older registers never receive shifted values.
 
     Existing columns keep their positions; headers new to this register are
@@ -139,7 +130,7 @@ def _append_register_row(worksheet: Any, headers: List[str], values: List[Any]) 
 
 def update_excel_register(
     register_path: str,
-    attrs: Dict[str, Any],
+    attrs: dict[str, Any],
     village: str,
     cts_number: str,
     zone: str,
@@ -155,7 +146,7 @@ def update_excel_register(
     metro_buffer_flag: str,
     road_name: str,
     road_width: str,
-    neighbors: List[Dict[str, Any]],
+    neighbors: list[dict[str, Any]],
     dp_snapshot_fname: str,
     sat_snapshot_fname: str,
     pdf_fname: str,
@@ -163,8 +154,8 @@ def update_excel_register(
     geojson_fname: str,
     kml_fname: str,
     map_link: str,
-    reservations: Optional[List[Dict[str, Any]]] = None,
-    designations: Optional[List[Dict[str, Any]]] = None,
+    reservations: list[dict[str, Any]] | None = None,
+    designations: list[dict[str, Any]] | None = None,
 ) -> None:
     """Append a structured lookup record row to the master Excel register."""
     with _REGISTER_LOCK:

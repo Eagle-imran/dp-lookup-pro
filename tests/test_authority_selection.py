@@ -1,9 +1,11 @@
 """Deterministic authority-source policy and explicit-activation tests."""
 
+import builtins
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any
 
 from dp_lookup.application.authority_resolver import AuthorityResolver
 from dp_lookup.application.ingestion import build_parcel_context
@@ -35,7 +37,7 @@ class Record:
     superseded_by: Any = None
     supersedes_id: Any = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
 
 
@@ -44,10 +46,10 @@ class Store:
         self.records = list(records)
         self.active_records = list(active)
 
-    def list(self, **_kwargs: Any) -> List[Record]:
+    def list(self, **_kwargs: Any) -> list[Record]:
         return list(self.records)
 
-    def active(self, **kwargs: Any) -> List[Record]:
+    def active(self, **kwargs: Any) -> builtins.list[Record]:
         purpose = kwargs.get("purpose") or kwargs.get("selection_purpose")
         return [
             item

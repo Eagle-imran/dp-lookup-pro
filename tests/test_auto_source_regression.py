@@ -31,9 +31,7 @@ def _parcel(objectid: int, cts: str, x: float = 8_066_000.0):
         "AREA_APP_SQ_MTRS": 100.0,
     }
     geometry = {
-        "rings": [[[x, 2_150_000.0], [x + 10, 2_150_000.0],
-                    [x + 10, 2_150_010.0], [x, 2_150_010.0],
-                    [x, 2_150_000.0]]],
+        "rings": [[[x, 2_150_000.0], [x + 10, 2_150_000.0], [x + 10, 2_150_010.0], [x, 2_150_010.0], [x, 2_150_000.0]]],
         "spatialReference": {"wkid": 102100},
     }
     return {"objectid": objectid, "attributes": attributes, "geometry": geometry}
@@ -101,7 +99,9 @@ def test_auto_fetcher_uses_live_fallback_for_unusable_local_state(tmp_path, data
         return _parcel(99, cts)
 
     result = asyncio.run(
-        LocalParcelFetcher(database, fallback=live_fallback)(object(), "WORLI", "999" if database_kind == "local_miss" else "733")
+        LocalParcelFetcher(database, fallback=live_fallback)(
+            object(), "WORLI", "999" if database_kind == "local_miss" else "733"
+        )
     )
     assert result["attributes"]["OBJECTID"] == 99
     assert result["attributes"].get("_DP_PARCEL_SOURCE") != "local_snapshot"
@@ -127,9 +127,7 @@ def test_old_snapshot_remains_local_but_is_visibly_marked_stale(tmp_path, monkey
 
     real_now = local_parcels.time.time()
     monkeypatch.setattr(local_parcels.time, "time", lambda: real_now + 211 * 86_400)
-    result = asyncio.run(
-        LocalParcelFetcher(database, fallback=live_fallback)(object(), "WORLI", "733")
-    )
+    result = asyncio.run(LocalParcelFetcher(database, fallback=live_fallback)(object(), "WORLI", "733"))
     assert result["attributes"]["_DP_PARCEL_SOURCE"] == "local_snapshot"
     assert result["attributes"]["_DP_SNAPSHOT_STALE"] is True
     assert result["attributes"]["_DP_SNAPSHOT_AGE_DAYS"] == pytest.approx(211, abs=0.01)

@@ -6,9 +6,10 @@ import asyncio
 import math
 import time
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
+from datetime import UTC, datetime
+from typing import Any, cast
 
 from shapely.errors import GEOSException
 from shapely.geometry.base import BaseGeometry
@@ -32,7 +33,7 @@ MAX_CONCURRENT_LAYER_QUERIES = 4
 DEFAULT_MAX_PLANNING_EVIDENCE_AGE_DAYS = 210.0
 
 
-def _query_payload(bounds: Tuple[float, float, float, float], spec: LayerSpec) -> Dict[str, str]:
+def _query_payload(bounds: tuple[float, float, float, float], spec: LayerSpec) -> dict[str, str]:
     return {
         "where": "1=1",
         "geometry": ",".join(str(value) for value in bounds),
@@ -46,8 +47,8 @@ def _query_payload(bounds: Tuple[float, float, float, float], spec: LayerSpec) -
     }
 
 
-def _authority_for_record(spec: LayerSpec, attributes: Mapping[str, Any]) -> Tuple[EvidenceClass, Tuple[str, ...]]:
-    warnings: List[str] = []
+def _authority_for_record(spec: LayerSpec, attributes: Mapping[str, Any]) -> tuple[EvidenceClass, tuple[str, ...]]:
+    warnings: list[str] = []
     evidence_class = spec.evidence_class
     if spec.layer_id == 83 and not (attributes.get("NOTIFICATION_NO") or attributes.get("GAZETTE_DATE")):
         evidence_class = EvidenceClass.REGULATORY
@@ -133,7 +134,7 @@ def _parse_layer_features(
     outcome state transitions in one place prevents source-specific drift.
     """
     threshold = max(SLIVER_AREA_THRESHOLD_SQM, parcel.area * SLIVER_PERCENT_THRESHOLD)
-    findings: List[EvidenceFinding] = []
+    findings: list[EvidenceFinding] = []
     malformed = 0
     for feature in features:
         if not isinstance(feature, Mapping):
@@ -177,7 +178,7 @@ def _parse_layer_features(
             )
         )
 
-    warnings: List[str] = []
+    warnings: list[str] = []
     state = QueryState.HIT if findings else QueryState.NOT_PRESENT
     if malformed:
         state = QueryState.MALFORMED
@@ -196,7 +197,7 @@ def _parse_layer_features(
     )
 
 
-async def _query_specs(client: Any, parcel: Any, specs: Sequence[LayerSpec]) -> Tuple[LayerQueryOutcome, ...]:
+async def _query_specs(client: Any, parcel: Any, specs: Sequence[LayerSpec]) -> tuple[LayerQueryOutcome, ...]:
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_LAYER_QUERIES)
     return tuple(await asyncio.gather(*(_query_layer(client, parcel, spec, semaphore) for spec in specs)))
 
@@ -205,7 +206,7 @@ def _hit(outcomes: Sequence[LayerQueryOutcome], layer_id: int) -> bool:
     return any(outcome.layer_id == layer_id and bool(outcome.findings) for outcome in outcomes)
 
 
-def _build_summary(outcomes: Sequence[LayerQueryOutcome], context: EvidenceContext) -> Dict[str, Any]:
+def _build_summary(outcomes: Sequence[LayerQueryOutcome], context: EvidenceContext) -> dict[str, Any]:
     findings = [finding for outcome in outcomes for finding in outcome.findings]
     class_counts = Counter(finding.evidence_class.value for finding in findings)
     crz_categories = []
@@ -261,7 +262,7 @@ def _report_for_outcomes(
     context: EvidenceContext,
     *,
     warnings: Sequence[str] = (),
-    provenance: Optional[Mapping[str, Any]] = None,
+    provenance: Mapping[str, Any] | None = None,
 ) -> PlanningEvidenceReport:
     """Build a report from already parsed outcomes for any source adapter."""
     bad_states = {QueryState.FAILED, QueryState.MALFORMED, QueryState.TRUNCATED}
@@ -279,14 +280,14 @@ def _report_for_outcomes(
 
 async def collect_planning_evidence(
     client: Any,
-    rings: List[Any],
+    rings: list[Any],
     village: str,
     mode: EvidenceMode,
 ) -> PlanningEvidenceReport:
     """Collect optional source evidence without re-querying cadastral Layer 13."""
 
     selected_mode = EvidenceMode.parse(mode)
-    retrieved_at = datetime.now(timezone.utc).isoformat()
+    retrieved_at = datetime.now(UTC).isoformat()
     if selected_mode is EvidenceMode.BASIC:
         return PlanningEvidenceReport(selected_mode, retrieved_at, True)
 
@@ -321,7 +322,7 @@ def _snapshot_value(snapshot: Any, name: str, default: Any = None) -> Any:
     return getattr(snapshot, name, default)
 
 
-def _snapshot_age_days(finalized_at: Any) -> Optional[float]:
+def _snapshot_age_days(finalized_at: Any) -> float | None:
     if finalized_at is None:
         return None
     if isinstance(finalized_at, datetime):
@@ -331,7 +332,7 @@ def _snapshot_age_days(finalized_at: Any) -> Optional[float]:
     else:
         text = str(finalized_at).strip()
         try:
-            timestamp = datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+            timestamp = datetime.fromisoformat(text).timestamp()
         except ValueError:
             try:
                 timestamp = float(text)
@@ -353,13 +354,13 @@ class LocalFirstPlanningEvidenceAnalyzer:
 
     def __init__(
         self,
-        store: Optional[Any],
+        store: Any | None,
         *,
         live_analyzer: Any = collect_planning_evidence,
         mode: str = "auto",
-        max_snapshot_age_days: Optional[float] = DEFAULT_MAX_PLANNING_EVIDENCE_AGE_DAYS,
+        max_snapshot_age_days: float | None = DEFAULT_MAX_PLANNING_EVIDENCE_AGE_DAYS,
         allow_stale_local: bool = False,
-        snapshot_id: Optional[int] = None,
+        snapshot_id: int | None = None,
     ) -> None:
         selected_mode = str(mode).strip().lower()
         if selected_mode not in {"auto", "local", "live"}:
@@ -405,7 +406,7 @@ class LocalFirstPlanningEvidenceAnalyzer:
             raise LocalPlanningEvidenceError(f"planning snapshot {snapshot_id} is incomplete")
         return snapshot
 
-    def _local_report(self, rings: List[Any], village: str, selected_mode: EvidenceMode) -> PlanningEvidenceReport:
+    def _local_report(self, rings: list[Any], village: str, selected_mode: EvidenceMode) -> PlanningEvidenceReport:
         snapshot = self._pin()
         snapshot_id = _snapshot_value(snapshot, "snapshot_id")
         finalized_at = _snapshot_value(snapshot, "finalized_at")
@@ -430,8 +431,8 @@ class LocalFirstPlanningEvidenceAnalyzer:
         if not callable(query):
             raise LocalPlanningEvidenceError("planning snapshot store has no spatial layer query method")
 
-        def query_specs(specs: Sequence[LayerSpec]) -> List[LayerQueryOutcome]:
-            result: List[LayerQueryOutcome] = []
+        def query_specs(specs: Sequence[LayerSpec]) -> list[LayerQueryOutcome]:
+            result: list[LayerQueryOutcome] = []
             for spec in specs:
                 started = time.perf_counter()
                 try:
@@ -454,7 +455,7 @@ class LocalFirstPlanningEvidenceAnalyzer:
                 )
             return result
 
-        retrieved_at = datetime.now(timezone.utc).isoformat()
+        retrieved_at = datetime.now(UTC).isoformat()
         initial_specs = specs_for_mode(selected_mode)
         outcomes = query_specs(initial_specs)
         context = EvidenceContext(
@@ -499,13 +500,13 @@ class LocalFirstPlanningEvidenceAnalyzer:
     async def __call__(
         self,
         client: Any,
-        rings: List[Any],
+        rings: list[Any],
         village: str,
         mode: EvidenceMode,
     ) -> PlanningEvidenceReport:
         selected_mode = EvidenceMode.parse(mode)
         if selected_mode is EvidenceMode.BASIC:
-            return PlanningEvidenceReport(selected_mode, datetime.now(timezone.utc).isoformat(), True)
+            return PlanningEvidenceReport(selected_mode, datetime.now(UTC).isoformat(), True)
         if self.mode == "live":
             report = cast(PlanningEvidenceReport, await self.live_analyzer(client, rings, village, selected_mode))
             return replace(

@@ -2,7 +2,7 @@
 
 import math
 import os
-from typing import Any, Dict
+from typing import Any
 
 from dp_lookup.application.contracts import (
     NeighbourContext,
@@ -91,6 +91,6 @@ def build_export_properties(
     road: RoadContext,
     neighbours: NeighbourContext,
     map_link: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compatibility adapter for callers using the historical dictionary."""
     return build_export_data(parcel, planning, road, neighbours, map_link).to_legacy_dict()

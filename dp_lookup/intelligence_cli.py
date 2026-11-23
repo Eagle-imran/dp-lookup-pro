@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 from dp_lookup.application.intelligence_services import PlotIntelligenceServices
 
@@ -41,13 +42,13 @@ def _number(value: str, name: str) -> float:
         raise ValueError(f"{name} requires a number") from exc
 
 
-def parse_intelligence_args(argv: Sequence[str]) -> Dict[str, Any]:
+def parse_intelligence_args(argv: Sequence[str]) -> dict[str, Any]:
     tokens = list(argv)
     if len(tokens) < 2 or tokens[0] != "intelligence" or tokens[1] not in COMMANDS:
         raise ValueError("expected intelligence command: " + ", ".join(COMMANDS))
     command = tokens[1]
-    positionals: List[str] = []
-    options: Dict[str, Any] = {"json": False, "offset": 0, "include_neighbours": True, "evidence_mode": "full"}
+    positionals: list[str] = []
+    options: dict[str, Any] = {"json": False, "offset": 0, "include_neighbours": True, "evidence_mode": "full"}
     value_options = {
         "--database": "database",
         "--build-id": "build_id",
@@ -129,7 +130,7 @@ def parse_intelligence_args(argv: Sequence[str]) -> Dict[str, Any]:
     return options
 
 
-def _identity(value: str) -> Tuple[str, str]:
+def _identity(value: str) -> tuple[str, str]:
     village, separator, cts_no = value.partition(":")
     if not separator or not village.strip() or not cts_no.strip():
         raise ValueError("compare identities must use VILLAGE:CTS")
@@ -164,9 +165,9 @@ def _human(command: str, result: Any) -> str:
 
 
 def main(
-    argv: Optional[Sequence[str]] = None,
+    argv: Sequence[str] | None = None,
     *,
-    services: Optional[PlotIntelligenceServices] = None,
+    services: PlotIntelligenceServices | None = None,
 ) -> int:
     raw_args = list(sys.argv[1:] if argv is None else argv)
     as_json = "--json" in raw_args
