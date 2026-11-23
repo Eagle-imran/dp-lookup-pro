@@ -8,6 +8,20 @@ All notable changes to this project. Newest first.
 
 ### Code cleanup — 2026-11-24
 
+* **Fix — planning features are no longer silently skipped:** if a zone,
+  reservation, designation, DP modification, metro or CRZ feature returned for
+  a plot could not be checked (for example a missing coordinate, no rings or
+  an empty shape), it was dropped without a word, so a plot could be reported
+  as free of reservations. Each such feature now adds a warning naming the
+  layer and OBJECTID, the layer is not counted as checked, and the lookup is
+  marked incomplete and not cached. Real programming errors are no longer
+  caught by these handlers.
+* **New status — UNVERIFIED:** when the reservation, designation or DP
+  modification check is incomplete and nothing was found, the status reads
+  "⚪ UNVERIFIED (Planning check incomplete)" instead of "🟢 CLEAR". This
+  also applies when those planning queries fail outright. The PDF shows it
+  with the yellow review banner. A failure limited to the metro or CRZ layers
+  keeps the reservation badge but leaves the planning evidence unconfirmed.
 * **No code comments:** comments were removed; the non-obvious decisions they
   held now live in [decision records](../decisions/README.md), and
   `tools/check_comments.py` stops new comments being added.

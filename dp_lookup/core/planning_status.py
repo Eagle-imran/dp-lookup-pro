@@ -74,6 +74,12 @@ def crz_flag_from(crz_item: dict[str, Any] | None) -> str:
     return f"YES ({label})"
 
 
+UNVERIFIED_STATUS = {
+    "badge": "\u26aa UNVERIFIED (Planning check incomplete)",
+    "summary": "Some planning data could not be checked; read the warnings before relying on this result",
+}
+
+
 def derive_status(
     mod_item: Any = None,
     des_item: Any = None,

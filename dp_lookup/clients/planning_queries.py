@@ -2,9 +2,11 @@
 
 import asyncio
 import math
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 import httpx
+from shapely.errors import ShapelyError
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
@@ -26,24 +28,64 @@ from dp_lookup.core.geometry import mercator_to_wgs84
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
 
+class UnusableFeatureError(ValueError):
+    """A planning feature returned by a spatial query has no usable polygon."""
+
+
+FEATURE_DATA_ERRORS = (IndexError, TypeError, ValueError, ShapelyError)
+
+
 def _overlap(
     parcel: BaseGeometry,
-    feature: dict[str, Any],
+    feature: Mapping[str, Any],
     threshold: float,
-) -> tuple[BaseGeometry | None, BaseGeometry | None]:
+) -> tuple[BaseGeometry | None, BaseGeometry]:
+    if not isinstance(feature.get("attributes", {}), Mapping):
+        raise UnusableFeatureError("attributes are not an object")
     geometry = feature.get("geometry") or {}
-    rings = geometry.get("rings")
-    if not rings:
-        return None, None
+    if not isinstance(geometry, Mapping) or not geometry.get("rings"):
+        raise UnusableFeatureError("feature has no polygon rings")
     runtime_geometry = feature.get("_dp_runtime_geometry")
-    polygon = runtime_geometry if isinstance(runtime_geometry, BaseGeometry) else arcgis_rings_to_geometry(rings)
-    if polygon.is_empty or not parcel.intersects(polygon):
+    polygon = (
+        runtime_geometry if isinstance(runtime_geometry, BaseGeometry) else arcgis_rings_to_geometry(geometry["rings"])
+    )
+    if polygon.is_empty:
+        raise UnusableFeatureError("polygon rings form an empty shape")
+    if not parcel.intersects(polygon):
         return None, polygon
     intersection = parcel.intersection(polygon)
     return (intersection if intersection.area > threshold else None), polygon
 
 
-def _wgs_rings(feature: dict[str, Any]) -> list[list[list[float]]]:
+def _feature_label(feature: Any, index: int) -> str:
+    attributes = feature.get("attributes") if isinstance(feature, Mapping) else None
+    object_id = attributes.get("OBJECTID") if isinstance(attributes, Mapping) else None
+    return f"OBJECTID {object_id}" if object_id is not None else f"#{index + 1}"
+
+
+def _overlapping_features(
+    parcel: BaseGeometry,
+    by_layer: Mapping[int, list[Any]],
+    layer_id: int,
+    threshold: float,
+    warnings: list[str],
+) -> Iterator[tuple[Mapping[str, Any], BaseGeometry, BaseGeometry]]:
+    """Yield features overlapping the parcel; record every feature that cannot be evaluated."""
+    for index, feature in enumerate(by_layer.get(layer_id, [])):
+        try:
+            if not isinstance(feature, Mapping):
+                raise UnusableFeatureError("feature is not an object")
+            intersection, polygon = _overlap(parcel, feature, threshold)
+        except FEATURE_DATA_ERRORS as exc:
+            warnings.append(
+                f"Layer {layer_id} {_feature_label(feature, index)} could not be checked against the plot: {exc}"
+            )
+            continue
+        if intersection is not None:
+            yield feature, intersection, polygon
+
+
+def _wgs_rings(feature: Mapping[str, Any]) -> list[list[list[float]]]:
     rings = (feature.get("geometry") or {}).get("rings") or []
     return [[mercator_to_wgs84(point[0], point[1]) for point in ring] for ring in rings]
 
@@ -103,145 +145,114 @@ def build_spatial_planning_result(
     if not math.isfinite(area_scale) or area_scale <= 0:
         raise ValueError("area_scale must be finite and positive")
     threshold = max(SLIVER_AREA_THRESHOLD_SQM / area_scale, parcel.area * SLIVER_PERCENT_THRESHOLD)
+    warnings = list(warnings)
 
     reservations = []
     reservation_polygons = []
-    for feature in by_layer.get(LAYER_RESERVATION, []):
-        try:
-            intersection, polygon = _overlap(parcel, feature, threshold)
-            if intersection is None or polygon is None:
-                continue
-            attributes = feature.get("attributes", {})
-            reservation_polygons.append(intersection)
-            proposed_code = attributes.get("NEW_RES_CODE_31")
-            final_code = attributes.get("FINAL_RES_CODE")
-            proposed_type = attributes.get("NEW_RES_MAINTYPE_31")
-            final_type = attributes.get("FINAL_RES_MAINTYPE")
-            reservations.append(
-                {
-                    "code": str(final_code or proposed_code or "Unknown"),
-                    "type": str(final_type or proposed_type or "None"),
-                    "proposed_code": str(proposed_code or "None"),
-                    "final_code": str(final_code or "None"),
-                    "proposed_type": str(proposed_type or "None"),
-                    "final_type": str(final_type or "None"),
-                    "description": str((attributes.get("DISCRIPTION") or "").strip() or "Reservation"),
-                    "u_r_id": str(attributes.get("U_R_ID") or "N/A"),
-                    "overlap_sqm": round(intersection.area * area_scale, 2),
-                    "total_res_sqm": round(polygon.area * area_scale, 2),
-                    "overlap_percent": round(intersection.area / parcel.area * 100, 2),
-                    "wgs_rings": _wgs_rings(feature),
-                    "raw_attributes": attributes,
-                }
-            )
-        except Exception:
-            continue
+    for feature, intersection, polygon in _overlapping_features(
+        parcel, by_layer, LAYER_RESERVATION, threshold, warnings
+    ):
+        attributes = feature.get("attributes", {})
+        reservation_polygons.append(intersection)
+        proposed_code = attributes.get("NEW_RES_CODE_31")
+        final_code = attributes.get("FINAL_RES_CODE")
+        proposed_type = attributes.get("NEW_RES_MAINTYPE_31")
+        final_type = attributes.get("FINAL_RES_MAINTYPE")
+        reservations.append(
+            {
+                "code": str(final_code or proposed_code or "Unknown"),
+                "type": str(final_type or proposed_type or "None"),
+                "proposed_code": str(proposed_code or "None"),
+                "final_code": str(final_code or "None"),
+                "proposed_type": str(proposed_type or "None"),
+                "final_type": str(final_type or "None"),
+                "description": str((attributes.get("DISCRIPTION") or "").strip() or "Reservation"),
+                "u_r_id": str(attributes.get("U_R_ID") or "N/A"),
+                "overlap_sqm": round(intersection.area * area_scale, 2),
+                "total_res_sqm": round(polygon.area * area_scale, 2),
+                "overlap_percent": round(intersection.area / parcel.area * 100, 2),
+                "wgs_rings": _wgs_rings(feature),
+                "raw_attributes": attributes,
+            }
+        )
 
     designations = []
     designation_polygons = []
-    for feature in by_layer.get(LAYER_DESIGNATION, []):
-        try:
-            intersection, polygon = _overlap(parcel, feature, threshold)
-            if intersection is None or polygon is None:
-                continue
-            attributes = feature.get("attributes", {})
-            designation_polygons.append(intersection)
-            proposed_code = attributes.get("NEW_DES_CODE_31")
-            final_code = attributes.get("FINAL_DES_CODE")
-            proposed_type = attributes.get("NEW_DES_MAINTYPE_31")
-            final_type = attributes.get("FINAL_DES_MAINTYPE")
-            designations.append(
-                {
-                    "code": str(final_code or proposed_code or "Unknown"),
-                    "type": str(final_type or proposed_type or "None"),
-                    "proposed_code": str(proposed_code or "None"),
-                    "final_code": str(final_code or "None"),
-                    "proposed_type": str(proposed_type or "None"),
-                    "final_type": str(final_type or "None"),
-                    "description": str((attributes.get("DISCRIPTION") or "").strip() or "Designation"),
-                    "u_d_id": str(attributes.get("U_D_ID") or "N/A"),
-                    "overlap_sqm": round(intersection.area * area_scale, 2),
-                    "total_des_sqm": round(polygon.area * area_scale, 2),
-                    "overlap_percent": round(intersection.area / parcel.area * 100, 2),
-                    "wgs_rings": _wgs_rings(feature),
-                    "raw_attributes": attributes,
-                }
-            )
-        except Exception:
-            continue
+    for feature, intersection, polygon in _overlapping_features(
+        parcel, by_layer, LAYER_DESIGNATION, threshold, warnings
+    ):
+        attributes = feature.get("attributes", {})
+        designation_polygons.append(intersection)
+        proposed_code = attributes.get("NEW_DES_CODE_31")
+        final_code = attributes.get("FINAL_DES_CODE")
+        proposed_type = attributes.get("NEW_DES_MAINTYPE_31")
+        final_type = attributes.get("FINAL_DES_MAINTYPE")
+        designations.append(
+            {
+                "code": str(final_code or proposed_code or "Unknown"),
+                "type": str(final_type or proposed_type or "None"),
+                "proposed_code": str(proposed_code or "None"),
+                "final_code": str(final_code or "None"),
+                "proposed_type": str(proposed_type or "None"),
+                "final_type": str(final_type or "None"),
+                "description": str((attributes.get("DISCRIPTION") or "").strip() or "Designation"),
+                "u_d_id": str(attributes.get("U_D_ID") or "N/A"),
+                "overlap_sqm": round(intersection.area * area_scale, 2),
+                "total_des_sqm": round(polygon.area * area_scale, 2),
+                "overlap_percent": round(intersection.area / parcel.area * 100, 2),
+                "wgs_rings": _wgs_rings(feature),
+                "raw_attributes": attributes,
+            }
+        )
 
     modifications = []
-    for feature in by_layer.get(LAYER_MODIFICATION, []):
-        try:
-            intersection, _ = _overlap(parcel, feature, threshold)
-            if intersection is None:
-                continue
-            attributes = feature.get("attributes", {})
-            modifications.append(
-                {
-                    "approval_no": str(attributes.get("APPROVAL_NO") or "DP Mod"),
-                    "details": str(attributes.get("LABEL") or attributes.get("LABEL to Display") or "Modified"),
-                    "document_link": str(
-                        attributes.get("APPROVAL_DOCUMENTS") or attributes.get("Approval Documents") or "None"
-                    ),
-                    "overlap_sqm": round(intersection.area * area_scale, 2),
-                    "overlap_percent": round(intersection.area / parcel.area * 100, 2),
-                    "raw_attributes": attributes,
-                }
-            )
-        except Exception:
-            continue
+    for feature, intersection, _ in _overlapping_features(parcel, by_layer, LAYER_MODIFICATION, threshold, warnings):
+        attributes = feature.get("attributes", {})
+        modifications.append(
+            {
+                "approval_no": str(attributes.get("APPROVAL_NO") or "DP Mod"),
+                "details": str(attributes.get("LABEL") or attributes.get("LABEL to Display") or "Modified"),
+                "document_link": str(
+                    attributes.get("APPROVAL_DOCUMENTS") or attributes.get("Approval Documents") or "None"
+                ),
+                "overlap_sqm": round(intersection.area * area_scale, 2),
+                "overlap_percent": round(intersection.area / parcel.area * 100, 2),
+                "raw_attributes": attributes,
+            }
+        )
 
     zones = []
-    for feature in by_layer.get(LAYER_ZONE, []):
-        try:
-            intersection, _ = _overlap(parcel, feature, threshold)
-            if intersection is None:
-                continue
-            attributes = feature.get("attributes", {})
-            zones.append(
-                {
-                    "zone": str(attributes.get("ZONE_CODE2") or attributes.get("Zone_Code2") or "Unknown"),
-                    "overlap_sqm": round(intersection.area * area_scale, 2),
-                    "overlap_percent": round(intersection.area / parcel.area * 100, 2),
-                }
-            )
-        except Exception:
-            continue
+    for feature, intersection, _ in _overlapping_features(parcel, by_layer, LAYER_ZONE, threshold, warnings):
+        attributes = feature.get("attributes", {})
+        zones.append(
+            {
+                "zone": str(attributes.get("ZONE_CODE2") or attributes.get("Zone_Code2") or "Unknown"),
+                "overlap_sqm": round(intersection.area * area_scale, 2),
+                "overlap_percent": round(intersection.area / parcel.area * 100, 2),
+            }
+        )
     zones.sort(key=lambda item: item["overlap_sqm"], reverse=True)
 
     metro = "NO"
-    for feature in by_layer.get(LAYER_METRO, []):
-        try:
-            intersection, _ = _overlap(parcel, feature, 0.0)
-            if intersection is not None:
-                metro = "YES (Metro Buffer Zone)"
-                break
-        except Exception:
-            continue
+    if list(_overlapping_features(parcel, by_layer, LAYER_METRO, 0.0, warnings)):
+        metro = "YES (Metro Buffer Zone)"
 
     crz = "NO (Outside CRZ Buffer)"
     crz_hits = []
     for layer_id in CRZ_LAYER_IDS:
-        for feature in by_layer.get(layer_id, []):
-            try:
-                intersection, _ = _overlap(parcel, feature, 0.0)
-                if intersection is None:
-                    continue
-                attributes = feature.get("attributes", {})
-                category = attributes.get("CATEGORY") or attributes.get("CLASS") or ""
-                tier = str(category).replace("CRZ", "").replace("ZONE", "").strip() or "YES"
-                label = tier if tier.upper().startswith("CRZ") else f"CRZ {tier}"
-                crz_hits.append(
-                    {
-                        "layer_id": layer_id,
-                        "category": label,
-                        "overlap_sqm": round(intersection.area * area_scale, 2),
-                        "overlap_percent": round(intersection.area / parcel.area * 100, 3),
-                    }
-                )
-            except Exception:
-                continue
+        for feature, intersection, _ in _overlapping_features(parcel, by_layer, layer_id, 0.0, warnings):
+            attributes = feature.get("attributes", {})
+            category = attributes.get("CATEGORY") or attributes.get("CLASS") or ""
+            tier = str(category).replace("CRZ", "").replace("ZONE", "").strip() or "YES"
+            label = tier if tier.upper().startswith("CRZ") else f"CRZ {tier}"
+            crz_hits.append(
+                {
+                    "layer_id": layer_id,
+                    "category": label,
+                    "overlap_sqm": round(intersection.area * area_scale, 2),
+                    "overlap_percent": round(intersection.area / parcel.area * 100, 3),
+                }
+            )
     crz_hits.sort(key=lambda item: (-item["overlap_sqm"], item["layer_id"], item["category"]))
     if crz_hits:
         crz = f"YES ({crz_hits[0]['category']})"

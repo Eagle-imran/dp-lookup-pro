@@ -78,7 +78,7 @@ def test_spatial_planning_failure_is_visible_when_identify_fallback_succeeds():
         [14, 1264, 1548],
     )
     assert planning.zone == "R"
-    assert planning.status_badge.endswith("CLEAR (No Reservation)")
+    assert "UNVERIFIED" in planning.status_badge
     assert planning.warnings
     assert planning.evidence["planning_constraints"]["state"] == "unknown"
     assert planning.evidence["zoning"]["method"] == "identify_fallback"
