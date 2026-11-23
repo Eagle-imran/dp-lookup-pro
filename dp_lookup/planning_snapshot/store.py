@@ -262,14 +262,6 @@ class PlanningSnapshotStore(SQLiteStore):
     def _feature(value: Any, object_id_field: str) -> PlanningFeature:
         if isinstance(value, PlanningFeature):
             return value
-        if all(hasattr(value, name) for name in ("object_id", "attributes", "geometry")):
-            return PlanningFeature(
-                int(value.object_id),
-                value.attributes,
-                value.geometry,
-                raw_feature=getattr(value, "raw_feature", None),
-                source_layer_id=getattr(value, "layer_id", None),
-            )
         if not isinstance(value, Mapping):
             raise ValueError("feature must be a mapping or PlanningFeature")
         attrs = value.get("attributes", value.get("attrs"))

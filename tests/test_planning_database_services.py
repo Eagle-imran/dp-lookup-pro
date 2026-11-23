@@ -55,7 +55,7 @@ async def _complete_importer(_client: Any, **kwargs: Any) -> PlanningSnapshotRes
         raw = {"attributes": attributes, "geometry": geometry}
         await kwargs["on_batch"](
             spec,
-            (PlanningFeature(spec.layer_id, object_id, attributes, geometry, raw),),
+            (PlanningFeature(object_id, attributes, geometry, raw_feature=raw, source_layer_id=spec.layer_id),),
         )
         manifests.append(
             PlanningLayerManifest(
@@ -121,7 +121,9 @@ def test_missing_status_and_incomplete_build_remain_safe_and_resumable(tmp_path:
         geometry = {"rings": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}
         attrs = {first.object_id_field: 1}
         raw = {"attributes": attrs, "geometry": geometry}
-        await kwargs["on_batch"](first, (PlanningFeature(first.layer_id, 1, attrs, geometry, raw),))
+        await kwargs["on_batch"](
+            first, (PlanningFeature(1, attrs, geometry, raw_feature=raw, source_layer_id=first.layer_id),)
+        )
         layer = PlanningLayerManifest(
             first.layer_id,
             first.name,

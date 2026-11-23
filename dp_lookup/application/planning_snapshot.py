@@ -23,6 +23,7 @@ from dp_lookup.core.batching import batched
 from dp_lookup.core.timestamps import utc_now
 from dp_lookup.planning_evidence.models import EvidenceContext, LayerSpec
 from dp_lookup.planning_evidence.registry import LAYER_SPECS, SERVER_URL, deduplicate_layer_specs
+from dp_lookup.planning_snapshot.models import PlanningFeature
 
 RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
@@ -37,17 +38,6 @@ def _sha256_json(value: Any) -> str:
 
 class PlanningSnapshotError(RuntimeError):
     """The planning-layer source or a durable sink could not be used safely."""
-
-
-@dataclass(frozen=True)
-class PlanningFeature:
-    """One accepted feature, retaining the source attributes and geometry."""
-
-    layer_id: int
-    object_id: int
-    attributes: Mapping[str, Any]
-    geometry: Any
-    raw_feature: Mapping[str, Any]
 
 
 @dataclass(frozen=True)
@@ -420,11 +410,11 @@ def _feature_from_raw(
     if not _usable_geometry(geometry, resolved_geometry_type):
         spatial_warning = f"feature geometry is empty or not usable as {resolved_geometry_type}"
     return PlanningFeature(
-        spec.layer_id,
         object_id,
         dict(attrs),
         dict(geometry) if isinstance(geometry, Mapping) else geometry,
-        dict(raw_feature),
+        raw_feature=dict(raw_feature),
+        source_layer_id=spec.layer_id,
     ), spatial_warning
 
 
@@ -511,7 +501,7 @@ async def ingest_planning_snapshot(
         metadata: Mapping[str, Any] = {}
         resolved_object_id_field = spec.object_id_field
         resolved_geometry_type = spec.geometry_type
-        raw_for_hash: list[Mapping[str, Any]] = []
+        raw_for_hash: list[Any] = []
         try:
             inventory = await _get_json(
                 client, f"{layer_url}/query", inventory_params, cfg, sleep, required_list_field="objectIds"
