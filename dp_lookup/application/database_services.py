@@ -22,7 +22,6 @@ from dp_lookup.clients.parcel_snapshot import (
     sha256_json,
 )
 from dp_lookup.clients.transport import ArcGISClient, RetryPolicy
-from dp_lookup.core.batching import batched
 from dp_lookup.spatial_store import SnapshotStore
 
 
@@ -87,7 +86,6 @@ class LocalDatabaseServices:
             fetch_layer_metadata=True,
         )
     )
-    store_batch_size: int = 2000
 
     def build(self, database: Path) -> Mapping[str, Any]:
         return asyncio.run(self._build(database))
@@ -96,11 +94,9 @@ class LocalDatabaseServices:
         store: SnapshotStore | None = None
         snapshot_id: int | None = None
         resumed_records = 0
-        streamed = False
 
         async def accept_inventory(expected_ids: tuple[int, ...], source_context: Mapping[str, Any]) -> Iterable[int]:
-            nonlocal store, snapshot_id, resumed_records, streamed
-            streamed = True
+            nonlocal store, snapshot_id, resumed_records
             if store is None:
                 store = SnapshotStore.open(database)
             inventory_contract = {
@@ -163,7 +159,7 @@ class LocalDatabaseServices:
                     )
                     store.update_snapshot_metadata(snapshot_id, partial_metadata)
                 raise SnapshotIngestionError(
-                    "Layer 13 snapshot is incomplete and was not written or finalized: "
+                    "Layer 13 snapshot is incomplete and was not finalized: "
                     f"missing={len(manifest.missing_ids)}, "
                     f"rejected={len(manifest.rejected_ids)}, "
                     f"extra={len(manifest.extra_ids)}, "
@@ -171,19 +167,9 @@ class LocalDatabaseServices:
                 )
 
             if store is None or snapshot_id is None:
-                store = SnapshotStore.open(database)
-                snapshot_id = store.begin_snapshot(
-                    source=LAYER13_URL,
-                    expected_count=len(result.manifest.expected_ids),
-                    metadata=_manifest_metadata(result),
-                )
-                store.set_inventory(snapshot_id, result.manifest.expected_ids)
-                for batch in batched(result.features, self.store_batch_size):
-                    store.insert_batch(snapshot_id, (_store_record(feature) for feature in batch))
-
-            if streamed:
-                persisted_hash = store.content_hash(snapshot_id)
-                result = replace(result, manifest=replace(result.manifest, content_hash=persisted_hash))
+                raise SnapshotIngestionError("Layer 13 importer finished without reporting its inventory.")
+            persisted_hash = store.content_hash(snapshot_id)
+            result = replace(result, manifest=replace(result.manifest, content_hash=persisted_hash))
             metadata = _manifest_metadata(result)
             metadata["inventory_hash"] = store.snapshot_metadata(snapshot_id).get("inventory_hash")
             metadata["resumed_records"] = resumed_records

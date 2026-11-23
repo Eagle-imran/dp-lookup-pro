@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from typing import Any
 
 import httpx
@@ -12,14 +13,8 @@ from dp_lookup.application.snapshot_ingestion import SnapshotIngestionConfig, in
 from dp_lookup.clients.parcel_snapshot import SnapshotCheckpoint
 
 
-class Response:
-    def __init__(self, payload: dict[str, Any], status_code: int = 200, headers: dict[str, str] | None = None):
-        self.payload = payload
-        self.status_code = status_code
-        self.headers = headers or {}
-
-    def json(self) -> dict[str, Any]:
-        return self.payload
+def Response(payload: dict[str, Any], status_code: int = 200, headers: dict[str, str] | None = None) -> httpx.Response:
+    return httpx.Response(status_code, json=payload, headers=headers)
 
 
 def feature(object_id: int, *, name: str = "parcel") -> dict[str, Any]:
@@ -35,17 +30,17 @@ class FakeClient:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.methods: list[str] = []
 
-    async def get(self, url: str, *, params: dict[str, Any]) -> Any:
+    async def get(self, url: str, *, params: Mapping[str, Any]) -> httpx.Response:
         self.methods.append("GET")
-        self.calls.append((url, params))
+        self.calls.append((url, dict(params)))
         item = self.responses.pop(0)
         if isinstance(item, BaseException):
             raise item
         return item
 
-    async def post(self, url: str, *, data: dict[str, Any]) -> Any:
+    async def post(self, url: str, *, data: Mapping[str, Any]) -> httpx.Response:
         self.methods.append("POST")
-        self.calls.append((url, data))
+        self.calls.append((url, dict(data)))
         item = self.responses.pop(0)
         if isinstance(item, BaseException):
             raise item
