@@ -25,6 +25,28 @@ All notable changes to this project. Newest first.
 * **DXF renderer:** the 440-line `export_dxf` is now one short function calling a
   step per drawing layer (grid, parcel, setbacks, dimensions, roads, north arrow,
   neighbours, restriction notes, overlays, legend). Output is unchanged.
+* **Fix — authority geometry in WGS84:** authority records registered with
+  `original_crs=4326` were converted to Web Mercator π times too large on both
+  axes, so their normalised geometry, geometry hash and calculated area were
+  wrong (a 0.001° square in Mumbai was placed near lon 229°, lat 52°). Both
+  callers now share `core.geometry.wgs84_to_mercator`. Registries holding
+  WGS84 records should re-register them; EPSG:3857 records are unaffected.
+* **Removed unused aliases:** `fetch_layer13_snapshot`, `Layer13SnapshotImporter`
+  (use `ingest_layer13_snapshot`), `get_applicable_specs` and
+  `deduplicated_specs` (use `applicable_layer_specs` / `deduplicate_layer_specs`),
+  `DxfLayoutPolicy.metro_radius_fraction`, and the private `dp_lookup.cli`
+  wrappers (`_parse_cli_args`, `_normalize_admin_args`, `_local_cache_namespace`
+  and others); use `dp_lookup.cli_parser` / `dp_lookup.cli_bootstrap`.
+* **Types:** one `PlanningFeature` type is shared by the downloader and the
+  planning store, `DXF_LAYERS` entries are `DxfLayer` named tuples, and
+  `ParcelAssemblyInput.raw_arcgis_rings` is typed as the normalised tuple it
+  holds.
+* **Wheel test:** the packaging test now reports *skipped* instead of passing when
+  no wheel is built. CI runs it after `uv build` in place of an inline script.
+* **Deprecated:** the singular `reservation`, `designation` and
+  `dp_modification` objects in the lookup JSON report only the first item.
+  Read the plural `reservations`, `designations` and `dp_modifications` lists;
+  the singular objects will be removed in the next minor release.
 
 ### Audit fixes — 2026-11-10
 

@@ -18,7 +18,7 @@ ArcGISRing = tuple[Coordinate, ...]
 ArcGISRings = tuple[ArcGISRing, ...]
 
 
-def _normalise_rings(raw_rings: Sequence[Sequence[Sequence[float]]]) -> ArcGISRings:
+def normalise_rings(raw_rings: Sequence[Sequence[Sequence[float]]]) -> ArcGISRings:
     """Make an immutable, numeric copy of raw source coordinates."""
     normalised = []
     for raw_ring in raw_rings:
@@ -50,7 +50,7 @@ class ParcelAssemblyInput:
     village: str
     cts_no: str
     objectids: Sequence[int]
-    raw_arcgis_rings: Sequence[Sequence[Sequence[float]]]
+    raw_arcgis_rings: ArcGISRings
     recorded_area_sqm: float | None
     ward: str | None = None
     source_label: str = "MCGM cadastral parcel record"
@@ -73,7 +73,7 @@ class ParcelAssemblyInput:
         object.__setattr__(self, "village", village)
         object.__setattr__(self, "cts_no", cts_no)
         object.__setattr__(self, "objectids", objectids)
-        object.__setattr__(self, "raw_arcgis_rings", _normalise_rings(self.raw_arcgis_rings))
+        object.__setattr__(self, "raw_arcgis_rings", normalise_rings(self.raw_arcgis_rings))
         object.__setattr__(self, "recorded_area_sqm", recorded)
         object.__setattr__(self, "ward", self.ward.strip() if self.ward else None)
         object.__setattr__(self, "source_label", self.source_label.strip() or "MCGM cadastral parcel record")

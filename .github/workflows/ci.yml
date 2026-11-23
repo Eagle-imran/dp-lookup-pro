@@ -74,13 +74,8 @@ jobs:
       - run: uv sync --frozen --all-extras --dev
       - name: Build distributions
         run: uv build
-      - name: Verify wheel module contents
-        run: >-
-          python -c "import glob,zipfile;
-          p=glob.glob('dist/*.whl')[0];
-          n=set(zipfile.ZipFile(p).namelist());
-          required={'dp_lookup/application/lookup_service.py','dp_lookup/application/dependencies.py','dp_lookup/application/exporting.py','dp_lookup/application/authority_resolver.py','dp_lookup/authority/models.py','dp_lookup/authority/store.py','dp_lookup/authority/selection.py','dp_lookup/authority_cli.py','dp_lookup/clients/transport.py','dp_lookup/clients/planning_queries.py','dp_lookup/core/area_assessment.py','dp_lookup/core/models.py','dp_lookup/core/topology.py','dp_lookup/exporters/contracts.py','dp_lookup/exporters/templates/html_map.html','dp_lookup/exporters/templates/dossier.css','dp_lookup/exporters/templates/dossier.js','dp_lookup/py.typed'};
-          assert required <= n, required-n"
+      - name: Verify wheel contents
+        run: uv run pytest -q -rs tests/test_typing_contract.py
       - name: Install the wheel into a clean environment
         run: |
           uv python install 3.15

@@ -4,21 +4,31 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import NamedTuple
 
-DXF_LAYERS = (
-    ("0_GRID_AXIS", 8, "DASHED", 9),
-    ("C-PLOT-BDY", 1, None, 50),
-    ("C-PROP-HATCH", 252, None, 9),
-    ("C-SETBACK-3M", 3, "DASHED", 25),
-    ("C-SETBACK-6M", 70, "DASHED", 25),
-    ("C-ADJN-PLOTS", 2, None, 13),
-    ("C-ROAD-ALIGN", 4, "DASHED", 35),
-    ("C-RESTRICT-ZONE", 6, "PHANTOM", 35),
-    ("C-ANNO-TEXT", 7, None, 13),
-    ("C-ANNO-DIMS", 5, None, 13),
-    ("C-NORTH-ARROW", 7, None, 18),
-    ("C-TITLE-BLOCK", 4, None, 18),
+
+class DxfLayer(NamedTuple):
+    name: str
+    aci_colour: int
+    linetype: str | None
+    lineweight_hundredths_mm: int
+
+
+DXF_LAYERS: tuple[DxfLayer, ...] = (
+    DxfLayer("0_GRID_AXIS", 8, "DASHED", 9),
+    DxfLayer("C-PLOT-BDY", 1, None, 50),
+    DxfLayer("C-PROP-HATCH", 252, None, 9),
+    DxfLayer("C-SETBACK-3M", 3, "DASHED", 25),
+    DxfLayer("C-SETBACK-6M", 70, "DASHED", 25),
+    DxfLayer("C-ADJN-PLOTS", 2, None, 13),
+    DxfLayer("C-ROAD-ALIGN", 4, "DASHED", 35),
+    DxfLayer("C-RESTRICT-ZONE", 6, "PHANTOM", 35),
+    DxfLayer("C-ANNO-TEXT", 7, None, 13),
+    DxfLayer("C-ANNO-DIMS", 5, None, 13),
+    DxfLayer("C-NORTH-ARROW", 7, None, 18),
+    DxfLayer("C-TITLE-BLOCK", 4, None, 18),
 )
+DXF_RESERVATION_LAYER = DxfLayer("C-RESERVATIONS", 6, "DASHED", 25)
 
 DXF_LEGEND_ROWS = (
     ("C-PLOT-BDY", "PLOT BOUNDARY - gross plot area"),
@@ -78,7 +88,6 @@ class DxfLayoutPolicy:
     neighbor_label_height_fraction: float = 0.9
     neighbor_nudge_step_fraction: float = 1.2
     neighbor_nudge_limit: int = 10
-    metro_radius_fraction: float = 0.6
     restriction_note_y_offset_fraction: float = 4.4
     restriction_nudge_step_fraction: float = 1.2
     restriction_nudge_limit: int = 14

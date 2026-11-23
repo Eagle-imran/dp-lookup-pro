@@ -21,6 +21,7 @@ from report_data import plot_report
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import cts_dp_lookup_pro as dp
+from dp_lookup.core.geometry import wgs84_to_mercator
 
 
 def test_utm43n_matches_known_mumbai_point():
@@ -661,6 +662,16 @@ def test_mercator_roundtrips_against_the_known_plot_centroid():
     lon, lat = dp.mercator_to_wgs84(8106574.0, 2151800.0, precision=4)
     assert 72.0 < lon < 73.5
     assert 18.5 < lat < 19.5
+
+
+@pytest.mark.parametrize(("lon", "lat"), [(72.8171, 19.0120), (0.0, 0.0), (-122.4, 37.8), (151.2, -33.9)])
+def test_wgs84_to_mercator_inverts_mercator_to_wgs84(lon, lat):
+    x, y = wgs84_to_mercator(lon, lat)
+    assert dp.mercator_to_wgs84(x, y) == pytest.approx([lon, lat], abs=1e-7)
+
+
+def test_wgs84_to_mercator_clamps_latitude_at_the_projection_limit():
+    assert wgs84_to_mercator(0.0, 90.0) == wgs84_to_mercator(0.0, 85.05112878)
 
 
 def test_mercator_is_monotonic():

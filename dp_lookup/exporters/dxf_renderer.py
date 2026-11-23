@@ -34,6 +34,7 @@ from dp_lookup.exporters.dxf_policy import (
     DEFAULT_DXF_LAYOUT_POLICY,
     DXF_LAYERS,
     DXF_LEGEND_ROWS,
+    DXF_RESERVATION_LAYER,
     DXF_RESERVATION_LEGEND_ROW,
     DxfLayoutPolicy,
 )
@@ -53,14 +54,11 @@ def new_dxf_document(has_reservations: bool = False) -> ezdxf.document.Drawing:
         doc.linetypes.add("PHANTOM", pattern="A, 2.0, -0.5, 0.5, -0.5, 0.5, -0.5")
     except Exception:
         pass
-    for name, colour, linetype, lineweight in DXF_LAYERS:
-        attrs = {"name": name, "color": colour, "lineweight": lineweight}
-        if linetype:
-            attrs["linetype"] = linetype
+    for layer in (*DXF_LAYERS, DXF_RESERVATION_LAYER) if has_reservations else DXF_LAYERS:
+        attrs = {"name": layer.name, "color": layer.aci_colour, "lineweight": layer.lineweight_hundredths_mm}
+        if layer.linetype:
+            attrs["linetype"] = layer.linetype
         doc.layers.add(**attrs)
-    if has_reservations:
-        with contextlib.suppress(Exception):
-            doc.layers.add(name="C-RESERVATIONS", color=6, linetype="DASHED", lineweight=25)
     return doc
 
 

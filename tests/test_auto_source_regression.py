@@ -14,7 +14,8 @@ import pytest
 
 import dp_lookup.cli as cli
 from dp_lookup.application.ingestion import build_parcel_context
-from dp_lookup.cli_bootstrap import compose_lookup_runtime
+from dp_lookup.cli_bootstrap import compose_lookup_runtime, local_snapshot_selection
+from dp_lookup.cli_parser import parse_cli_args
 from dp_lookup.clients import local_parcels
 from dp_lookup.clients.local_parcels import LocalParcelError, LocalParcelFetcher
 from dp_lookup.planning_evidence.models import EvidenceMode
@@ -47,7 +48,7 @@ def _active_database(path: Path, records):
 
 
 def test_implicit_source_is_auto_when_database_is_supplied(tmp_path):
-    parsed = cli._parse_cli_args(["WORLI", "733", "--database", str(tmp_path / "layer13.sqlite")])
+    parsed = parse_cli_args(["WORLI", "733", "--database", str(tmp_path / "layer13.sqlite")])
     assert parsed["source_mode"] == "auto"
     assert parsed["database_path"] == str(tmp_path / "layer13.sqlite")
 
@@ -55,12 +56,12 @@ def test_implicit_source_is_auto_when_database_is_supplied(tmp_path):
 def test_implicit_auto_resolves_environment_then_workspace_default(monkeypatch, tmp_path):
     configured = tmp_path / "configured.sqlite"
     monkeypatch.setenv("DP_LOOKUP_DATABASE", str(configured))
-    parsed = cli._parse_cli_args(["WORLI", "733"])
+    parsed = parse_cli_args(["WORLI", "733"])
     assert parsed["source_mode"] == "auto"
     assert parsed["database_path"] == str(configured)
 
     monkeypatch.delenv("DP_LOOKUP_DATABASE")
-    parsed = cli._parse_cli_args(["WORLI", "733"])
+    parsed = parse_cli_args(["WORLI", "733"])
     assert parsed["database_path"] == cli.DEFAULT_DATABASE_PATH
 
 
@@ -152,7 +153,7 @@ def test_fetcher_pins_snapshot_across_concurrent_activation(tmp_path):
 def test_snapshot_specific_cache_namespace_changes_with_active_snapshot(tmp_path):
     database = tmp_path / "layer13.sqlite"
     first = _active_database(database, [_parcel(1, "733")])
-    first_key = cli._local_cache_namespace("auto", str(database))
+    first_key = local_snapshot_selection("auto", str(database))[0]
 
     with SnapshotStore.open(database) as store:
         second = store.begin_snapshot(source="regression", expected_count=1)
@@ -160,7 +161,7 @@ def test_snapshot_specific_cache_namespace_changes_with_active_snapshot(tmp_path
         store.finalize_snapshot(second)
         store.activate(second)
 
-    second_key = cli._local_cache_namespace("auto", str(database))
+    second_key = local_snapshot_selection("auto", str(database))[0]
     assert f"snapshot={first}:" in first_key
     assert f"snapshot={second}:" in second_key
     assert first_key != second_key

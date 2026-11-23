@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Sequence
 from itertools import combinations
-from typing import cast
 
 from shapely.geometry import Polygon
 from shapely.geometry.base import BaseGeometry
@@ -42,8 +41,7 @@ def _project_rings_to_utm43n(rings: ArcGISRings) -> list[list[list[float]]]:
 
 
 def _geometry_for(parcel: ParcelAssemblyInput) -> BaseGeometry:
-    raw_rings = cast(ArcGISRings, parcel.raw_arcgis_rings)
-    geometry = arcgis_rings_to_geometry(_project_rings_to_utm43n(raw_rings))
+    geometry = arcgis_rings_to_geometry(_project_rings_to_utm43n(parcel.raw_arcgis_rings))
     if geometry.is_empty or geometry.area <= _AREA_EPSILON_SQM:
         raise ValueError(f"{parcel.identity_key} has no usable source boundary for assembly analysis.")
     return geometry
@@ -51,8 +49,7 @@ def _geometry_for(parcel: ParcelAssemblyInput) -> BaseGeometry:
 
 def _raw_geometry_requires_repair(parcel: ParcelAssemblyInput) -> bool:
     """Detect source-ring invalidity without ever replacing archived coordinates."""
-    raw_rings = cast(ArcGISRings, parcel.raw_arcgis_rings)
-    for ring in raw_rings:
+    for ring in parcel.raw_arcgis_rings:
         candidate = Polygon(ring)
         if candidate.is_empty or candidate.area <= 0 or not candidate.is_valid:
             return True

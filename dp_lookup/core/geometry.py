@@ -55,6 +55,17 @@ def wgs84_to_utm43n(lon: float, lat: float, precision: int | None = 2) -> tuple[
     return round(easting, precision), round(northing, precision)
 
 
+MERCATOR_MAX_LATITUDE = 85.05112878
+
+
+def wgs84_to_mercator(lon: float, lat: float) -> tuple[float, float]:
+    """WGS84 degrees to Web Mercator (EPSG:3857) metres; latitude is clamped to the projection's limit."""
+    safe_lat = max(-MERCATOR_MAX_LATITUDE, min(MERCATOR_MAX_LATITUDE, lat))
+    x = lon / 180.0 * WEB_MERCATOR_R
+    y = math.log(math.tan((90.0 + safe_lat) * math.pi / 360.0)) / math.pi * WEB_MERCATOR_R
+    return x, y
+
+
 def mercator_to_wgs84(x: float, y: float, precision: int = 7) -> list[float]:
     """Web Mercator (EPSG:102100/3857) metres to WGS84 degrees."""
     lon = round((x / WEB_MERCATOR_R) * 180, precision)

@@ -13,7 +13,7 @@ from urllib.parse import unquote, urlparse
 from dp_lookup.authority.errors import AuthorityStoreError, AuthorityValidationError
 from dp_lookup.authority.models import AuthorityManifest, AuthorityRecord, SourceStatus, SourceType, canonical_json
 from dp_lookup.core.area_assessment import calculated_boundary_area_sqm
-from dp_lookup.core.constants import WEB_MERCATOR_R
+from dp_lookup.core.geometry import wgs84_to_mercator
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
 
@@ -147,7 +147,7 @@ def normalise_geometry(geometry: Any, crs: int | None) -> tuple[str | None, int 
     if crs is None:
         raise AuthorityValidationError("original_crs is required when original_geometry is supplied")
     if crs == 4326:
-        normalized = [[_wgs84_to_mercator(point[0], point[1]) for point in ring] for ring in rings]
+        normalized = [[list(wgs84_to_mercator(point[0], point[1])) for point in ring] for ring in rings]
     else:
         normalized = rings
     normalized_json = json_value(normalized)
@@ -160,14 +160,6 @@ def normalise_geometry(geometry: Any, crs: int | None) -> tuple[str | None, int 
     if topology.is_empty or calculated is None:
         raise AuthorityValidationError("geometry must have a positive calculated area")
     return normalized_json, 3857, geometry_hash, calculated
-
-
-def _wgs84_to_mercator(lon: float, lat: float) -> list[float]:
-    safe_lat = max(-85.05112878, min(85.05112878, lat))
-    return [
-        WEB_MERCATOR_R * math.radians(lon),
-        WEB_MERCATOR_R * math.log(math.tan(math.pi / 4.0 + math.radians(safe_lat) / 2.0)),
-    ]
 
 
 def manifest_payload(

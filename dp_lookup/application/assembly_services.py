@@ -29,6 +29,7 @@ from dp_lookup.clients.local_planning import PlanningSnapshotStore as PlanningSn
 from dp_lookup.core.geometry import mercator_to_wgs84
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 from dp_lookup.experimental.assemblies import ParcelAssemblyInput, analyze_plot_assembly
+from dp_lookup.experimental.assemblies.models import normalise_rings
 from dp_lookup.exporters.dxf import export_dxf
 from dp_lookup.exporters.geojson import export_geojson
 from dp_lookup.exporters.kml import export_kml
@@ -120,7 +121,7 @@ def _source_feature(
         village=village,
         cts_no=cts_no,
         objectids=objectids,
-        raw_arcgis_rings=rings,
+        raw_arcgis_rings=normalise_rings(rings),
         recorded_area_sqm=_positive_area(attrs.get("AREA_APP_SQ_MTRS")),
         ward=str(attrs.get("WARD") or rows[0].get("ward") or "") or None,
     )
