@@ -6,6 +6,7 @@ import asyncio
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
+from itertools import batched
 from typing import Any, Protocol
 
 import httpx
@@ -23,7 +24,6 @@ from dp_lookup.clients.parcel_snapshot import (
     sha256_json,
 )
 from dp_lookup.clients.transport import RETRYABLE_STATUS_CODES
-from dp_lookup.core.batching import batched
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
 
@@ -220,7 +220,7 @@ async def ingest_layer13_snapshot(
     observed_geometry: str | None = None
 
     pending = [oid for oid in expected_ids if oid not in received_ids_set]
-    for batch in batched(pending, cfg.batch_size):
+    for batch in batched(pending, cfg.batch_size, strict=False):
         params = {
             "objectIds": ",".join(str(oid) for oid in batch),
             "outFields": "*",

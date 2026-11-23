@@ -11,10 +11,10 @@ Maintenance and dependency branches were removed after their commits were
 incorporated. The checkpoint is retained as the remote
 `checkpoint-pre-2026-08-18` tag. New work lives on `codex/development`.
 
-The baseline uses uv 0.13.5, GitHub CLI 2.103.0, Ruff 0.17.2, mypy 2.4.0 and
-stable Python 3.15.1 for development. Supported Python starts at 3.11. The
-patched lockfile passes runtime and development dependency audits; all four
-Python CI jobs, strict typing, formatting, packaging and CodeQL passed on main.
+The baseline uses uv 0.13.9, GitHub CLI 2.103.0, Ruff 0.17.2, mypy 2.4.0 and
+Python 3.15.1, which is also the only supported Python. The patched lockfile
+passes runtime and development dependency audits; tests, strict typing,
+formatting, packaging and CodeQL pass on main.
 See the [maintenance audit](../audits/REPOSITORY-MAINTENANCE-2026-10-23.md).
 
 ## Development changes

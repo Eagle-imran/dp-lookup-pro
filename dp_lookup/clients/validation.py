@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 
-def sanitize_query_value(value: Any, pattern: "re.Pattern[str]", label: str, max_len: int = 64) -> str:
+def sanitize_query_value(value: Any, pattern: re.Pattern[str], label: str, max_len: int = 64) -> str:
     text = str(value).strip()
     if not text:
         raise ValueError(f"{label} must not be empty")

@@ -3,7 +3,7 @@ name = "dp-lookup-pro"
 version = "3.14.0"
 description = "MCGM SDP 2014-34 DP Lookup Tool with PDF Reports, HD Maps, Satellite Aerial Views, GIS CAD Exports, and High-Speed Async Batching"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.15"
 license = { file = "LICENSE" }
 dependencies = [
     "httpx>=0.28.0",
@@ -51,7 +51,7 @@ include = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"
+target-version = "py315"
 exclude = [".venv", "output", "docs"]
 
 [tool.ruff.lint]
@@ -72,7 +72,7 @@ show_missing = true
 skip_covered = true
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.15"
 strict = true
 follow_imports = "skip"
 files = ["dp_lookup"]

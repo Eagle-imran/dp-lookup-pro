@@ -23,7 +23,7 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
-          version: "0.13.5"
+          version: "0.13.9"
       - run: uv lock --check
       - run: uv sync --frozen --all-extras --dev
       - run: uv run ruff check .
@@ -32,7 +32,7 @@ jobs:
       - run: uv run python -m compileall -q dp_lookup tests
 
   quality:
-    name: typing, coverage, dependency audit
+    name: typing, tests, coverage, dependency audit
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -40,7 +40,7 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
-          version: "0.13.5"
+          version: "0.13.9"
       - run: uv python install 3.15
       - run: uv lock --check
       - run: uv sync --frozen --all-extras --dev --python 3.15
@@ -48,6 +48,14 @@ jobs:
         run: uv run --python 3.15 mypy
       - name: Enforce branch-aware coverage ratchet
         run: uv run --python 3.15 pytest -q --cov --cov-report=term-missing --cov-report=xml
+      - name: Verify the CLI help and version
+        run: |
+          uv run --python 3.15 dp-lookup-pro --help | grep -q "Usage:"
+          uv run --python 3.15 dp-lookup-pro --version | grep -q "3.14.0"
+      - name: Verify the village list is intact
+        run: |
+          uv run --python 3.15 python dp-lookup-pro --list-villages \
+            | grep -q "128 valid MCGM village names"
       - name: Audit locked runtime dependencies
         run: |
           uv export --frozen --no-dev --no-emit-project --no-hashes --format requirements-txt --output-file "$RUNNER_TEMP/runtime-requirements.txt" -q
@@ -69,7 +77,7 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
-          version: "0.13.5"
+          version: "0.13.9"
       - run: uv lock --check
       - run: uv sync --frozen --all-extras --dev
       - name: Build distributions
@@ -91,39 +99,3 @@ jobs:
           path: dist/*
           if-no-files-found: error
           retention-days: 7
-
-  test:
-    name: pytest (py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.13", "3.14", "3.15"]
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          enable-cache: true
-          version: "0.13.5"
-
-      - run: uv python install ${{ matrix.python-version }}
-
-      - run: uv lock --check
-
-      - name: Install project and dev extras
-        run: uv sync --frozen --all-extras --dev --python ${{ matrix.python-version }}
-
-      - name: Run tests
-        run: uv run --python ${{ matrix.python-version }} pytest -q
-
-      - name: Verify the CLI help and version
-        run: |
-          uv run --python ${{ matrix.python-version }} dp-lookup-pro --help | grep -q "Usage:"
-          uv run --python ${{ matrix.python-version }} dp-lookup-pro --version | grep -q "3.14.0"
-
-      - name: Verify the village list is intact
-        run: |
-          uv run --python ${{ matrix.python-version }} python dp-lookup-pro --list-villages \
-            | grep -q "128 valid MCGM village names"

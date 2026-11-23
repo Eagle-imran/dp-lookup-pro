@@ -7,7 +7,7 @@ uv sync --frozen --all-extras --dev
 ```
 
 The checkout pins Python 3.15.1 in `.python-version`; `uv` can install it on
-first sync. The package's minimum supported runtime remains Python 3.11.
+first sync. Python 3.15 is the only supported version.
 
 ## Before you push
 
@@ -44,19 +44,18 @@ PyPI trusted publishing with checksums and provenance attestations. The live
 smoke is intentionally not part of pull-request CI because upstream availability
 is outside this repository's control.
 
-Python 3.11 is the supported minimum because the patched Pillow 13 dependency
-requires it. CI exercises Python 3.11, 3.13, 3.14 and 3.15; strict mypy checks the
-3.11 language baseline. Python 3.9 and 3.10 require older Pillow releases with
-known advisories and are no longer supported.
+The project targets only the latest tooling on the development machine:
+Python 3.15 and uv 0.13.9. CI runs on Python 3.15 only, and ruff and strict mypy
+check the 3.15 language level. Older Python versions are not supported.
 
 ## Lint rules
 
-`select = ["E", "F", "I", "B", "RUF"]`. Chosen for defects rather than style.
-Deliberately excluded, with reasons recorded in the
+`select = ["E", "F", "I", "B", "RUF", "UP", "SIM", "PIE", "FURB"]`: defects plus
+current-Python idioms. Deliberately excluded, with reasons recorded in the
 [tooling policy ADR](docs/decisions/2026-11-24-tooling-policy.md):
 
-- **UP / FA** — `Dict`→`dict` modernisation and `__future__` annotations. Churn
-  across 17 sites with no behaviour change.
+- **UP042** — `str, Enum` → `StrEnum`; it changes `str()` output.
+- **FA** — `__future__` annotations everywhere; not needed on 3.15.
 - **DTZ** — naive datetimes. These are local report timestamps for one city.
 - **S110** — `try/except/pass`. Several are deliberate (optional ezdxf
   linetypes); reviewed by hand rather than gated.

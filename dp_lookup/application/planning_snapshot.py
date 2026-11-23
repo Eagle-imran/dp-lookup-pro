@@ -15,11 +15,11 @@ import json
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from itertools import batched
 from typing import Any
 
 import httpx
 
-from dp_lookup.core.batching import batched
 from dp_lookup.core.timestamps import utc_now
 from dp_lookup.planning_evidence.models import EvidenceContext, LayerSpec
 from dp_lookup.planning_evidence.registry import LAYER_SPECS, SERVER_URL, deduplicate_layer_specs
@@ -567,7 +567,9 @@ async def ingest_planning_snapshot(
             inventory_error = str(exc)
 
         if inventory_error is None:
-            for batch in batched([item for item in expected_ids if item not in completed], cfg.batch_size):
+            for batch in batched(
+                [item for item in expected_ids if item not in completed], cfg.batch_size, strict=False
+            ):
                 params = {
                     "objectIds": ",".join(str(item) for item in batch),
                     "outFields": "*" if cfg.all_fields else ",".join(spec.out_fields),

@@ -66,8 +66,7 @@ You only ever do this **once**. After that, you just talk to your AI.
 
 `uv` is a small free tool that sets up everything else automatically.
 
-The tool requires Python 3.11 or later. `uv sync` selects a compatible Python
-and can install it if needed.
+The tool requires Python 3.15. `uv sync` installs it if needed.
 
 **On Mac or Linux** — open Terminal and paste:
 ```bash

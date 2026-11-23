@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from dp_lookup.core.batching import batched
 from dp_lookup.core.timestamps import age_days, utc_now
 from dp_lookup.intelligence.store import IntelligenceStateError, IntelligenceStore
 from dp_lookup.planning_snapshot.models import PlanningSnapshotStateError
@@ -44,13 +43,6 @@ def test_age_days_defaults_to_the_current_time():
 
 def test_utc_now_is_an_aware_iso_timestamp():
     assert datetime.fromisoformat(utc_now()).utcoffset() == timedelta(0)
-
-
-def test_batched_yields_tuples_of_at_most_size_items():
-    assert list(batched([1, 2, 3, 4, 5], 2)) == [(1, 2), (3, 4), (5,)]
-    assert list(batched([], 3)) == []
-    with pytest.raises(ValueError, match="at least 1"):
-        list(batched([1], 0))
 
 
 def test_connect_applies_the_shared_pragmas(tmp_path):

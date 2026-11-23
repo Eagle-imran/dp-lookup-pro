@@ -18,8 +18,10 @@ Moved from `pyproject.toml` and CI comments; see
 ## Ruff
 
 Selected rules: `E`, `F`, `I`, `B`, `RUF` for defects, plus `UP`, `SIM`, `PIE`
-and `FURB` to keep the code on Python 3.11 idioms (`dict`/`list` generics,
-`X | None`, `datetime.UTC`, `contextlib.suppress`). `ruff format` covers the
+and `FURB` to keep the code on current Python idioms. The target is Python
+3.15, the version on the development machine; no older version is supported
+(`dict`/`list` generics, `X | None`, PEP 695 type parameters,
+`itertools.batched`, unparenthesised `except A, B:`). `ruff format` covers the
 whole repository; hand-aligned data tables (`MCGM_VILLAGES`, `LAYER_SPECS`)
 are fenced with `# fmt: off` / `# fmt: on`. Mass-formatting commits are listed
 in `.git-blame-ignore-revs`.
@@ -30,7 +32,7 @@ Deliberately excluded:
   from `Class.NAME` to its value, which can change output text.
 - `PERF`: flags loops that build lists; none are hot paths, and the loops that
   build GeoJSON features read better than comprehensions.
-- `FA` (`from __future__ import annotations` everywhere): not needed on 3.11.
+- `FA` (`from __future__ import annotations` everywhere): not needed on 3.15.
 - `DTZ` (naive datetimes): timestamps are local report times read by people
   in one city; timezone-aware values add noise, not safety.
 - `S110` (`try`/`except`/`pass`): several are deliberate (optional ezdxf
