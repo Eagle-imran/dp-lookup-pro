@@ -9,8 +9,11 @@ from typing import Any
 
 from dp_lookup.application.contracts import PlanningContext
 from dp_lookup.clients.arcgis_models import ArcGISPayload, decode_arcgis_response
+from dp_lookup.core.constants import LAYER_DESIGNATION, LAYER_MODIFICATION, LAYER_RESERVATION
 from dp_lookup.core.models import EvidenceState, SourceEvidence
-from dp_lookup.core.planning_status import crz_flag_from, derive_status
+from dp_lookup.core.planning_status import UNVERIFIED_STATUS, crz_flag_from, derive_status
+
+CONSTRAINT_LAYER_IDS = frozenset({LAYER_RESERVATION, LAYER_DESIGNATION, LAYER_MODIFICATION})
 
 
 class PlanningEvidenceError(RuntimeError):
@@ -114,6 +117,7 @@ def normalize_planning_evidence(
     warnings: list[str] = []
     method = "spatial_polygon"
     successful_set: set[int] = set()
+    numbers_valid = True
     planning_provenance: dict[str, Any] = {}
     zones: list[dict[str, Any]]
     reservations: list[dict[str, Any]]
@@ -133,6 +137,7 @@ def normalize_planning_evidence(
         crz = spatial_result.get("crz_status", "NO (Outside CRZ Buffer)")
         encumbered_percent, valid_percent = _safe_percent(spatial_result.get("encumbered_percent", 0.0))
         if not valid_percent:
+            numbers_valid = False
             warnings.append("MCGM returned an invalid encumbrance percentage; it was treated as unknown/zero")
         raw_warnings = spatial_result.get("warnings")
         if isinstance(raw_warnings, (list, tuple)):
@@ -208,6 +213,7 @@ def normalize_planning_evidence(
     for planning_item in reservations + designations:
         overlap_percent, valid_overlap = _safe_percent(planning_item.get("overlap_percent", 0.0))
         if not valid_overlap:
+            numbers_valid = False
             warnings.append("MCGM returned an invalid planning overlap percentage; it was treated as zero")
             planning_state = EvidenceState.UNKNOWN
         planning_item["overlap_percent"] = overlap_percent
@@ -235,6 +241,9 @@ def normalize_planning_evidence(
         total_area_sqm=area_sqm,
         net_unencumbered_sqm=net_area,
     )
+    constraints_checked = successful_set >= CONSTRAINT_LAYER_IDS and numbers_valid
+    if not constraints_checked and "CLEAR" in status["badge"]:
+        status = dict(UNVERIFIED_STATUS)
     evidence = {
         "zoning": SourceEvidence(
             value=zone,

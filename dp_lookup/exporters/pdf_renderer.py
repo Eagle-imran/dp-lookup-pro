@@ -56,7 +56,7 @@ def write_pdf_report(data: PlotReportData) -> None:
         if "CLEAR" in data.status_badge
         else (
             colors.HexColor("#FFFDE7")
-            if ("MODIFIED" in data.status_badge or "PARTIALLY" in data.status_badge)
+            if any(word in data.status_badge for word in ("MODIFIED", "PARTIALLY", "UNVERIFIED"))
             else colors.HexColor("#FFEBEE")
         )
     )
