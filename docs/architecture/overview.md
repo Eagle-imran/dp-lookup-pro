@@ -164,9 +164,8 @@ The boundary and compatibility facades are protected by
 `ArtifactContext` carries immutable `ExportData`; the application no longer
 passes a loosely assembled property dictionary between stages. Historical
 GeoJSON, DXF, KML and HTML signatures remain behind explicit typed adapters.
-PDF and Excel now use native `PlotReportData` / `ExcelRegisterData` contracts in
-the normal pipeline; their historical long signatures remain compatibility
-adapters only. Bundle and report-stage exporters use registries with unique
+PDF and Excel writers accept only the frozen `PlotReportData` /
+`ExcelRegisterData` contracts. Bundle and report-stage exporters use registries with unique
 manifest keys and isolated failures. DP-map and satellite renderers receive
 typed requests rather than positional argument collections. Returned artifacts
 are accepted only when non-empty and in the expected location.

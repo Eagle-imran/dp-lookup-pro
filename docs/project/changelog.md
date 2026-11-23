@@ -14,6 +14,17 @@ All notable changes to this project. Newest first.
 * **Formatting and lint:** `ruff format` now covers the whole repository instead
   of a 45-file list (`tools/check_format.py` was removed). Ruff also enforces
   Python 3.11 idioms (`UP`, `SIM`, `PIE`, `FURB`). No behaviour change.
+* **Breaking — PDF and Excel writers take typed data only:** the long-signature
+  `build_pdf_doc(...)` (29 arguments) and `update_excel_register(...)`
+  (27 arguments) were removed, along with the `LookupDependencies.pdf_writer` /
+  `excel_writer` hooks that accepted them. Call
+  `write_pdf_report(PlotReportData(...))` and
+  `write_excel_register(ExcelRegisterData(...))`, or inject replacements through
+  `pdf_data_writer` / `excel_data_writer`. Generated PDFs and registers are
+  byte-for-byte unchanged.
+* **DXF renderer:** the 440-line `export_dxf` is now one short function calling a
+  step per drawing layer (grid, parcel, setbacks, dimensions, roads, north arrow,
+  neighbours, restriction notes, overlays, legend). Output is unchanged.
 
 ### Audit fixes — 2026-11-10
 
