@@ -395,41 +395,35 @@ class AuthorityStore(SQLiteStore):
             int(record_id), purpose, actor=activated_by, reason=reason or "explicit source activation"
         ).to_dict()
 
-    def active(
-        self,
-        village: str,
-        cts_no: str,
-        *,
-        purpose: SelectionPurpose | str | None = None,
-        selection_purpose: SelectionPurpose | str | None = None,
-    ) -> dict[str, AuthorityRecord] | tuple[AuthorityRecord, ...]:
-        selected_purpose = purpose if purpose is not None else selection_purpose
-        purpose_value: str | None = None
-        if selected_purpose is not None:
-            raw_purpose = str(getattr(selected_purpose, "value", selected_purpose)).strip().casefold()
-            purpose_aliases = {
-                "area_reconciliation": SelectionPurpose.AREA.value,
-                "geometry_reconciliation": SelectionPurpose.GEOMETRY.value,
-                "planning_remarks": SelectionPurpose.PLANNING.value,
-            }
-            purpose_value = (
-                purpose_aliases[raw_purpose]
-                if raw_purpose in purpose_aliases
-                else SelectionPurpose.parse(raw_purpose).value
-            )
-        clauses = " AND s.purpose=?" if purpose_value is not None else ""
-        values: list[Any] = [_normalised_identity(village), _normalised_identity(cts_no), SourceStatus.VERIFIED.value]
-        if purpose_value is not None:
-            values.append(purpose_value)
-        rows = self.connection.execute(
-            f"""SELECT r.*,s.purpose FROM authority_selections s JOIN authority_records r ON r.record_id=s.record_id
+    def active(self, village: str, cts_no: str, *, purpose: SelectionPurpose | str) -> tuple[AuthorityRecord, ...]:
+        """Return the verified records explicitly activated for one purpose."""
+        return tuple(self._active_rows(village, cts_no, SelectionPurpose.parse(purpose))[1])
+
+    def active_by_purpose(self, village: str, cts_no: str) -> dict[str, AuthorityRecord]:
+        """Return every active selection for a plot, keyed by purpose."""
+        rows, records = self._active_rows(village, cts_no, None)
+        return {str(row["purpose"]): record for row, record in zip(rows, records, strict=True)}
+
+    def _active_rows(
+        self, village: str, cts_no: str, purpose: SelectionPurpose | None
+    ) -> tuple[builtins.list[sqlite3.Row], builtins.list[AuthorityRecord]]:
+        clauses = " AND s.purpose=?" if purpose is not None else ""
+        values: builtins.list[Any] = [
+            _normalised_identity(village),
+            _normalised_identity(cts_no),
+            SourceStatus.VERIFIED.value,
+        ]
+        if purpose is not None:
+            values.append(purpose.value)
+        rows = [
+            cast(sqlite3.Row, row)
+            for row in self.connection.execute(
+                f"""SELECT r.*,s.purpose FROM authority_selections s JOIN authority_records r ON r.record_id=s.record_id
                WHERE s.village=? AND s.cts_no=? AND s.active=1 AND r.status=?{clauses} ORDER BY s.purpose""",
-            values,
-        ).fetchall()
-        records = tuple(self._record_from_row(cast(sqlite3.Row, row)) for row in rows)
-        if purpose_value is not None:
-            return records
-        return {str(row["purpose"]): record for row, record in zip(rows, records, strict=False)}
+                values,
+            ).fetchall()
+        ]
+        return rows, [self._record_from_row(row) for row in rows]
 
     def revision(self, village: str | None = None, cts_no: str | None = None) -> int:
         """Return a plot revision, or a monotonic global registry revision."""

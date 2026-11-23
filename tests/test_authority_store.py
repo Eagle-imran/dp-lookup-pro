@@ -119,7 +119,7 @@ def test_verification_supersedes_old_record_but_keeps_selection_history(tmp_path
         )
         store.verify(new.record_id, actor="reviewer", manifest_dir=tmp_path)
         assert store.get(old.record_id).status is SourceStatus.SUPERSEDED
-        assert store.active("WORLI", "733") == {}
+        assert store.active_by_purpose("WORLI", "733") == {}
         assert any(event["event_type"] == "superseded" for event in store.audit(old.record_id))
         assert store.connection.execute("SELECT COUNT(*) FROM authority_selections").fetchone()[0] == 1
 
@@ -132,7 +132,7 @@ def test_activation_is_purpose_specific_and_requires_verified_evidence(tmp_path:
             store.activate(property_card.record_id, SelectionPurpose.AREA, actor="reviewer", reason="not verified")
         store.verify(property_card.record_id, actor="reviewer", manifest_dir=tmp_path)
         store.activate(property_card.record_id, SelectionPurpose.AREA, actor="reviewer", reason="recorded area")
-        assert store.active("WORLI", "733")[SelectionPurpose.AREA.value].record_id == property_card.record_id
+        assert store.active_by_purpose("WORLI", "733")[SelectionPurpose.AREA.value].record_id == property_card.record_id
         with pytest.raises(AuthorityStateError):
             store.activate(
                 property_card.record_id, SelectionPurpose.PLANNING, actor="reviewer", reason="wrong evidence type"
@@ -175,7 +175,7 @@ def test_withdraw_deactivates_current_selection_and_preserves_audit(tmp_path: Pa
         store.verify(record.record_id, actor="reviewer", manifest_dir=tmp_path)
         store.activate(record.record_id, SelectionPurpose.AREA, actor="reviewer", reason="accepted")
         store.withdraw(record.record_id, actor="reviewer", reason="source replaced by issuing office")
-        assert store.active("WORLI", "733") == {}
+        assert store.active_by_purpose("WORLI", "733") == {}
         assert store.get(record.record_id).status is SourceStatus.WITHDRAWN
         assert store.audit(record.record_id)[-1]["event_type"] == "withdrawn"
 

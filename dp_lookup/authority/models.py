@@ -199,32 +199,6 @@ class AuthorityRecord:
     def has_geometry(self) -> bool:
         return bool(self.normalized_epsg3857_rings) and self.calculated_area_sqm is not None
 
-    @property
-    def geometry(self) -> dict[str, Any] | None:
-        if not self.normalized_epsg3857_rings:
-            return None
-        return {"rings": [[[x, y] for x, y in ring] for ring in self.normalized_epsg3857_rings]}
-
-    @property
-    def geometry_crs(self) -> int | None:
-        return 3857 if self.normalized_epsg3857_rings else None
-
-    @property
-    def area_sqm(self) -> float | None:
-        return self.recorded_area_sqm if self.recorded_area_sqm is not None else self.calculated_area_sqm
-
-    @property
-    def checksum(self) -> str:
-        return self.record_checksum
-
-    @property
-    def effective_date(self) -> str | None:
-        return self.issue_date or self.survey_date
-
-    @property
-    def verification_date(self) -> str | None:
-        return self.reviewed_at
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "record_id": self.record_id,

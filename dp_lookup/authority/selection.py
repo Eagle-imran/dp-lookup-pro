@@ -7,276 +7,173 @@ The resolver is the only module which may apply an explicitly active source.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol
+
+from dp_lookup.authority.models import AuthorityRecord, SelectionPurpose, SourceStatus, SourceType
 
 AUTHORITY_POLICY_VERSION = "authority-policy/1.0"
 
-_RANKS: dict[str, dict[str, int]] = {
-    "area_reconciliation": {
-        "reconciliation": 110,
-        "certified_survey_reconciliation": 110,
-        "property_card": 100,
-        "city_survey": 95,
-        "city_survey_measurement": 95,
-        "cts_fp": 90,
-        "cts_final_plot": 90,
-        "cts_final_plot_plan": 90,
-        "total_station": 70,
-        "total_station_survey": 70,
+_RANKS: dict[SelectionPurpose, dict[SourceType, int]] = {
+    SelectionPurpose.AREA: {
+        SourceType.CERTIFIED_SURVEY_RECONCILIATION: 110,
+        SourceType.PROPERTY_CARD: 100,
+        SourceType.CITY_SURVEY_MEASUREMENT: 95,
+        SourceType.CTS_FINAL_PLOT_PLAN: 90,
+        SourceType.TOTAL_STATION_SURVEY: 70,
     },
-    "geometry_reconciliation": {
-        "reconciliation": 110,
-        "certified_survey_reconciliation": 110,
-        "total_station": 100,
-        "total_station_survey": 100,
-        "city_survey": 95,
-        "city_survey_measurement": 95,
-        "cts_fp": 90,
-        "cts_final_plot": 90,
-        "cts_final_plot_plan": 90,
+    SelectionPurpose.GEOMETRY: {
+        SourceType.CERTIFIED_SURVEY_RECONCILIATION: 110,
+        SourceType.TOTAL_STATION_SURVEY: 100,
+        SourceType.CITY_SURVEY_MEASUREMENT: 95,
+        SourceType.CTS_FINAL_PLOT_PLAN: 90,
     },
-    "planning": {"dp_remarks": 100},
+    SelectionPurpose.PLANNING: {SourceType.DP_REMARKS: 100},
 }
 
-_TYPE_ALIASES = {
-    "cts/fp": "cts_fp",
-    "cts_fp_plan": "cts_fp",
-    "cts_final_plot_plan": "cts_final_plot",
-    "final_plot": "cts_final_plot",
-    "final_plot_plan": "cts_final_plot",
-    "total station": "total_station",
-    "total_station_survey": "total_station",
-    "property card": "property_card",
-    "city survey": "city_survey",
-    "dp remarks": "dp_remarks",
-    "dp_remarks_plan": "dp_remarks",
+_SOURCE_LABELS: dict[SourceType, str] = {
+    SourceType.PROPERTY_CARD: "Property Card",
+    SourceType.CTS_FINAL_PLOT_PLAN: "Certified CTS / Final Plot plan",
+    SourceType.CITY_SURVEY_MEASUREMENT: "City Survey measurement record",
+    SourceType.TOTAL_STATION_SURVEY: "Licensed total-station survey",
+    SourceType.DP_REMARKS: "Official DP Remarks plan",
+    SourceType.CERTIFIED_SURVEY_RECONCILIATION: "Certified survey reconciliation",
+    SourceType.OTHER_OFFICIAL_DOCUMENT: "Other official document",
 }
 
-_WITHDRAWN = {"withdrawn", "revoked", "superseded", "rejected", "deleted"}
-
-_SOURCE_LABELS = {
-    "property_card": "Property Card",
-    "cts_fp": "Certified CTS / Final Plot plan",
-    "cts_final_plot": "Certified CTS / Final Plot plan",
-    "city_survey": "City Survey measurement record",
-    "total_station": "Licensed total-station survey",
-    "dp_remarks": "Official DP Remarks plan",
-    "reconciliation": "Certified survey reconciliation",
-    "certified_survey_reconciliation": "Certified survey reconciliation",
-    "other_official_document": "Other official document",
-}
+_RETIRED = frozenset({SourceStatus.SUPERSEDED, SourceStatus.WITHDRAWN, SourceStatus.REJECTED})
 
 
-def _value(record: Any, *names: str, default: Any = None) -> Any:
-    if isinstance(record, Mapping):
-        for name in names:
-            if name in record:
-                return record[name]
-    for name in names:
-        if hasattr(record, name):
-            return getattr(record, name)
-    return default
+class AuthorityRegistry(Protocol):
+    """The two reads the selector and resolver make; ``AuthorityStore`` implements both."""
+
+    def list(self, village: str | None = None, cts_no: str | None = None) -> Sequence[AuthorityRecord]: ...
+
+    def active(self, village: str, cts_no: str, *, purpose: SelectionPurpose) -> Sequence[AuthorityRecord]: ...
 
 
-def _enum_value(value: Any) -> str:
-    raw = getattr(value, "value", value)
-    return str(raw or "").strip().casefold()
+def source_type_label(source_type: SourceType) -> str:
+    """Return the public label for a source type."""
+    return _SOURCE_LABELS[source_type]
 
 
-def normalize_source_type(value: Any) -> str:
-    raw = _enum_value(value).replace("-", "_")
-    raw = "_".join(raw.split())
-    return _TYPE_ALIASES.get(raw, raw)
-
-
-def normalize_purpose(value: Any) -> str:
-    raw = _enum_value(value).replace("-", "_")
-    raw = "_".join(raw.split())
-    aliases = {
-        "area": "area_reconciliation",
-        "geometry": "geometry_reconciliation",
-        "geometry_area": "geometry_reconciliation",
-        "planning_remarks": "planning",
-    }
-    return aliases.get(raw, raw)
-
-
-def source_type_label(value: Any) -> str:
-    """Return an intuitive public label without exposing storage enum names."""
-    normalized = normalize_source_type(value)
-    return _SOURCE_LABELS.get(normalized, normalized.replace("_", " ").title() or "Authority source")
-
-
-def _record_dict(record: Any) -> dict[str, Any]:
-    if isinstance(record, Mapping):
-        return dict(record)
-    to_dict = getattr(record, "to_dict", None)
-    if callable(to_dict):
-        value = to_dict()
-        if isinstance(value, Mapping):
-            return dict(value)
-    try:
-        return dict(vars(record))
-    except TypeError:
-        return {"value": str(record)}
-
-
-def _record_id(record: Any) -> int | str:
-    value = _value(record, "version_id", "source_version_id", "record_id", "source_id", "id")
-    if isinstance(value, int) and not isinstance(value, bool):
-        return value
-    return str(value) if value is not None else ""
-
-
-def _checksum(record: Any) -> str:
-    value = _value(
-        record,
-        "document_checksum",
-        "source_sha256",
-        "checksum",
-        "sha256",
-        "content_hash",
-        "record_checksum",
-        "geometry_checksum",
-        default="",
-    )
-    if value:
-        return str(value)
-    return hashlib.sha256(
-        json.dumps(_record_dict(record), sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
-
-
-def _date_key(value: Any) -> tuple[int, str]:
+def _date_key(value: str | None) -> tuple[int, str]:
     if value is None:
         return (0, "")
-    text = str(getattr(value, "isoformat", lambda: value)())
     try:
-        return (1, datetime.fromisoformat(text).isoformat())
+        return (1, datetime.fromisoformat(value).isoformat())
     except ValueError:
-        return (1, text)
+        return (1, value)
 
 
-def _area(record: Any, purpose: str | None = None) -> float | None:
-    names = (
-        ("calculated_area_sqm", "area_sqm", "recorded_area_sqm", "area", "plot_area_sqm")
-        if purpose == "geometry_reconciliation"
-        else ("area_sqm", "recorded_area_sqm", "calculated_area_sqm", "area", "plot_area_sqm")
-    )
-    value = _value(record, *names)
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if number > 0 else None
+def _area(record: AuthorityRecord, purpose: SelectionPurpose) -> float | None:
+    if purpose is SelectionPurpose.GEOMETRY:
+        value = record.calculated_area_sqm
+    elif record.recorded_area_sqm is not None:
+        value = record.recorded_area_sqm
+    else:
+        value = record.calculated_area_sqm
+    return value if value is not None and value > 0 else None
 
 
-def _geometry(record: Any) -> Any:
-    value = _value(
-        record,
-        "normalized_epsg3857_rings",
-        "geometry",
-        "rings",
-        "geometry_rings",
-        "boundary",
-    )
-    if isinstance(value, Mapping):
-        return value.get("rings", value.get("coordinates", value))
-    return value
-
-
-def _geometry_checksum(record: Any) -> str:
-    value = _value(record, "geometry_checksum", "geometry_sha256", "geometry_hash")
-    if value:
-        return str(value)
-    geometry = _geometry(record)
-    if geometry is None:
-        return ""
-    return hashlib.sha256(
-        json.dumps(geometry, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
-
-
-def _identity_matches(record: Any, village: str | None, cts_no: str | None) -> bool:
-    if village is None and cts_no is None:
-        return True
-    returned_village = str(_value(record, "village", "village_name", default="") or "").strip().casefold()
-    returned_cts = str(_value(record, "cts_no", "cts", "cts_cs_no", default="") or "").strip().casefold()
-    return (village is None or returned_village == village.strip().casefold()) and (
-        cts_no is None or returned_cts == cts_no.strip().casefold()
+def _identity_matches(record: AuthorityRecord, village: str | None, cts_no: str | None) -> bool:
+    return (village is None or record.village.strip().casefold() == village.strip().casefold()) and (
+        cts_no is None or record.cts_no.strip().casefold() == cts_no.strip().casefold()
     )
 
 
-def _eligible(record: Any, village: str | None, cts_no: str | None) -> tuple[bool, str]:
+def _eligibility(
+    record: AuthorityRecord,
+    purpose: SelectionPurpose,
+    rank: int,
+    area_sqm: float | None,
+    village: str | None,
+    cts_no: str | None,
+) -> tuple[bool, str]:
+    if purpose is SelectionPurpose.GEOMETRY and not record.normalized_epsg3857_rings:
+        return False, "source has no usable geometry"
+    if purpose is SelectionPurpose.AREA and area_sqm is None:
+        return False, "source has no usable area"
+    if rank <= 0:
+        return False, f"source type '{record.source_type.value}' is not allowed for {purpose.value}"
     if not _identity_matches(record, village, cts_no):
         return False, "identity does not exactly match the requested village/CTS"
-    status = _enum_value(_value(record, "status", "record_status", default=""))
-    if status in _WITHDRAWN:
-        return False, f"source status is {status}"
-    if status != "verified":
+    if record.status in _RETIRED:
+        return False, f"source status is {record.status.value}"
+    if record.status is not SourceStatus.VERIFIED:
         return False, "source is not verified"
-    if _value(record, "superseded_by", "superseded_at") is not None:
-        return False, "source version is superseded"
     return True, "verified and current"
 
 
 @dataclass(frozen=True)
 class AuthorityCandidate:
-    """Explainable normalized view of one registry record."""
+    """Explainable view of one registry record for one purpose."""
 
-    record: Any
-    record_id: int | str
-    source_type: str
-    purpose: str
+    record: AuthorityRecord
+    purpose: SelectionPurpose
     rank: int
     area_sqm: float | None
-    geometry_checksum: str
-    checksum: str
-    effective_date: str | None
-    verification_date: str | None
     eligible: bool
     eligibility_reason: str
+
+    @property
+    def record_id(self) -> int:
+        return self.record.record_id
+
+    @property
+    def source_type(self) -> SourceType:
+        return self.record.source_type
+
+    @property
+    def checksum(self) -> str:
+        return self.record.source_sha256
+
+    @property
+    def geometry_checksum(self) -> str | None:
+        return self.record.geometry_sha256
+
+    @property
+    def effective_date(self) -> str | None:
+        return self.record.issue_date or self.record.survey_date
+
+    @property
+    def verification_date(self) -> str | None:
+        return self.record.reviewed_at
+
+    def _dates(self) -> tuple[tuple[int, str], tuple[int, str]]:
+        return _date_key(self.effective_date), _date_key(self.verification_date)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "record_id": self.record_id,
-            "source_type": self.source_type,
-            "purpose": self.purpose,
+            "source_type": self.source_type.value,
+            "purpose": self.purpose.value,
             "rank": self.rank,
             "area_sqm": self.area_sqm,
-            "geometry_checksum": self.geometry_checksum or None,
+            "geometry_checksum": self.geometry_checksum,
             "checksum": self.checksum,
             "effective_date": self.effective_date,
             "verification_date": self.verification_date,
             "eligible": self.eligible,
             "eligibility_reason": self.eligibility_reason,
-            "record": _record_dict(self.record),
+            "record": self.record.to_dict(),
         }
 
     def to_ref(self, *, selection_reason: str = "") -> dict[str, Any]:
         """Return the compact source reference used by result provenance."""
-        issue_date = _value(self.record, "issue_date", "issued_date", "effective_date", "document_date")
-        fallback_label = source_type_label(_value(self.record, "source_type", default=self.source_type))
         return {
             "record_id": self.record_id,
-            "source_type": self.source_type,
-            "source_label": str(
-                _value(self.record, "source_label", "display_name", "document_type", default=fallback_label)
-            ),
-            "version": str(_value(self.record, "version", "version_id", "source_version_id", default="") or ""),
-            "issuer": str(_value(self.record, "issuer", "issued_by", "authority", default="") or ""),
-            "reference_no": str(
-                _value(self.record, "reference_no", "document_reference", "document_number", default="") or ""
-            ),
-            "issue_date": str(issue_date) if issue_date is not None else None,
+            "source_type": self.source_type.value,
+            "source_label": source_type_label(self.source_type),
+            "version": str(self.record.version),
+            "issuer": self.record.issuer or "",
+            "reference_no": self.record.reference_no or "",
+            "issue_date": self.record.issue_date,
             "document_sha256": self.checksum,
             "selected_value_sqm": self.area_sqm,
-            "calculated_area_sqm": self.area_sqm if self.purpose == "geometry_reconciliation" else None,
+            "calculated_area_sqm": self.area_sqm if self.purpose is SelectionPurpose.GEOMETRY else None,
             "selection_reason": selection_reason,
         }
 
@@ -285,7 +182,7 @@ class AuthorityCandidate:
 class AuthorityResolution:
     """Recommendation or explicit selection, including why it was made."""
 
-    purpose: str
+    purpose: SelectionPurpose
     policy_version: str
     selected: AuthorityCandidate | None
     candidates: Sequence[AuthorityCandidate] = field(default_factory=tuple)
@@ -304,18 +201,18 @@ class AuthorityResolution:
     def to_dict(self) -> dict[str, Any]:
         selected_ref = self.selected.to_ref(selection_reason=self.reason) if self.selected is not None else None
         status = "conflict" if self.conflict else ("selected" if selected_ref else "no_selection")
-        planning = [selected_ref] if selected_ref and self.purpose == "planning" else []
+        planning = [selected_ref] if selected_ref and self.purpose is SelectionPurpose.PLANNING else []
         return {
             "policy_version": self.policy_version,
             "mode": "active" if self.active else "recommended",
             "village": self.village,
             "cts_no": self.cts_no,
             "status": status,
-            "area": selected_ref if self.purpose == "area_reconciliation" else None,
-            "geometry": selected_ref if self.purpose == "geometry_reconciliation" else None,
+            "area": selected_ref if self.purpose is SelectionPurpose.AREA else None,
+            "geometry": selected_ref if self.purpose is SelectionPurpose.GEOMETRY else None,
             "planning": planning,
             "active_record_ids": [self.selected.record_id] if self.active and self.selected else [],
-            "evaluated_record_ids": [candidate.record_id for candidate in self.candidates if candidate.record_id],
+            "evaluated_record_ids": [candidate.record_id for candidate in self.candidates],
             "reasons": [self.reason],
             "conflicts": [self.reason] if self.conflict else [],
             "baseline_area_assessment": dict(self.baseline_area_assessment or {}),
@@ -323,38 +220,25 @@ class AuthorityResolution:
         }
 
 
-def _candidate(record: Any, purpose: str, village: str | None, cts_no: str | None) -> AuthorityCandidate:
-    source_type = normalize_source_type(_value(record, "source_type", "type", "kind", default=""))
-    purpose_value = normalize_purpose(_value(record, "purpose", "selection_purpose", default=purpose))
-    rank = _RANKS.get(purpose, {}).get(source_type, 0)
-    eligible, reason = _eligible(record, village, cts_no)
-    if rank <= 0:
-        eligible, reason = False, f"source type '{source_type or 'unknown'}' is not allowed for {purpose}"
-    if _area(record, purpose) is None and purpose == "area_reconciliation":
-        eligible, reason = False, "source has no usable area"
-    if _geometry(record) is None and purpose == "geometry_reconciliation":
-        eligible, reason = False, "source has no usable geometry"
-    effective = _value(record, "effective_date", "issued_date", "document_date")
-    verified = _value(record, "verification_date", "verified_at", "reviewed_at")
+def _candidate(
+    record: AuthorityRecord, purpose: SelectionPurpose, village: str | None, cts_no: str | None
+) -> AuthorityCandidate:
+    rank = _RANKS[purpose].get(record.source_type, 0)
+    area_sqm = _area(record, purpose)
+    eligible, reason = _eligibility(record, purpose, rank, area_sqm, village, cts_no)
     return AuthorityCandidate(
         record=record,
-        record_id=_record_id(record),
-        source_type=source_type,
-        purpose=purpose_value,
+        purpose=purpose,
         rank=rank,
-        area_sqm=_area(record, purpose),
-        geometry_checksum=_geometry_checksum(record),
-        checksum=_checksum(record),
-        effective_date=str(effective) if effective is not None else None,
-        verification_date=str(verified) if verified is not None else None,
+        area_sqm=area_sqm,
         eligible=eligible,
         eligibility_reason=reason,
     )
 
 
 def recommend_authority_sources(
-    records: Iterable[Any],
-    purpose: Any,
+    records: Iterable[AuthorityRecord],
+    purpose: SelectionPurpose,
     *,
     village: str | None = None,
     cts_no: str | None = None,
@@ -363,104 +247,62 @@ def recommend_authority_sources(
     applied_to_working_result: bool = False,
 ) -> AuthorityResolution:
     """Rank records deterministically without applying the recommendation."""
-    purpose_value = normalize_purpose(purpose)
-    candidates = tuple(_candidate(record, purpose_value, village, cts_no) for record in records)
-    eligible = [candidate for candidate in candidates if candidate.eligible]
-    if not eligible:
+    candidates = tuple(_candidate(record, purpose, village, cts_no) for record in records)
+
+    def resolution(selected: AuthorityCandidate | None, reason: str, *, conflict: bool = False) -> AuthorityResolution:
         return AuthorityResolution(
-            purpose=purpose_value,
+            purpose=purpose,
             policy_version=AUTHORITY_POLICY_VERSION,
-            selected=None,
+            selected=selected,
             candidates=candidates,
-            reason="No verified, current, identity-matched source is eligible for this purpose.",
+            conflict=conflict,
+            reason=reason,
             active=active,
             village=village or "",
             cts_no=cts_no or "",
             baseline_area_assessment=baseline_area_assessment,
             applied_to_working_result=applied_to_working_result,
         )
+
+    eligible = [candidate for candidate in candidates if candidate.eligible]
+    if not eligible:
+        return resolution(None, "No verified, current, identity-matched source is eligible for this purpose.")
     top_rank = max(candidate.rank for candidate in eligible)
     top = [candidate for candidate in eligible if candidate.rank == top_rank]
     area_signatures = {round(candidate.area_sqm, 6) for candidate in top if candidate.area_sqm is not None}
     geometry_signatures = {candidate.geometry_checksum for candidate in top if candidate.geometry_checksum}
-    area_conflict = purpose_value == "area_reconciliation" and len(area_signatures) > 1
-    geometry_conflict = purpose_value == "geometry_reconciliation" and len(geometry_signatures) > 1
+    area_conflict = purpose is SelectionPurpose.AREA and len(area_signatures) > 1
+    geometry_conflict = purpose is SelectionPurpose.GEOMETRY and len(geometry_signatures) > 1
     if area_conflict or geometry_conflict:
         conflict_kind = "area" if area_conflict else "geometry"
-        return AuthorityResolution(
-            purpose=purpose_value,
-            policy_version=AUTHORITY_POLICY_VERSION,
-            selected=None,
-            candidates=candidates,
+        return resolution(
+            None,
+            f"Top-rank sources disagree on {conflict_kind}; no source was selected automatically.",
             conflict=True,
-            reason=f"Top-rank sources disagree on {conflict_kind}; no source was selected automatically.",
-            active=active,
-            village=village or "",
-            cts_no=cts_no or "",
-            baseline_area_assessment=baseline_area_assessment,
-            applied_to_working_result=applied_to_working_result,
         )
-    dated = sorted(
-        top,
-        key=lambda candidate: (_date_key(candidate.effective_date), _date_key(candidate.verification_date)),
-        reverse=True,
-    )
-    latest_dates = (
-        _date_key(dated[0].effective_date),
-        _date_key(dated[0].verification_date),
-    )
+    latest_dates = max(candidate._dates() for candidate in top)
     selected = min(
-        (
-            candidate
-            for candidate in dated
-            if (_date_key(candidate.effective_date), _date_key(candidate.verification_date)) == latest_dates
-        ),
+        (candidate for candidate in top if candidate._dates() == latest_dates),
         key=lambda candidate: candidate.checksum,
     )
-    return AuthorityResolution(
-        purpose=purpose_value,
-        policy_version=AUTHORITY_POLICY_VERSION,
-        selected=selected,
-        candidates=candidates,
-        reason=(
-            f"Selected verified {selected.source_type} source at rank {selected.rank}; "
-            "ties were resolved by effective date, verification date and checksum."
-        ),
-        active=active,
-        village=village or "",
-        cts_no=cts_no or "",
-        baseline_area_assessment=baseline_area_assessment,
-        applied_to_working_result=applied_to_working_result,
+    return resolution(
+        selected,
+        f"Selected verified {selected.source_type.value} source at rank {selected.rank}; "
+        "ties were resolved by effective date, verification date and checksum.",
     )
 
 
-def recommend_authority(store: Any, village: str, cts_no: str) -> dict[str, Any]:
+def recommend_authority(store: AuthorityRegistry, village: str, cts_no: str) -> dict[str, Any]:
     """Return JSON-safe, field-specific recommendations for the CLI."""
-    list_method = getattr(store, "list", None) or getattr(store, "records", None)
-    if not callable(list_method):
-        raise TypeError("authority store does not expose a record listing operation")
-    try:
-        records = tuple(list_method(village=village, cts_no=cts_no))
-    except TypeError:
-        records = tuple(list_method())
-    resolutions = {
-        purpose: recommend_authority_sources(
-            records,
-            policy_purpose,
-            village=village,
-            cts_no=cts_no,
-        ).to_dict()
-        for purpose, policy_purpose in (
-            ("area", "area_reconciliation"),
-            ("geometry", "geometry_reconciliation"),
-            ("planning", "planning"),
-        )
-    }
+    records = tuple(store.list(village, cts_no))
     return {
         "policy_version": AUTHORITY_POLICY_VERSION,
         "village": village.strip().upper(),
         "cts_no": cts_no.strip().upper(),
-        "recommendations": resolutions,
+        "recommendations": {
+            purpose.value: recommend_authority_sources(records, purpose, village=village, cts_no=cts_no).to_dict()
+            for purpose in SelectionPurpose
+        },
         "requires_explicit_activation": True,
     }
 
@@ -468,9 +310,8 @@ def recommend_authority(store: Any, village: str, cts_no: str) -> dict[str, Any]
 __all__ = [
     "AUTHORITY_POLICY_VERSION",
     "AuthorityCandidate",
+    "AuthorityRegistry",
     "AuthorityResolution",
-    "normalize_purpose",
-    "normalize_source_type",
     "recommend_authority",
     "recommend_authority_sources",
     "source_type_label",

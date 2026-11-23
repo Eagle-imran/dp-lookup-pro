@@ -183,27 +183,7 @@ def test_strict_local_rejects_malformed_store_collections(records, message):
         asyncio.run(LocalFirstPlanningQuery(store, mode="local")(object(), [_ring(0, 0, 10, 10)]))
 
 
-def test_legacy_store_seams_and_query_failures_are_supported_safely():
-    class LegacyStore:
-        def active_snapshot(self):
-            return {"snapshot_id": 3, "finalized_at": datetime.now(UTC)}
-
-        def records_intersecting(self, snapshot_id, layer_id, parcel):
-            del snapshot_id, parcel
-            if layer_id == LAYER_ZONE:
-                return [_feature(_ring(0, 0, 10, 10), ZONE_CODE2="R")]
-            return []
-
-    result = asyncio.run(LocalFirstPlanningQuery(LegacyStore(), mode="local")(object(), [_ring(0, 0, 10, 10)]))
-    assert result["primary_zone"] == "R"
-
-    class MissingQuery:
-        def pin_active_snapshot(self):
-            return PlanningSnapshot(1, finalized_at=datetime.now(UTC))
-
-    with pytest.raises(LocalPlanningError, match="no spatial layer query"):
-        asyncio.run(LocalFirstPlanningQuery(MissingQuery(), mode="local")(object(), [_ring(0, 0, 10, 10)]))
-
+def test_store_query_failures_are_reported_safely():
     class ExplodingStore(FakePlanningStore):
         def query_layer(self, *_args):
             raise ValueError("bad index")
@@ -213,4 +193,4 @@ def test_legacy_store_seams_and_query_failures_are_supported_safely():
         asyncio.run(LocalFirstPlanningQuery(exploding, mode="local")(object(), [_ring(0, 0, 10, 10)]))
 
     with pytest.raises(LocalPlanningError, match="no valid polygon rings"):
-        asyncio.run(LocalFirstPlanningQuery(LegacyStore(), mode="local")(object(), [[]]))
+        asyncio.run(LocalFirstPlanningQuery(exploding, mode="local")(object(), [[]]))

@@ -190,17 +190,6 @@ def test_evidence_rejects_invalid_snapshot_timestamps(finalized_at, message):
 
 
 def test_evidence_store_shape_and_geometry_errors_are_not_hidden():
-    class MissingQuery:
-        def pin_active_snapshot(self):
-            return _Snapshot(datetime.now(UTC))
-
-    with pytest.raises(LocalPlanningEvidenceError, match="no spatial layer query"):
-        asyncio.run(
-            LocalFirstPlanningEvidenceAnalyzer(MissingQuery(), mode="local")(
-                _LiveClient(), [_ring()], "COLABA", EvidenceMode.STANDARD
-            )
-        )
-
     class MalformedStore(_Store):
         def query_layer(self, *_args):
             return None

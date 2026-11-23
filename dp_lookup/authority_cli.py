@@ -9,10 +9,11 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, TextIO
 
+from dp_lookup.authority.selection import recommend_authority
 from dp_lookup.authority.store import AuthorityStore
 
 COMMANDS = ("add", "list", "show", "verify", "recommend", "activate", "withdraw", "audit")
@@ -159,21 +160,8 @@ def _load_manifest(path: Path) -> list[dict[str, Any]]:
     return normalized
 
 
-def _open_store(database: Path) -> Any:
+def _open_store(database: Path) -> AuthorityStore:
     return AuthorityStore.open(database)
-
-
-def _call(store: Any, names: Iterable[str], *args: Any, **kwargs: Any) -> Any:
-    for name in names:
-        method = getattr(store, name, None)
-        if callable(method):
-            try:
-                return method(*args, **kwargs)
-            except TypeError:
-                if kwargs:
-                    return method(*args)
-                raise
-    raise RuntimeError(f"authority store does not implement: {', '.join(names)}")
 
 
 def _run(parsed: Mapping[str, Any]) -> Any:
@@ -182,47 +170,26 @@ def _run(parsed: Mapping[str, Any]) -> Any:
     with _open_store(database) as store:
         positionals = parsed["positionals"]
         if command == "add":
-            return _call(
-                store,
-                ("add_manifest", "import_manifest", "add_sources"),
-                _load_manifest(Path(positionals[0])),
-                actor=parsed.get("actor"),
-            )
+            return store.add_manifest(_load_manifest(Path(positionals[0])), actor=parsed.get("actor"))
         if command == "list":
             filters = {key: parsed[key] for key in ("village", "cts", "status") if key in parsed}
-            return _call(store, ("list_sources", "list_records", "sources"), **filters)
+            return store.list_sources(**filters)
         if command == "show":
-            return _call(store, ("get_source", "get_record", "show_source"), positionals[0])
+            return store.get_source(positionals[0])
         if command == "verify":
-            return _call(
-                store,
-                ("verify_source", "verify_record"),
-                positionals[0],
-                reviewed_by=parsed["reviewed_by"],
-                notes=parsed.get("notes"),
-            )
+            return store.verify_source(positionals[0], reviewed_by=parsed["reviewed_by"], notes=parsed.get("notes"))
         if command == "recommend":
-            from dp_lookup.authority.selection import recommend_authority
-
             return recommend_authority(store, positionals[0], positionals[1])
         if command == "activate":
-            return _call(
-                store,
-                ("activate_source", "activate_record"),
+            return store.activate_source(
                 positionals[0],
                 purpose=parsed["purpose"],
                 activated_by=parsed["activated_by"],
                 reason=parsed.get("reason"),
             )
         if command == "withdraw":
-            return _call(
-                store,
-                ("withdraw_source", "withdraw_record"),
-                positionals[0],
-                actor=parsed["actor"],
-                reason=parsed["reason"],
-            )
-        return _call(store, ("audit", "audit_sources", "audit_records"))
+            return store.withdraw_source(positionals[0], actor=parsed["actor"], reason=parsed["reason"])
+        return store.audit()
 
 
 def _human(command: str, result: Any) -> str:
