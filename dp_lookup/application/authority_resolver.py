@@ -15,7 +15,7 @@ from dp_lookup.authority.selection import (
     source_type_label,
 )
 from dp_lookup.core.area_assessment import AREA_DIFFERENCE_THRESHOLDS, calculated_boundary_area_sqm
-from dp_lookup.core.geometry import prepare_geometry
+from dp_lookup.core.geometry import prepare_geometry, wgs84_to_mercator
 from dp_lookup.core.models import AreaAssessment, AreaQualityFlag, ReliabilityStatus
 
 
@@ -108,21 +108,7 @@ def _crs(record: Any) -> int:
 def _to_mercator(rings: list[list[list[float]]], crs: int) -> list[list[list[float]]]:
     if crs not in {4326, 4269}:
         return rings
-    import math
-
-    radius = 20037508.342789244
-    converted: list[list[list[float]]] = []
-    for ring in rings:
-        converted.append(
-            [
-                [
-                    float(point[0]) * radius / 180.0,
-                    math.log(math.tan((90.0 + float(point[1])) * math.pi / 360.0)) / (math.pi / 180.0) * radius / 180.0,
-                ]
-                for point in ring
-            ]
-        )
-    return converted
+    return [[list(wgs84_to_mercator(float(point[0]), float(point[1]))) for point in ring] for ring in rings]
 
 
 def _area(record: Any) -> float | None:

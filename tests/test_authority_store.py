@@ -2,9 +2,11 @@ import hashlib
 from pathlib import Path
 
 import pytest
+from shapely.geometry import Polygon
 
 from dp_lookup.authority import AuthorityManifest, AuthorityStore, SelectionPurpose, SourceStatus, SourceType
 from dp_lookup.authority.store import AuthorityStateError, AuthorityValidationError
+from dp_lookup.core.geometry import wgs84_to_mercator, wgs84_to_utm43n
 
 
 def _document(tmp_path: Path, content: bytes = b"official source", name: str = "evidence.pdf"):
@@ -89,8 +91,9 @@ def test_geometry_preserves_original_and_normalizes_wgs84_to_epsg3857(tmp_path: 
         )
         assert record.original_geometry["spatialReference"]["wkid"] == 4326
         assert record.original_crs == 4326
-        assert record.normalized_epsg3857_rings[0][0][0] > 8_000_000
-        assert record.calculated_area_sqm is not None and record.calculated_area_sqm > 0
+        assert record.normalized_epsg3857_rings[0][0] == pytest.approx(wgs84_to_mercator(72.82, 19.01))
+        utm = [wgs84_to_utm43n(lon, lat, precision=None) for lon, lat in _rings()["rings"][0]]
+        assert record.calculated_area_sqm == pytest.approx(Polygon(utm).area, rel=1e-3)
         assert record.geometry_sha256
         assert record.to_dict()["normalized_epsg3857_rings"]
 
