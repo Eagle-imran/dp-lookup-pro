@@ -64,7 +64,7 @@ Show the user the table of blocks per category, with file:line, before deleting.
 
 ```bash
 uv run python tools/check_comments.py --update   # lower the baseline
-uv run ruff check . && uv run python tools/check_format.py
+uv run ruff check . && uv run ruff format --check .
 uv run mypy
 uv run pytest -q
 ```
