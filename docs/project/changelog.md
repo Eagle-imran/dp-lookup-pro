@@ -47,6 +47,17 @@ All notable changes to this project. Newest first.
   `dp_modification` objects in the lookup JSON report only the first item.
   Read the plural `reservations`, `designations` and `dp_modifications` lists;
   the singular objects will be removed in the next minor release.
+* **Layer 13 database build:** the importer takes a typed client that must offer
+  both `get` and `post`. ObjectID batches are always sent as form POSTs; a
+  client without `post` is no longer quietly downgraded to GET. Only network
+  errors (`httpx.HTTPError`) and ArcGIS/HTTP error responses are retried, so a
+  programming error now fails at once instead of being retried as a download
+  failure. The retryable status codes come from the shared transport policy.
+* **Breaking — custom importers must stream:** `LocalDatabaseServices` no
+  longer writes a returned feature list itself. A replacement `importer` must
+  report its inventory through `on_inventory` and its features through
+  `on_batch`, as `ingest_layer13_snapshot` does. An incomplete build is left as
+  a resumable *building* snapshot (the message now says "not finalized").
 * **Breaking — one authority store contract:** the resolver and the
   `sources recommend` command read records through `AuthorityStore.list` and
   `AuthorityStore.active(village, cts_no, purpose=...)`, with purpose

@@ -6,7 +6,7 @@ import asyncio
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 
@@ -22,10 +22,18 @@ from dp_lookup.clients.parcel_snapshot import (
     resolve_object_id_field,
     sha256_json,
 )
+from dp_lookup.clients.transport import RETRYABLE_STATUS_CODES
 from dp_lookup.core.batching import batched
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
-RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+class IngestionClient(Protocol):
+    """The two ArcGIS calls the importer makes; ``ArcGISClient`` implements both."""
+
+    async def get(self, url: str, *, params: Mapping[str, Any]) -> httpx.Response: ...
+
+    async def post(self, url: str, *, data: Mapping[str, Any]) -> httpx.Response: ...
+
 
 InventoryConsumer = Callable[[tuple[int, ...], Mapping[str, Any]], Awaitable[Iterable[int]]]
 BatchConsumer = Callable[[tuple[SnapshotFeature, ...]], Awaitable[Any]]
@@ -50,22 +58,12 @@ class SnapshotIngestionConfig:
             raise ValueError("delays must not be negative")
 
 
-@dataclass(frozen=True)
-class _Decoded:
-    payload: Mapping[str, Any]
-    status_code: int
-
-
-def _response_payload(response: Any) -> _Decoded:
-    if isinstance(response, Mapping):
-        payload = response
-        status = 200
-    else:
-        status = int(getattr(response, "status_code", 0) or 0)
-        try:
-            payload = response.json()
-        except Exception as exc:
-            raise SnapshotIngestionError(f"Layer 13 returned non-JSON response (status {status}).") from exc
+def _response_payload(response: httpx.Response) -> Mapping[str, Any]:
+    status = response.status_code
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise SnapshotIngestionError(f"Layer 13 returned non-JSON response (status {status}).") from exc
     if not isinstance(payload, Mapping):
         raise SnapshotIngestionError(f"Layer 13 returned a non-object JSON response (status {status}).")
     if "error" in payload:
@@ -77,22 +75,21 @@ def _response_payload(response: Any) -> _Decoded:
         raise SnapshotIngestionError(f"Layer 13 ArcGIS error (status {status}): {detail}")
     if status != 200:
         raise SnapshotIngestionError(f"Layer 13 HTTP error (status {status}).")
-    return _Decoded(payload=payload, status_code=status)
+    return payload
 
 
-def _retry_delay(config: SnapshotIngestionConfig, attempt: int, response: Any = None) -> float:
-    headers = getattr(response, "headers", {}) or {}
-    retry_after = headers.get("Retry-After") if hasattr(headers, "get") else None
+def _retry_delay(config: SnapshotIngestionConfig, attempt: int, response: httpx.Response | None = None) -> float:
+    retry_after = response.headers.get("Retry-After") if response is not None else None
     if retry_after is not None:
         try:
             return min(config.max_delay_seconds, max(0.0, float(retry_after)))
-        except (TypeError, ValueError):
+        except ValueError:
             pass
     return min(config.max_delay_seconds, config.base_delay_seconds * float(2 ** max(0, attempt - 1)))
 
 
 async def _get_json(
-    client: Any,
+    client: IngestionClient,
     url: str,
     params: Mapping[str, Any],
     config: SnapshotIngestionConfig,
@@ -100,38 +97,29 @@ async def _get_json(
     *,
     post_form: bool = False,
 ) -> Mapping[str, Any]:
+    """Request JSON, retrying transport errors, retryable statuses and ArcGIS error bodies sent with 200.
+
+    ``post_form`` sends the parameters as a form POST, which long ObjectID lists need.
+    """
     last_error: BaseException | None = None
     for attempt in range(1, config.max_attempts + 1):
-        response: Any = None
+        response: httpx.Response | None = None
         try:
-            post = getattr(client, "post", None) if post_form else None
-            if post is not None:
-                response = await post(url, data=dict(params))
+            if post_form:
+                response = await client.post(url, data=dict(params))
             else:
                 response = await client.get(url, params=dict(params))
-            status = int(getattr(response, "status_code", 200) or 0) if not isinstance(response, Mapping) else 200
-            retryable = status in RETRYABLE_STATUS_CODES
-            try:
-                decoded = _response_payload(response)
-            except SnapshotIngestionError as exc:
-                last_error = exc
-                if not retryable and status not in (0, 200):
-                    raise
-                if attempt == config.max_attempts:
-                    raise
-            else:
-                return decoded.payload
+            return _response_payload(response)
         except httpx.HTTPError as exc:
             last_error = exc
             if attempt == config.max_attempts:
                 raise SnapshotIngestionError(f"Layer 13 request failed after {attempt} attempts: {exc}") from exc
-        except SnapshotIngestionError:
-            if attempt == config.max_attempts:
-                raise
-        except Exception as exc:
+        except SnapshotIngestionError as exc:
             last_error = exc
-            if attempt == config.max_attempts:
-                raise SnapshotIngestionError(f"Layer 13 request failed after {attempt} attempts: {exc}") from exc
+            assert response is not None
+            status = response.status_code
+            if attempt == config.max_attempts or (status != 200 and status not in RETRYABLE_STATUS_CODES):
+                raise
         await sleep(_retry_delay(config, attempt, response))
     raise SnapshotIngestionError("Layer 13 request failed without a response.") from last_error
 
@@ -163,7 +151,7 @@ def _usable_polygon(geometry: Mapping[str, Any]) -> bool:
 
 
 async def ingest_layer13_snapshot(
-    client: Any,
+    client: IngestionClient,
     *,
     config: SnapshotIngestionConfig | None = None,
     checkpoint: SnapshotCheckpoint | None = None,

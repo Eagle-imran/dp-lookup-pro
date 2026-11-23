@@ -65,7 +65,10 @@ class Importer:
     def __init__(self, snapshot_result):
         self.snapshot_result = snapshot_result
 
-    async def __call__(self, _client, **_kwargs):
+    async def __call__(self, _client, *, on_inventory, on_batch, **_kwargs):
+        manifest = self.snapshot_result.manifest
+        await on_inventory(manifest.expected_ids, {"object_id_field": "OBJECTID"})
+        await on_batch(self.snapshot_result.features)
         return self.snapshot_result
 
 
@@ -90,12 +93,16 @@ def test_database_build_is_ready_then_explicitly_activated(tmp_path):
     assert admin.verify(database)["ok"] is True
 
 
-def test_incomplete_download_is_not_written(tmp_path):
+def test_incomplete_download_is_left_resumable_and_unfinalized(tmp_path):
     database = tmp_path / "parcels.sqlite"
     admin = services(result([feature(1, "733", 0)], expected=(1, 2), missing=(2,)))
-    with pytest.raises(SnapshotIngestionError, match="not written"):
+    with pytest.raises(SnapshotIngestionError, match="not finalized"):
         admin.build(database)
-    assert not database.exists()
+    status = admin.status(database)
+    assert status["active_snapshot_id"] is None
+    building = status["snapshots"][-1]
+    assert building["state"] == "building"
+    assert building["received_count"] == 1
 
 
 def test_duplicate_cts_parts_are_combined_instead_of_first_feature_winning():
