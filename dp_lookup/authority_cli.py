@@ -169,8 +169,6 @@ def _call(store: Any, names: Iterable[str], *args: Any, **kwargs: Any) -> Any:
             try:
                 return method(*args, **kwargs)
             except TypeError:
-                # Permit a store with the same operation but a narrower
-                # metadata signature. Do not hide its actual runtime errors.
                 if kwargs:
                     return method(*args)
                 raise

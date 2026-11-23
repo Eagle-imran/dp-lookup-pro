@@ -33,6 +33,7 @@ TARGETS = (
     "tests/test_architecture_contract.py",
     "tests/test_artifact_isolation.py",
     "tests/test_cache_hardening.py",
+    "tests/test_comment_ratchet.py",
     "tests/test_documentation_contract.py",
     "tests/test_dxf_layout_policy.py",
     "tests/test_excel_register_safety.py",
@@ -50,6 +51,7 @@ TARGETS = (
     "tests/test_topology_contract.py",
     "tests/test_transport_resilience.py",
     "tests/test_typing_contract.py",
+    "tools/check_comments.py",
     "tools/check_format.py",
     "tools/intelligence_acceptance.py",
 )

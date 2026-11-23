@@ -57,8 +57,6 @@ def ingest_planning_snapshot(
     snapshot_id = store.begin_snapshot(source_url=source_url, metadata=metadata, version=version)
     try:
         for layer in inputs:
-            # Materialise once so generators can provide an authoritative count
-            # and can be split into bounded, atomic batches.
             captured = tuple(layer.features)
             expected = layer.expected_count if layer.expected_count is not None else len(captured)
             store.register_layer(
@@ -76,8 +74,6 @@ def ingest_planning_snapshot(
                 store.insert_batch(snapshot_id, layer.layer_id, captured[offset : offset + batch_size])
         return store.finalize(snapshot_id)
     except Exception as exc:
-        # Keep the failed version and its diagnostics; do not delete evidence
-        # or accidentally make a partial snapshot eligible for activation.
         try:
             store.connection.execute(
                 "UPDATE planning_snapshots SET state='failed',finalized_at=?,validation_json=? WHERE snapshot_id=? AND state='building'",

@@ -41,7 +41,6 @@ def _project_rings_to_utm43n(rings: ArcGISRings) -> List[List[List[float]]]:
 
 
 def _geometry_for(parcel: ParcelAssemblyInput) -> BaseGeometry:
-    # ParcelAssemblyInput normalises this field to ArcGISRings in __post_init__.
     raw_rings = cast(ArcGISRings, parcel.raw_arcgis_rings)
     geometry = arcgis_rings_to_geometry(_project_rings_to_utm43n(raw_rings))
     if geometry.is_empty or geometry.area <= _AREA_EPSILON_SQM:
@@ -260,10 +259,6 @@ def analyze_plot_assembly(
     individual_area = sum(float(geometry.area) for geometry in geometries)
     combined_area = float(combined.area)
     external_perimeter = float(combined.length)
-    # This is deliberately not inferred from perimeter reduction. That shortcut
-    # is valid only for clean edge-adjacent polygons and would wrongly treat an
-    # overlap as a removed internal edge. The relation classifier has already
-    # established the actual source edges shared by distinct selected parcels.
     removed_internal = sum(
         relation.shared_boundary_length_m
         for relation in relations

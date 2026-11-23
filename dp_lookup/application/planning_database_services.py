@@ -123,8 +123,6 @@ class LocalPlanningDatabaseServices:
             base_config,
             all_fields=True,
             fetch_layer_metadata=True,
-            # A small inter-batch pause is respectful of the public service;
-            # metadata and inventory requests are already sequential.
             request_delay_seconds=max(0.25, base_config.request_delay_seconds),
         )
         checkpoint_path = _checkpoint_path(database, options.get("resume"))
@@ -145,10 +143,6 @@ class LocalPlanningDatabaseServices:
                 )
                 checkpoint = None
             else:
-                # The SQLite inventory and stored ObjectIDs are the primary
-                # resume proof. An external checkpoint is consulted only when
-                # the caller explicitly supplied one, avoiding reuse of a
-                # stale checkpoint from an older completed snapshot.
                 checkpoint = _load_checkpoint(Path(options["resume"])) if options.get("resume") else None
 
             async def accept_inventory(
@@ -189,9 +183,6 @@ class LocalPlanningDatabaseServices:
                         retain_features=False,
                     )
             except Exception as exc:
-                # Source-inventory drift makes the partial snapshot unsafe to
-                # resume. Other failures retain the building snapshot so a
-                # later command can continue from its durable feature IDs.
                 if "different inventory" in str(exc):
                     store.fail_snapshot(snapshot_id, str(exc))
                 raise

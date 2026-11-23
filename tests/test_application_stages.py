@@ -206,6 +206,13 @@ def test_live_neighbours_check_shared_boundaries_across_villages():
             "geometry": {"rings": [[[left, bottom], [right, bottom], [right, top], [left, top], [left, bottom]]]},
         }
 
+    subject = feature(1, "1/6", 0, 0, 10, 10)
+    same_cts_other_village = feature(2, "1/6", 10, 0, 12, 10, village="TARDEO")
+    gap_within_tolerance = feature(3, "2", 0, 10.25, 10, 12)
+    point_contact_only = feature(4, "3", 10, 10, 12, 12)
+    overlapping = feature(5, "4", -2, -2, 4, 4)
+    gap_beyond_tolerance = feature(6, "5", 13, 0, 14, 10)
+
     class Client:
         async def get(self, url, *, params):
             assert url.endswith("/13/query")
@@ -213,12 +220,12 @@ def test_live_neighbours_check_shared_boundaries_across_villages():
             return JsonResponse(
                 {
                     "features": [
-                        feature(1, "1/6", 0, 0, 10, 10),  # Subject.
-                        feature(2, "1/6", 10, 0, 12, 10, village="TARDEO"),
-                        feature(3, "2", 0, 10.25, 10, 12),  # Small gap within tolerance.
-                        feature(4, "3", 10, 10, 12, 12),  # Point-only contact.
-                        feature(5, "4", -2, -2, 4, 4),  # Overlap.
-                        feature(6, "5", 13, 0, 14, 10),  # Across a larger gap.
+                        subject,
+                        same_cts_other_village,
+                        gap_within_tolerance,
+                        point_contact_only,
+                        overlapping,
+                        gap_beyond_tolerance,
                     ]
                 }
             )

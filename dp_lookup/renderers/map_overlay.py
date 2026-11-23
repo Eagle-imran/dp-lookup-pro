@@ -39,7 +39,6 @@ def render_dp_map(
             width=5,
         )
 
-    # North arrow
     nx, ny = width - 80, 80
     draw.ellipse([nx - 30, ny - 30, nx + 30, ny + 30],
                  fill=(255, 255, 255, 230), outline=(0, 0, 0, 255), width=2)

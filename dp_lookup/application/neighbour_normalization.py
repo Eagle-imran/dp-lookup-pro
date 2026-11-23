@@ -53,7 +53,6 @@ def adjoining_parcels(
         elif 0.0 < gap <= tolerance_m:
             relation = "tolerance_gap"
         else:
-            # Point contact and overlapping boundaries are not adjoining parcels.
             continue
         recorded = {
             float(part["area_app_sqm"])

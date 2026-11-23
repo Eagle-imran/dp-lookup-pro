@@ -13,8 +13,6 @@ import httpx
 from PIL import Image
 
 MAX_MEMORY_TILES = 512
-# Imagery is refreshed upstream; a disk tile older than this is re-fetched
-# (and only reused when the refresh fails).
 TILE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
 TILE_CACHE_ENV = "DP_LOOKUP_TILE_CACHE"
 TileKey = Tuple[str, str, int, int, int]

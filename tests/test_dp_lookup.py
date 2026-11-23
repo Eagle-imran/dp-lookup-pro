@@ -21,10 +21,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import cts_dp_lookup_pro as dp
 
-# --------------------------------------------------------------------------
-# Projection and tile maths
-# --------------------------------------------------------------------------
-
 
 def test_utm43n_matches_known_mumbai_point():
     """Mumbai sits in UTM zone 43N; easting must land west of the 500 km meridian."""
@@ -59,11 +55,6 @@ def test_tile_to_latlon_is_tile_top_left():
     zoom = 18
     lat, lon = dp.tile_to_latlon(*dp.latlon_to_tile(19.0, 72.8, zoom), zoom)
     assert lat >= 19.0 - 0.01 and lon <= 72.8
-
-
-# --------------------------------------------------------------------------
-# Input validation  (regression: sql-injection-where-clause)
-# --------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -110,11 +101,6 @@ def test_whitespace_is_trimmed_not_rejected():
     assert dp.sanitize_query_value("  WORLI  ", dp._VILLAGE_RE, "village", 64) == "WORLI"
 
 
-# --------------------------------------------------------------------------
-# ArcGIS error-body detection  (regression: http-200-with-error-body-swallowed)
-# --------------------------------------------------------------------------
-
-
 class FakeResp:
     def __init__(self, status=200, payload=None, boom=False):
         self.status_code = status
@@ -149,11 +135,6 @@ def test_empty_results_is_distinguishable_from_failure():
     assert dp.usable_json(FakeResp(200, {"results": []})) == {"results": []}
 
 
-# --------------------------------------------------------------------------
-# Escaping  (regression: kml-no-xml-escaping, reportlab markup injection)
-# --------------------------------------------------------------------------
-
-
 def test_esc_handles_xml_metacharacters():
     assert dp._esc("A & B") == "A &amp; B"
     assert dp._esc("<tag>") == "&lt;tag&gt;"
@@ -181,12 +162,7 @@ def test_kml_with_ampersand_village_is_well_formed(tmp_path):
         },
         str(out),
     )
-    ET.parse(str(out))  # raises if the escaping is wrong
-
-
-# --------------------------------------------------------------------------
-# Cache behaviour  (regression: cache-no-expiry, cache-path-cwd-relative)
-# --------------------------------------------------------------------------
+    ET.parse(str(out))
 
 
 def test_cache_path_follows_output_dir(tmp_path):
@@ -198,7 +174,6 @@ def test_cache_roundtrip_then_expiry(tmp_path):
     dp._STORES.clear()
     dp.write_cache_entry(d, "WORLI:947", _entry_with_files(tmp_path))
     assert dp.read_cache_entry(d, "WORLI:947", 3600) is not None
-    # ttl of 0 means anything with a positive age is stale
     time.sleep(0.01)
     assert dp.read_cache_entry(d, "WORLI:947", 0) is None
 
@@ -291,10 +266,6 @@ def test_cache_survives_corrupt_store(tmp_path):
     assert dp.read_cache_entry(d, "anything", 3600) is None
 
 
-# --------------------------------------------------------------------------
-# Vector exporters
-# --------------------------------------------------------------------------
-
 RING = [[[72.8200, 18.9700], [72.8210, 18.9700], [72.8210, 18.9710], [72.8200, 18.9710], [72.8200, 18.9700]]]
 PROPS = {
     "cts_no": "947",
@@ -338,7 +309,6 @@ def test_dxf_geometry_is_metric_and_centred_on_origin(tmp_path):
     for e in doc.modelspace().query("LWPOLYLINE[layer=='C-PLOT-BDY']"):
         pts.extend([(p[0], p[1]) for p in e.get_points("xy")])
     assert pts, "no plot boundary polyline written"
-    # ~105 m x ~111 m parcel, centred on a local origin
     assert max(abs(x) for x, _ in pts) < 200
     assert max(abs(y) for _, y in pts) < 200
 
@@ -357,7 +327,6 @@ def _dist_to_boundary(pt, poly):
 
 
 SQUARE = [(0, 0), (100, 0), (100, 100), (0, 100)]
-# concave L - the shape class that broke the hand-rolled miter offset
 L_SHAPE = [(0, 0), (60, 0), (60, 20), (20, 20), (20, 60), (0, 60)]
 
 
@@ -389,7 +358,7 @@ def test_setback_is_a_true_parallel_offset(poly, distance):
     for ring in rings:
         for i in range(len(ring)):
             a, b = ring[i], ring[(i + 1) % len(ring)]
-            for step in range(21):  # sample along each edge, not just the ends
+            for step in range(21):
                 t = step / 20.0
                 sampled.append(_dist_to_boundary((a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t), poly))
 
@@ -518,11 +487,6 @@ def test_exports_do_not_crash_on_none_area(tmp_path):
     dp.export_dxf(RING, props, str(tmp_path / "a.dxf"), neighbors=[])
 
 
-# --------------------------------------------------------------------------
-# CLI argument handling
-# --------------------------------------------------------------------------
-
-
 def test_lookup_accepts_an_on_data_callback():
     import inspect
 
@@ -565,7 +529,6 @@ def test_summary_marks_a_pending_snapshot_as_still_building():
         },
     }
     text = dp.format_result_human(snap)
-    # the planning answer is fully present in the early snapshot
     for token in ("WORLI", "CTS 733", "YES (CRZ II)", "1,317.74"):
         assert token in text
 
@@ -580,7 +543,7 @@ def test_village_list_is_complete_and_sorted():
 @pytest.mark.parametrize(
     "typo,expected",
     [
-        ("BANDRA", "BANDRA-A"),  # the commonest mistake of all
+        ("BANDRA", "BANDRA-A"),
         ("KURLA", "KURLA - 1"),
         ("BHANDUP", "BHANDUP-E"),
         ("MALABAR", "MALABAR HILL"),
@@ -692,12 +655,6 @@ def test_cli_rejects_bad_village_without_network(capsys):
     assert "unsupported characters" in capsys.readouterr().out
 
 
-# --------------------------------------------------------------------------
-# Extracted pure helpers — previously buried inside a 730-line function and
-# therefore only reachable through a live network call.
-# --------------------------------------------------------------------------
-
-
 def test_mercator_roundtrips_against_the_known_plot_centroid():
     """WORLI 733's centroid, verified live: 19.011989 N, 72.817102 E."""
     lon, lat = dp.mercator_to_wgs84(8106574.0, 2151800.0, precision=4)
@@ -708,9 +665,6 @@ def test_mercator_roundtrips_against_the_known_plot_centroid():
 def test_mercator_is_monotonic():
     assert dp.mercator_to_wgs84(1e6, 0)[0] > dp.mercator_to_wgs84(0, 0)[0]
     assert dp.mercator_to_wgs84(0, 1e6)[1] > dp.mercator_to_wgs84(0, 0)[1]
-
-
-# ---- area resolution ----
 
 
 def test_area_prefers_the_mcgm_recorded_figure():
@@ -742,8 +696,6 @@ def test_area_reports_unavailable_rather_than_guessing(attrs):
     assert got["area_source"] == "unavailable"
 
 
-# ---- geometry ----
-
 MERC_RING = [[[8106500.0, 2151700.0], [8106600.0, 2151700.0], [8106600.0, 2151800.0], [8106500.0, 2151800.0]]]
 
 
@@ -751,7 +703,7 @@ def test_prepare_geometry_returns_a_usable_window():
     g = dp.prepare_geometry(MERC_RING)
     assert g["mcx"] == pytest.approx(8106550.0)
     assert g["mcy"] == pytest.approx(2151750.0)
-    assert g["d"] >= 50  # floor, so tiny plots still get a map window
+    assert g["d"] >= 50
     assert 72 < g["lon"] < 73 and 18 < g["lat"] < 20
     assert len(g["wgs_rings"][0]) == 4
 
@@ -759,9 +711,6 @@ def test_prepare_geometry_returns_a_usable_window():
 def test_prepare_geometry_floors_the_window_for_a_tiny_plot():
     tiny = [[[8106500.0, 2151700.0], [8106504.0, 2151700.0], [8106504.0, 2151704.0], [8106500.0, 2151704.0]]]
     assert dp.prepare_geometry(tiny)["d"] == 50
-
-
-# ---- bundle folder ----
 
 
 @pytest.mark.parametrize(
@@ -781,9 +730,6 @@ def test_bundle_folder_is_filesystem_safe(village, cts, expected):
 
 def test_bundle_folder_preserves_exact_slash_vs_hyphen_identity():
     assert dp.bundle_folder_name("MALABAR HILL", "16/738") != dp.bundle_folder_name("MALABAR HILL", "16-738")
-
-
-# ---- road selection ----
 
 
 def test_road_prefers_a_named_road_with_a_width():
@@ -812,16 +758,13 @@ def test_road_reports_none_when_nothing_was_found():
     assert dp.select_road({}) == {"name": "None", "width": "None"}
 
 
-# ---- CRZ tier ----
-
-
 @pytest.mark.parametrize(
     "item,expected",
     [
         (None, "NO (Outside CRZ Buffer)"),
-        ({"attributes": {"category": "II"}}, "YES (CRZ II)"),  # layer 14
-        ({"attributes": {"Category": "II"}}, "YES (CRZ II)"),  # layer 1548
-        ({"attributes": {"CLASS": "CRZ II"}}, "YES (CRZ II)"),  # layer 1264, pre-prefixed
+        pytest.param({"attributes": {"category": "II"}}, "YES (CRZ II)", id="layer-14"),
+        pytest.param({"attributes": {"Category": "II"}}, "YES (CRZ II)", id="layer-1548"),
+        pytest.param({"attributes": {"CLASS": "CRZ II"}}, "YES (CRZ II)", id="layer-1264-prefixed"),
         ({"attributes": {"category": "III"}}, "YES (CRZ III)"),
     ],
 )
@@ -832,9 +775,6 @@ def test_crz_tier_is_read_from_whichever_attribute_the_layer_uses(item, expected
 def test_crz_falls_back_to_the_layer_name_when_no_tier_is_present():
     got = dp.crz_flag_from({"layerName": "CRZ", "attributes": {"category": "Null"}})
     assert got == "YES (CRZ)"
-
-
-# ---- status precedence ----
 
 
 def test_a_dp_modification_outranks_everything():
@@ -858,12 +798,6 @@ def test_a_plot_with_nothing_against_it_is_clear():
     got = dp.derive_status(None, None, None, "None", "None", "None", "None", "None")
     assert "CLEAR" in got["badge"]
     assert got["summary"] == "Unreserved Land Parcel"
-
-
-# --------------------------------------------------------------------------
-# ArcGIS request payloads. These mirror requests validated against the live
-# server; the tests exist so a future tidy-up cannot silently change them.
-# --------------------------------------------------------------------------
 
 
 def test_planning_layer_string_is_exact():
@@ -902,8 +836,6 @@ def test_map_export_params_shape():
     assert got["layers"] == "show:0,13,44,45,46,47,192,193,194,2224"
 
 
-# ---- probe geometry ----
-
 SQ_RING = [[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]]
 
 
@@ -918,7 +850,6 @@ def test_road_probes_keep_the_centroid_and_both_corners():
 def test_road_probes_are_capped_and_pushed_outside_the_plot():
     pts = dp.road_probe_points(SQ_RING, 50.0, 50.0, [0.0, 100.0], [0.0, 100.0])
     assert len(pts) == 3 + dp.ROAD_EDGE_PROBE_LIMIT
-    # every edge probe must sit outside the square, never inside it
     for x, y in pts[3:]:
         assert not (0.0 < x < 100.0 and 0.0 < y < 100.0), f"probe ({x},{y}) is inside the plot"
 
@@ -926,7 +857,6 @@ def test_road_probes_are_capped_and_pushed_outside_the_plot():
 def test_road_probes_use_three_distances_per_edge():
     assert len(dp.ROAD_EDGE_NUDGES) == 3
     pts = dp.road_probe_points(SQ_RING, 50.0, 50.0, [0.0, 100.0], [0.0, 100.0])
-    # the four edges of a square are equal length, so all three nudges appear
     dists = {round(max(abs(x - 50.0), abs(y - 50.0)), 1) for x, y in pts[3:]}
     assert len(dists) >= 3
 
@@ -946,12 +876,6 @@ def test_neighbour_probes_are_four_cardinal_offsets():
 def test_neighbour_probe_offset_has_a_floor():
     """A tiny plot still needs to reach far enough to find a neighbour."""
     assert dp.neighbour_probe_points(0.0, 0.0, 1.0) == [(15.0, 0.0), (-15.0, 0.0), (0.0, 15.0), (0.0, -15.0)]
-
-
-# --------------------------------------------------------------------------
-# Image renderers — previously inline in lookup_plot_pro and only reachable
-# through a live fetch of the MCGM map and nine Esri tiles.
-# --------------------------------------------------------------------------
 
 
 def _png_bytes(size=(256, 256), colour=(10, 120, 30)):
@@ -1043,17 +967,6 @@ def test_renderers_accept_a_multi_ring_plot():
     assert dp.render_dp_map(None, two, (0, 0, 100, 100), (300, 300), DP_LABELS)
 
 
-# --------------------------------------------------------------------------
-# Text metrics, and the sheet faults that only AutoCAD revealed
-#
-# WORLI 733 and AMBIVALI 807 both passed every geometry check while carrying 16
-# faults each: legend rows outside their panel, the UTM tie-in lying across a
-# dimension, two grid labels stacked at the sheet corner. Whether text collides
-# depends on the rendered width of a glyph, so none of it was reachable without
-# measuring the text.
-# --------------------------------------------------------------------------
-
-
 def _dxf_texts(msp):
     """(entity, measured box) for every TEXT that can be measured."""
     return [(e, dp.text_extents(e)) for e in msp.query("TEXT") if dp.text_extents(e) is not None]
@@ -1085,7 +998,6 @@ def test_text_extents_measures_width_and_respects_rotation():
     turned = msp.add_text("MMMMMMMMMM", dxfattribs={"height": 2.0, "rotation": 90.0})
     turned.set_placement((0.0, 0.0))
     tbox = dp.text_extents(turned)
-    # Rotated ninety degrees, the long axis has to become the vertical one.
     assert tbox[3] - tbox[1] > tbox[2] - tbox[0]
 
 
@@ -1116,7 +1028,6 @@ def test_nudge_text_clear_reports_failure_rather_than_looping():
     msp = doc.modelspace()
     label = msp.add_text("X", dxfattribs={"height": 1.0})
     label.set_placement((0.0, 0.0))
-    # An obstacle taller than the nudge budget can never be escaped.
     assert not dp.nudge_text_clear(label, [(-50, -50, 50, 50)], step=0.1, limit=3)
 
 
@@ -1126,7 +1037,6 @@ def test_legend_height_accounts_for_the_plot_data_rows():
     lg_row = 3.5
     tall = dp.legend_column_height(lg_row, 12, 10)
     assert tall > lg_row * (12 + 9.5), "must exceed the old under-count"
-    # Adding a data row must make the panel taller by exactly that row.
     assert dp.legend_column_height(lg_row, 12, 11) - tall == pytest.approx(lg_row)
 
 
@@ -1136,7 +1046,6 @@ def test_long_road_name_wraps_instead_of_escaping_the_panel():
     assert len(rows) > 1, "a 65-character value has to wrap"
     assert all(len(r) <= 16 + 2 + dp.LEGEND_VALUE_MAX_CHARS for r in rows)
     assert rows[0].startswith("ABUTTING ROAD   : ")
-    # Continuation lines are indented under the value, not under the label.
     assert rows[1].startswith(" " * 16)
     assert "Versova" in " ".join(rows), "wrapping must not drop words"
 
@@ -1214,8 +1123,6 @@ def test_dxf_drawing_labels_do_not_collide(tmp_path):
     other."""
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    # A ring with two deliberately short adjacent edges, which is what put
-    # AMBIVALI 807's '6.20m' and '3.47m' on top of one another.
     ring = [
         [
             [72.8200, 18.9700],
@@ -1289,7 +1196,6 @@ def test_dxf_annotation_is_readable_on_a_very_small_plot(tmp_path):
     six times the plot width across it."""
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    # ~8 x 16 m
     ring = [
         [[72.8200, 18.9700], [72.820076, 18.9700], [72.820076, 18.970144], [72.8200, 18.970144], [72.8200, 18.9700]]
     ]
@@ -1333,18 +1239,12 @@ def test_restriction_layer_carries_notes_in_addition_to_the_legend_swatch(tmp_pa
     assert any(note.startswith("CRZ:") for note in notes)
 
 
-# --------------------------------------------------------------------------
-# Road clipping
-# --------------------------------------------------------------------------
-
-
 def test_clip_keeps_a_segment_that_crosses_with_no_vertex_inside():
     """MCGM road centrelines can have vertices a kilometre apart. Testing
     vertices alone dropped roads running straight past the plot."""
     runs = dp.clip_path_to_window([(-1000.0, 5.0), (1000.0, 5.0)], -50, -50, 50, 50)
     assert len(runs) == 1
     (x0, _), (x1, _) = runs[0][0], runs[0][-1]
-    # Clipped to the window, not kept at full length, or the sheet border follows it out.
     assert x0 == pytest.approx(-50.0) and x1 == pytest.approx(50.0)
 
 
@@ -1371,8 +1271,6 @@ def test_sparse_road_is_drawn_on_the_dxf(tmp_path):
     an empty C-ROAD-ALIGN layer."""
     ezdxf = pytest.importorskip("ezdxf")
     props = dict(PROPS, abutting_road="Jay Prakash Road", road_width="27.4 M.")
-    # Runs due east past the plot's south edge; vertices ~1.1 km either side, so
-    # neither lands anywhere near the plot.
     sparse = [[[72.800, 18.96995], [72.850, 18.96995]]]
     out = tmp_path / "x.dxf"
     dp.export_dxf(RING, props, str(out), neighbors=[], roads=sparse)
@@ -1415,7 +1313,6 @@ def test_text_extents_honours_alignment():
     assert y0 < 0 < y1, "middle-aligned text must straddle its anchor vertically"
     assert x1 == pytest.approx(-x0, rel=1e-6)
 
-    # Left/baseline is unchanged: box grows right and up from the insertion point.
     left = msp.add_text("CTS 1862", dxfattribs={"height": 2.0})
     left.set_placement((0.0, 0.0))
     lb = dp.text_extents(left)
@@ -1430,7 +1327,6 @@ def test_text_extents_composes_alignment_with_rotation():
     e = msp.add_text("CTS 1862", dxfattribs={"height": 2.0, "rotation": 90.0})
     e.set_placement((0.0, 0.0), align=TextEntityAlignment.MIDDLE_CENTER)
     x0, y0, x1, y1 = dp.text_extents(e)
-    # Rotated about its anchor, so it still straddles the origin, long axis vertical.
     assert x0 < 0 < x1 and y0 < 0 < y1
     assert (y1 - y0) > (x1 - x0)
 
@@ -1442,7 +1338,6 @@ def test_fit_label_to_width_budgets_against_the_plot():
     tight = dp.fit_label_to_width("ABUTTING ROAD: {}", "Bazar Road (9.15 M.)", max_width=20.0, char_h=1.0)
     assert tight.endswith("...") and len(tight) < len(wide)
 
-    # Never truncated to nothing: a label identifying nothing is worse than a long one.
     squeezed = dp.fit_label_to_width("ABUTTING ROAD: {}", "Jay Prakash Road Part II", max_width=0.5, char_h=1.0)
     assert "Jay Pras"[:4] in squeezed or len(squeezed) > len("ABUTTING ROAD: ")
 
@@ -1452,8 +1347,6 @@ def test_dimension_labels_prefer_the_longest_edges(tmp_path):
     the ones that keep their position."""
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    # A long edge plus a run of near-collinear slivers, which is the DADAR-NAIGAON
-    # 98 shape: its normals are nearly parallel, so nudging cannot separate them.
     ring = [
         [
             [72.8200, 18.9700],
@@ -1470,7 +1363,6 @@ def test_dimension_labels_prefer_the_longest_edges(tmp_path):
     labels = [e.dxf.text for e in msp.query("TEXT[layer=='C-ANNO-DIMS']")]
     lengths = sorted((float(t[:-1]) for t in labels), reverse=True)
     assert lengths, "no dimensions drawn at all"
-    # The longest edge is ~127 m; it must never be the one sacrificed.
     assert lengths[0] > 50.0, f"the longest edge lost its label: {labels}"
 
 
@@ -1505,7 +1397,6 @@ def test_centre_label_is_clear_of_boundary_dimensions(tmp_path):
     never checked against anything."""
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    # Long and thin, so the edge dimensions reach in toward the centroid.
     ring = [[[72.8200, 18.9700], [72.8215, 18.9700], [72.8215, 18.970055], [72.8200, 18.970055], [72.8200, 18.9700]]]
     dp.export_dxf(ring, dict(PROPS, cts_no="1862"), str(out), neighbors=[])
     msp = ezdxf.readfile(str(out)).modelspace()
@@ -1520,7 +1411,6 @@ def test_setback_marker_and_road_label_do_not_collide(tmp_path):
     """Both stack below the plot at fixed offsets; on BANDRA-A 409 they overlapped."""
     ezdxf = pytest.importorskip("ezdxf")
     out = tmp_path / "x.dxf"
-    # 8 x 16 m: too narrow for either setback, so both markers are emitted.
     ring = [
         [[72.8200, 18.9700], [72.820076, 18.9700], [72.820076, 18.970144], [72.8200, 18.970144], [72.8200, 18.9700]]
     ]
@@ -1533,7 +1423,7 @@ def test_setback_marker_and_road_label_do_not_collide(tmp_path):
     for layer in ("C-SETBACK-3M", "C-SETBACK-6M", "C-ROAD-ALIGN"):
         for e in msp.query(f"TEXT[layer=='{layer}']"):
             b = dp.text_extents(e)
-            if b and b[1] < 0:  # below the plot, not a legend swatch label
+            if b and b[1] < 0:
                 below.append((e.dxf.text, b))
     for i, (t1, b1) in enumerate(below):
         for t2, b2 in below[i + 1 :]:
@@ -1546,9 +1436,8 @@ def test_nearest_road_geoms_ranks_by_proximity_not_arrival_order():
     807), so the frontage was pushed out of the slice -- the six that survived were
     910-2082 m away while the real frontage sat 8.7 m from the boundary."""
     ring = [[[72.8200, 18.9700], [72.8210, 18.9700], [72.8210, 18.9710], [72.8200, 18.9710], [72.8200, 18.9700]]]
-    far = [[72.90, 19.05], [72.91, 19.06]]  # ~10 km away
-    frontage = [[72.8205, 18.96999], [72.8206, 18.96999]]  # metres from the edge
-    # Frontage arrives last, behind a wall of distant rings.
+    far = [[72.90, 19.05], [72.91, 19.06]]
+    frontage = [[72.8205, 18.96999], [72.8206, 18.96999]]
     geoms = [far] * 20 + [frontage]
 
     picked = dp.nearest_road_geoms(geoms, ring, limit=6)
@@ -1561,11 +1450,6 @@ def test_nearest_road_geoms_survives_missing_geometry():
     ring = [[[72.8200, 18.9700], [72.8210, 18.9700], [72.8200, 18.9700]]]
     assert dp.nearest_road_geoms([], ring) == []
     assert dp.nearest_road_geoms([[[72.82, 18.97]]], []) == [[[72.82, 18.97]]]
-
-
-# --------------------------------------------------------------------------
-# Spatial Polygon Engine & Multi-Reservation / Partial Encumbrance Tests
-# --------------------------------------------------------------------------
 
 
 def test_derive_status_partial_encumbrance():
@@ -1676,7 +1560,6 @@ def test_geojson_contains_reservation_subfeatures(tmp_path):
 
 def test_pdf_build_with_multi_reservations(tmp_path):
     out = tmp_path / "docket.pdf"
-    # Create blank dummy PNGs for map and satellite
     img = dp.Image.new("RGB", (100, 100), (255, 255, 255))
     dp_img_path = str(tmp_path / "dp.png")
     sat_img_path = str(tmp_path / "sat.png")

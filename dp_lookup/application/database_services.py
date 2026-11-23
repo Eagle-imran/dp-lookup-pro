@@ -34,9 +34,6 @@ SnapshotImporter = Callable[..., Awaitable[SnapshotIngestionResult]]
 
 
 def _default_client_factory() -> AsyncClientContext:
-    # The snapshot importer owns retry/backoff, so the shared HTTP facade gets
-    # one transport attempt per importer attempt rather than multiplying both
-    # retry loops into as many as nine requests.
     return cast(
         AsyncClientContext,
         ArcGISClient(timeout_seconds=120.0, retry_policy=RetryPolicy(max_attempts=1)),
@@ -89,8 +86,6 @@ class LocalDatabaseServices:
             max_attempts=3,
             base_delay_seconds=0.5,
             max_delay_seconds=8.0,
-            # One sequential request every few seconds is intentionally gentle
-            # for an official public service and still completes in minutes.
             request_delay_seconds=2.0,
             fetch_layer_metadata=True,
         )
@@ -178,8 +173,6 @@ class LocalDatabaseServices:
                     f"batch_errors={len(manifest.batch_errors)}; rerun the same command to resume"
                 )
 
-            # Test/custom importers may not implement the streaming callbacks;
-            # preserve the original injected-importer contract for them.
             if store is None or snapshot_id is None:
                 store = SnapshotStore.open(database)
                 snapshot_id = store.begin_snapshot(

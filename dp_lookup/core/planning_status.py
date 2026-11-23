@@ -104,7 +104,6 @@ def derive_status(
         return {"badge": "\U0001F7E1 MODIFIED (DP Notification Order)",
                 "summary": f"Modified via {appr}"}
 
-    # Rich spatial encumbrance check if available
     if encumbered_percent is not None and (reservations is not None or designations is not None):
         res_list = reservations or []
         des_list = designations or []
@@ -129,7 +128,6 @@ def derive_status(
                 "summary": f"Partially encumbered ({enc_txt}). Net developable: {net_txt}",
             }
 
-        # Heavily / Fully encumbered (>= 90%)
         if des_list and not res_list:
             d0 = des_list[0]
             return {

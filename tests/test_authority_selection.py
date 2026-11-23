@@ -125,8 +125,6 @@ def test_unverified_superseded_and_wrong_identity_records_are_rejected():
 
 
 def test_verified_replacement_record_is_eligible_when_it_supersedes_an_older_version():
-    # The registry's ``supersedes_id`` points backwards from the replacement;
-    # only the old record becomes superseded and should be excluded.
     replacement = Record(checksum="replacement", supersedes_id=1)
     result = recommend_authority_sources([replacement], "area_reconciliation", village="WORLI", cts_no="733")
     assert result.selected is not None

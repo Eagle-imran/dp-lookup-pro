@@ -20,8 +20,6 @@ def test_shared_edge_and_tolerance_gap_and_exclusion():
     assert result[0].exact_touch and result[0].shared_boundary_m == pytest.approx(10)
     assert result[1].tolerance_gap and result[1].gap_m == pytest.approx(0.3)
 
-    # A corner-only touch and an overlap are data-quality relationships, not
-    # a shared cadastral edge or a disclosed tolerance gap.
     corner = ParcelGeometryRecord(5, "WORLI", "5", 10, [[[10, 10], [20, 10], [20, 20], [10, 20], [10, 10]]])
     overlap = ParcelGeometryRecord(6, "WORLI", "6", 10, [[[5, 0], [15, 0], [15, 10], [5, 10], [5, 0]]])
     assert find_adjacent(subject, [corner, overlap]) == ()

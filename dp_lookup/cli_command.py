@@ -29,7 +29,6 @@ def execute_lookup(
 ) -> int:
     """Execute one parsed lookup and emit the historical terminal contract."""
     args = list(parsed["positionals"])
-    # Tolerate the conversational form: ``WORLI CTS 947``.
     if len(args) >= 3 and args[1].upper() in ("CTS", "CS", "PLOT", "NO", "NO."):
         args = [args[0], args[2], *args[3:]]
     if len(args) < 2:

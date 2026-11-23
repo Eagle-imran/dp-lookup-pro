@@ -45,10 +45,6 @@ def _active_records(store: Any, village: str, cts_no: str, purpose: str) -> Tupl
         "planning": "planning",
     }.get(purpose, purpose)
     attempts = (
-        # Legacy stores used the policy names while the SQLite registry uses
-        # the compact persisted values. Try the policy spelling first so
-        # injected stores retain their existing contract, then the compact
-        # spelling for the durable registry.
         {"village": village, "cts_no": cts_no, "purpose": purpose},
         {"village": village, "cts_no": cts_no, "purpose": store_purpose},
         {"village": village, "cts_no": cts_no, "selection_purpose": purpose},
@@ -111,9 +107,6 @@ def _crs(record: Any) -> int:
 def _to_mercator(rings: List[List[List[float]]], crs: int) -> List[List[List[float]]]:
     if crs not in {4326, 4269}:
         return rings
-    # Keep this conversion local and dependency-free. Authority records are
-    # allowed to carry WGS84 coordinates while the existing pipeline remains
-    # EPSG:102100/Web Mercator internally.
     import math
 
     radius = 20037508.342789244
@@ -310,8 +303,6 @@ def _apply(
         ],
         "baseline_area_assessment": baseline_assessment or {},
         "applied_to_working_result": applied,
-        # The baseline/working block is intentionally additive diagnostic data;
-        # the standardized fields above are the stable public authority shape.
         "baseline": {
             "area_sqm": parcel.area_sqm,
             "area_source": parcel.area_source,

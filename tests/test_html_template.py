@@ -46,7 +46,7 @@ def test_html_shell_is_loaded_from_packaged_template():
     assert template.startswith("<!DOCTYPE html>")
     assert "@@D27@@" in template
     assert "{{" not in template
-    assert "Leaflet" in template
+    assert "leaflet@1.9.4/dist/leaflet.js" in template
     assert ".dossier-hud" in css
     assert "@@A0@@" in css
     assert "function toggleMeasureMode" in javascript

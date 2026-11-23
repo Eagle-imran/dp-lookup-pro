@@ -129,8 +129,6 @@ def _parse_cli_args(raw_args: list[str]) -> dict[str, Any]:
 def main(argv: Optional[list[str]] = None) -> int:
     """Console entry point.  Returns a process-compatible exit code."""
     raw_args = list(sys.argv[1:] if argv is None else argv)
-    # ``lookup`` is the explicit spelling for scripts and future subcommands;
-    # the historical positional form remains untouched.
     if raw_args and raw_args[0] == "lookup":
         raw_args = raw_args[1:]
     if raw_args and raw_args[0] in {"db", "database"} and (

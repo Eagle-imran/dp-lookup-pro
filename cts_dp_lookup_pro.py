@@ -27,8 +27,6 @@ from dp_lookup.authority import (
     recommend_authority,
 )
 from dp_lookup.cli import USAGE, format_result_human, main, suggest_villages
-
-# Clients & Cache
 from dp_lookup.clients.arcgis import (
     fetch_tile_cached,
     identify_payload,
@@ -49,8 +47,6 @@ from dp_lookup.clients.cache import (
     usable_json,
     write_cache_entry,
 )
-
-# Core Constants & Validation Regexes
 from dp_lookup.core.area_assessment import (
     assess_plot_area,
     calculated_boundary_area_sqm,
@@ -80,8 +76,6 @@ from dp_lookup.core.constants import (
     SLIVER_PERCENT_THRESHOLD,
     WEB_MERCATOR_R,
 )
-
-# Core Geometry
 from dp_lookup.core.geometry import (
     latlon_to_tile,
     mercator_to_wgs84,
@@ -109,8 +103,6 @@ from dp_lookup.core.models import (
     SourceEvidence,
     SpatialCluster,
 )
-
-# Core Planning Status
 from dp_lookup.core.planning_status import (
     bundle_folder_name,
     crz_flag_from,
@@ -119,8 +111,6 @@ from dp_lookup.core.planning_status import (
     select_road,
 )
 from dp_lookup.core.topology import arcgis_rings_to_geometry
-
-# Exporters
 from dp_lookup.exporters.dxf import (
     DXF_LAYERS,
     DXF_LEGEND_ROWS,
@@ -152,8 +142,6 @@ from dp_lookup.exporters.geojson import export_geojson
 from dp_lookup.exporters.html_map import export_html_map
 from dp_lookup.exporters.kml import _esc, export_kml
 from dp_lookup.exporters.pdf import build_pdf_doc
-
-# Renderers
 from dp_lookup.renderers.map_overlay import render_dp_map
 from dp_lookup.renderers.satellite import stitch_satellite
 

@@ -119,8 +119,6 @@ def _dependencies(delay_s: float):
         response = await client.get("/tile/fake")
         return response.content
 
-    # Keep synchronous writers/renderers inside the same stage so their cost is
-    # represented without invoking real PDF/CAD/image work.
     def vector_writer(_rings: Any, _properties: Any, path: str, **_: Any) -> None:
         time.sleep(delay_s)
         Path(path).write_text("vector", encoding="utf-8")
@@ -175,8 +173,6 @@ def test_injected_stage_latency_stays_within_offline_regression_budgets(tmp_path
     spans = diagnostics["spans_ms"]
     assert result["metadata"]["complete"] is True
     assert diagnostics["elapsed_ms"] < 1_000
-    # Lower bounds prove the delay-bearing adapters actually participate;
-    # upper bounds catch accidental serialisation or runaway stage work.
     assert 10 <= stages["parcel_ingestion"] < 150
     assert 10 <= stages["source_queries"] < 250
     assert 10 <= stages["vector_artifacts"] < 300
