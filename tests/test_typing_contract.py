@@ -1,6 +1,7 @@
 """Public typing, packaging-marker, and compatibility API contracts."""
 
 import inspect
+import tomllib
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -21,8 +22,6 @@ def test_typed_package_marker_is_present_and_packaged_by_hatch():
 
     wheels = sorted((PROJECT_ROOT / "dist").glob("*.whl"))
     if not wheels:
-        # The source marker and Hatch include contract above remain enforced;
-        # a build job performs the ZIP-level assertion when a wheel exists.
         return
     with ZipFile(wheels[-1]) as wheel:
         assert "dp_lookup/py.typed" in wheel.namelist()
@@ -56,4 +55,8 @@ def test_mypy_configuration_is_strict_for_the_complete_production_package():
     assert "[tool.mypy]" in pyproject
     assert "strict = true" in pyproject
     assert 'files = ["dp_lookup"]' in pyproject
-    assert "project code is not" in pyproject
+    overrides = tomllib.loads(pyproject)["tool"]["mypy"]["overrides"]
+    untyped = {
+        module for override in overrides if override.get("ignore_missing_imports") for module in override["module"]
+    }
+    assert untyped == {"ezdxf.*", "openpyxl.*", "qrcode.*", "reportlab.*", "shapely.*"}

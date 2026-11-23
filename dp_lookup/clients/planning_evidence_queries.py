@@ -144,9 +144,6 @@ def _parse_layer_features(
         if not isinstance(raw_attributes, Mapping) or not isinstance(geometry, Mapping):
             malformed += 1
             continue
-        # The archival snapshot intentionally retains every published source
-        # field. Runtime evidence remains on the same audited allow-list as the
-        # live query so local mode cannot leak unrelated/schema-drift fields.
         attributes = {field: raw_attributes.get(field) for field in spec.out_fields if field in raw_attributes}
         rings = geometry.get("rings")
         if not isinstance(rings, list) or not rings:

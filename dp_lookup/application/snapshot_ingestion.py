@@ -23,8 +23,6 @@ from dp_lookup.clients.parcel_snapshot import (
 )
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
-# Kept here rather than using the existing transport's private policy so the
-# importer also works with a tiny injected fake client in offline tests.
 RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 InventoryConsumer = Callable[[Tuple[int, ...], Mapping[str, Any]], Awaitable[Iterable[int]]]
@@ -108,13 +106,8 @@ async def _get_json(
             if post is not None:
                 response = await post(url, data=dict(params))
             else:
-                # The fallback keeps tiny injected clients useful in offline
-                # tests. Production uses POST for large ObjectID lists so URL
-                # length limits cannot reject an otherwise valid batch.
                 response = await client.get(url, params=dict(params))
             status = int(getattr(response, "status_code", 200) or 0) if not isinstance(response, Mapping) else 200
-            # Retry transport statuses, and embedded ArcGIS errors when they
-            # are plausibly transient.  Non-retryable 4xx errors return early.
             retryable = status in RETRYABLE_STATUS_CODES
             try:
                 decoded = _response_payload(response)
@@ -134,7 +127,6 @@ async def _get_json(
             if attempt == config.max_attempts:
                 raise
         except Exception as exc:
-            # Injected clients may use a timeout/error type other than httpx.
             last_error = exc
             if attempt == config.max_attempts:
                 raise SnapshotIngestionError(f"Layer 13 request failed after {attempt} attempts: {exc}") from exc
@@ -211,8 +203,6 @@ async def ingest_layer13_snapshot(
     rejected = set(checkpoint.rejected_ids if checkpoint else ())
     if not completed.issubset(expected_ids) or not rejected.issubset(expected_ids):
         raise SnapshotIngestionError("Resume checkpoint contains IDs outside the current inventory.")
-    # A caller-provided checkpoint alone cannot prove that skipped records
-    # still exist. A durable sink may prove them through ``on_inventory``.
     completed.intersection_update(prior)
 
     layer_metadata: Mapping[str, Any] = {}
@@ -310,10 +300,6 @@ async def ingest_layer13_snapshot(
             except Exception as exc:
                 raise SnapshotIngestionError(f"Durable snapshot sink rejected a batch: {exc}") from exc
         completed.update(item.object_id for item in accepted_batch)
-        # Missing from a successful response is not silently treated as a
-        # complete batch. It remains in ``missing_ids`` and is eligible for a
-        # later resume; ``rejected_ids`` is reserved for malformed features or
-        # exhausted requests.
         if cfg.request_delay_seconds:
             await sleep(cfg.request_delay_seconds)
 
@@ -365,14 +351,10 @@ async def ingest_layer13_snapshot(
         completed_ids=received_ids,
         rejected_ids=rejected_ids,
     )
-    # The result is intentionally returned even when incomplete, so a caller
-    # can persist the checkpoint and retry. ``manifest.complete`` remains false.
     retained_ids = tuple(sorted(received))
     return SnapshotIngestionResult(tuple(received[oid] for oid in retained_ids), manifest, checkpoint_out)
 
 
-# Descriptive aliases make the boundary easy to discover without duplicating
-# implementation or coupling it to a future SQLite store.
 fetch_layer13_snapshot = ingest_layer13_snapshot
 Layer13SnapshotImporter = ingest_layer13_snapshot
 

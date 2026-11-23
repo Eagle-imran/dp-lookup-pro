@@ -23,13 +23,8 @@ from dp_lookup.core.constants import (
     DEFAULT_CACHE_TTL_SECONDS,
 )
 
-# One lookup store per output directory.
 _STORES: Dict[str, Dict[str, Any]] = {}
 
-# Cache files can be touched by several lookups in one process (and, for
-# example, by two CLI invocations started from a shell script).  Keep the
-# lock process-local even on platforms without fcntl; the file lock below is
-# only an additional best-effort guard for cooperating processes.
 _CACHE_LOCK = threading.RLock()
 
 try:  # pragma: no cover - fcntl is unavailable on Windows
@@ -44,9 +39,6 @@ CACHE_METADATA_KEY = "_cache_metadata"
 
 def cache_path_for(output_dir: str) -> str:
     """Cache store lives beside the bundles it describes, not beside the CWD."""
-    # realpath also collapses aliases such as ``reports`` and
-    # ``reports/../reports`` (and resolves symlinked output directories), so a
-    # single in-memory store cannot accidentally diverge into two stores.
     canonical_dir = os.path.realpath(os.path.abspath(os.path.expanduser(os.fspath(output_dir))))
     return os.path.join(canonical_dir, CACHE_FILENAME)
 
@@ -80,8 +72,6 @@ def _disk_lock(path: str) -> Iterator[None]:
             except OSError:
                 pass
     except OSError:
-        # A read/write failure on the lock must not make the cache unusable.
-        # The caller still has the process-local lock.
         pass
     try:
         yield
@@ -132,8 +122,6 @@ def _save_store(path: str, store: Dict[str, Any]) -> None:
             os.fsync(f.fileno())
         os.replace(temp_path, path)
     except Exception:
-        # json serialization errors should retain their existing behavior, but
-        # never leave a misleading temporary cache behind.
         if fd != -1:
             try:
                 os.close(fd)
@@ -164,10 +152,6 @@ def save_disk_cache(output_dir: str) -> None:
         store = _STORES.get(path, {})
         try:
             with _disk_lock(path):
-                # Preserve entries written by another process after this
-                # process loaded its snapshot.  Keys intentionally present in
-                # the caller's in-memory store win, matching the historical
-                # "mutate then save" behavior of this public function.
                 on_disk = _read_store(path)
                 if on_disk:
                     merged = dict(on_disk)
@@ -252,16 +236,54 @@ def read_cache_entry(
     return result
 
 
-def write_cache_entry(output_dir: str, key: str, result: Dict[str, Any]) -> None:
-    """Persist a clean lookup result to the local disk cache."""
+def _entry_is_servable(entry: Any, now: float, retention_seconds: Optional[int]) -> bool:
+    """True while an entry could still be returned by ``read_cache_entry``."""
+    if not isinstance(entry, dict) or not isinstance(entry.get("result"), dict):
+        return False
+    if entry.get("cache_schema_version") != CACHE_SCHEMA_VERSION:
+        return False
+    cached_at = entry.get("cached_at")
+    if isinstance(cached_at, bool) or not isinstance(cached_at, (int, float)):
+        return False
+    if not math.isfinite(float(cached_at)) or cached_at > now:
+        return False
+    if retention_seconds is not None and retention_seconds >= 0 and now - cached_at > retention_seconds:
+        return False
+    return bundle_is_intact(entry["result"])
+
+
+def prune_cache_store(store: Dict[str, Any], retention_seconds: Optional[int] = DEFAULT_CACHE_TTL_SECONDS) -> int:
+    """Drop entries that can never be served again; return how many were removed.
+
+    That is: malformed entries, entries from another cache schema, entries
+    whose bundle files were deleted, and entries older than the retention
+    window (``None`` or a negative value keeps entries of any age).
+    """
+    now = time.time()
+    stale = [
+        key
+        for key, entry in store.items()
+        if key != CACHE_METADATA_KEY and not _entry_is_servable(entry, now, retention_seconds)
+    ]
+    for key in stale:
+        del store[key]
+    return len(stale)
+
+
+def write_cache_entry(
+    output_dir: str,
+    key: str,
+    result: Dict[str, Any],
+    retention_seconds: Optional[int] = DEFAULT_CACHE_TTL_SECONDS,
+) -> None:
+    """Persist a clean lookup result and prune entries that can no longer be served."""
     path = cache_path_for(output_dir)
     with _CACHE_LOCK:
         previous_store = _STORES.get(path)
-        # Refresh from disk while holding the advisory lock so two processes
-        # writing different keys cannot overwrite one another with stale
-        # in-memory snapshots.
         with _disk_lock(path):
             store = _read_store(path)
+            store.pop(CACHE_METADATA_KEY, None)
+            prune_cache_store(store, retention_seconds)
             store[key] = {
                 "cached_at": time.time(),
                 "cache_schema_version": CACHE_SCHEMA_VERSION,

@@ -120,3 +120,53 @@ def test_multiprocess_register_appends_do_not_lose_rows(tmp_path):
     assert {sheet.cell(row, 5).value for row in range(2, 10)} == {str(700 + i) for i in range(8)}
     workbook.close()
     assert Path(f"{path}.lock").exists()
+
+
+def _row_by_header(sheet, row):
+    headers = [cell.value for cell in sheet[1]]
+    return {header: sheet.cell(row=row, column=index).value for index, header in enumerate(headers, start=1) if header}
+
+
+def test_source_text_cannot_become_a_spreadsheet_formula(tmp_path):
+    path = tmp_path / "dp-lookups.xlsx"
+    args = _register_args(path, 0)
+    args["road_name"] = '=HYPERLINK("http://evil.invalid","x")'
+    args["des_desc"] = "+cmd|' /C calc'!A0"
+    args["res_type"] = "@SUM(1+1)"
+    excel.update_excel_register(**args)
+
+    sheet = openpyxl.load_workbook(path).active
+    row = _row_by_header(sheet, 2)
+    assert row["abutting_road"] == '=HYPERLINK("http://evil.invalid","x")'
+    assert row["designation_desc"] == "+cmd|' /C calc'!A0"
+    headers = [cell.value for cell in sheet[1]]
+    for header in ("abutting_road", "designation_desc", "reservation_type"):
+        cell = sheet.cell(row=2, column=headers.index(header) + 1)
+        assert cell.data_type == "s"
+        assert cell.quotePrefix is True
+    area = sheet.cell(row=2, column=headers.index("area_sqm") + 1)
+    assert area.data_type == "n"
+
+
+def test_legacy_register_with_reordered_columns_keeps_values_aligned(tmp_path):
+    path = tmp_path / "dp-lookups.xlsx"
+    legacy = openpyxl.Workbook()
+    sheet = legacy.active
+    legacy_headers = ["cts_no", "village", "lookup_datetime", "custom_note"]
+    sheet.append(legacy_headers)
+    sheet.append(["1", "BYCULLA", "2026-01-01 00:00:00", "kept"])
+    legacy.save(path)
+
+    excel.update_excel_register(**_register_args(path, 5))
+
+    sheet = openpyxl.load_workbook(path).active
+    headers = [cell.value for cell in sheet[1]]
+    assert headers[:4] == legacy_headers
+    assert len(headers) == len(set(headers)) == 4 + 43 - 3
+    old_row = _row_by_header(sheet, 2)
+    new_row = _row_by_header(sheet, 3)
+    assert old_row["custom_note"] == "kept"
+    assert new_row["cts_no"] == "705"
+    assert new_row["village"] == "WORLI"
+    assert new_row["custom_note"] is None
+    assert new_row["road_width"] == "12 M"

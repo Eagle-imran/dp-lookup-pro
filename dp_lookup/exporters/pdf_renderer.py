@@ -107,7 +107,6 @@ def _build_pdf_doc_values(
     story.append(banner_table)
     story.append(Spacer(1, 4))
 
-    # Format reservation details (cap at 3 in summary table to guarantee 2-page docket)
     res_items = reservations or []
     if res_items:
         res_display = [
@@ -122,7 +121,6 @@ def _build_pdf_doc_values(
     else:
         res_text = "None"
 
-    # Format designation details (cap at 3 in summary table)
     des_items = designations or []
     if des_items:
         des_display = [

@@ -192,7 +192,6 @@ def export_html_map(
     encumbered_geometry = unary_union([arcgis_rings_to_geometry(item.get("wgs_rings", [])) for item in all_encumbered])
     net_geometry = plot_geometry.difference(encumbered_geometry)
 
-    # Compute plot centroid for initial map view
     all_lons = [pt[0] for pt in wgs_rings[0]]
     all_lats = [pt[1] for pt in wgs_rings[0]]
     center_lat = sum(all_lats) / len(all_lats)
@@ -212,7 +211,6 @@ def export_html_map(
         net_sqm = float(properties.get("net_unencumbered_sqm") or max(0.0, round(area_sqm - enc_sqm, 2)))
         net_pct = float(properties.get("net_unencumbered_percent") or max(0.0, round(100.0 - enc_pct, 2)))
 
-    # Convert GeoJSON objects for client embedding
     base_plot_geojson = {
         "type": "Feature",
         "geometry": mapping(plot_geometry),

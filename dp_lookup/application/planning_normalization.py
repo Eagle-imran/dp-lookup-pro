@@ -181,8 +181,6 @@ def normalize_planning_evidence(
     for item in identify_payload.results if identify_payload is not None else ():
         layer_id = item.layer_id
         attributes = item.attributes
-        # A successful empty polygon query means no qualifying overlap.
-        # Point identify may hit an adjacent feature; it cannot replace that result.
         if layer_id in (46, 47, 192) and layer_id in successful_set:
             continue
         if layer_id == 0 and str(zone).strip().casefold() in ("", "unknown", "none", "null"):

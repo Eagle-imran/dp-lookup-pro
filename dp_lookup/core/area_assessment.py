@@ -90,9 +90,6 @@ def web_mercator_ground_area_scale(
         )
     except (IndexError, TypeError, ValueError):
         return None
-    # UTM zone 43N is the correct metric projection for Mumbai and spans
-    # longitudes 72E-78E. Synthetic/non-Mumbai geometry keeps scale 1.0 at the
-    # caller rather than being misleadingly projected far outside the zone.
     if source_geometry.is_empty or not 72.0 <= longitude <= 78.0:
         return None
     calculated = calculated_boundary_area_sqm(rings)

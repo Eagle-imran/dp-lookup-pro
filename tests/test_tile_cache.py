@@ -73,3 +73,50 @@ def test_memory_cache_is_bounded(monkeypatch):
     for index in range(3):
         tile_cache._remember(("dir", "provider", 18, 1, index), _png("white"))
     assert len(tile_cache._TILE_CACHE) == 2
+
+
+def _age(path, seconds):
+    import os
+    import time
+
+    old = time.time() - seconds
+    os.utime(path, (old, old))
+
+
+def test_expired_disk_tile_is_refreshed(tmp_path):
+    tile_cache._TILE_CACHE.clear()
+    path = tmp_path / "esri_tile_18_7_8.jpg"
+    old, new = _png("red"), _png("blue")
+    path.write_bytes(old)
+    _age(path, tile_cache.TILE_MAX_AGE_SECONDS + 60)
+    client = Client([new])
+
+    result = asyncio.run(tile_cache.fetch_tile_cached(client, 18, 7, 8, str(tmp_path)))
+
+    assert result == new
+    assert path.read_bytes() == new
+    assert client.calls == 1
+
+
+def test_expired_disk_tile_is_used_when_refresh_fails(tmp_path):
+    tile_cache._TILE_CACHE.clear()
+    path = tmp_path / "esri_tile_18_9_10.jpg"
+    old = _png("red")
+    path.write_bytes(old)
+    _age(path, tile_cache.TILE_MAX_AGE_SECONDS + 60)
+    client = Client([b"<html>maintenance</html>"])
+
+    assert asyncio.run(tile_cache.fetch_tile_cached(client, 18, 9, 10, str(tmp_path))) == old
+
+
+def test_default_tile_dir_is_per_user_and_overridable(monkeypatch, tmp_path):
+    import os
+    import tempfile
+
+    monkeypatch.delenv(tile_cache.TILE_CACHE_ENV, raising=False)
+    default = tile_cache.default_tile_dir()
+    assert not os.path.realpath(default).startswith(os.path.realpath(tempfile.gettempdir()))
+    assert default.endswith(os.path.join("dp-lookup-pro", "tiles"))
+
+    monkeypatch.setenv(tile_cache.TILE_CACHE_ENV, str(tmp_path / "tiles"))
+    assert tile_cache.default_tile_dir() == str(tmp_path / "tiles")

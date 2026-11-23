@@ -15,8 +15,6 @@ from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple, Unio
 
 AUTHORITY_POLICY_VERSION = "authority-policy/1.0"
 
-# The values are intentionally policy data, not model-enum values.  This lets
-# the selector remain compatible with a persisted enum whose spelling changes.
 _RANKS: Dict[str, Dict[str, int]] = {
     "area_reconciliation": {
         "reconciliation": 110,
@@ -148,7 +146,6 @@ def _checksum(record: Any) -> str:
     )
     if value:
         return str(value)
-    # A stable fallback is useful for injected records and old registries.
     return hashlib.sha256(
         json.dumps(_record_dict(record), sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -222,10 +219,6 @@ def _eligible(record: Any, village: Optional[str], cts_no: Optional[str]) -> Tup
         return False, f"source status is {status}"
     if status != "verified":
         return False, "source is not verified"
-    # ``supersedes_id`` points from a new replacement to the old record; it is
-    # not itself evidence that the new record is superseded.  The old record
-    # is excluded by its lifecycle status (or by an explicit superseded_by
-    # marker in alternate registries).
     if _value(record, "superseded_by", "superseded_at") is not None:
         return False, "source version is superseded"
     return True, "verified and current"
@@ -415,9 +408,6 @@ def recommend_authority_sources(
         _date_key(dated[0].effective_date),
         _date_key(dated[0].verification_date),
     )
-    # A checksum is a deterministic final tie-breaker. Ascending is
-    # intentional: it is stable and does not imply that one hash is more
-    # authoritative than another.
     selected = min(
         (
             candidate

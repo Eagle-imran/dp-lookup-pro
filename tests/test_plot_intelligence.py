@@ -168,7 +168,7 @@ def test_neighbour_missing_recorded_area_uses_ground_square_metres(tmp_path: Pat
     assert len(neighbours.plots) == 1
     neighbour = neighbours.plots[0]
     assert neighbour["area_source"] == "Calculated boundary area"
-    assert 80 < float(neighbour["area_sqm"]) < 95  # Native Mercator area is 100.
+    assert 80 < float(neighbour["area_sqm"]) < 95
 
 
 def test_citywide_build_analyze_search_compare_and_update_check(tmp_path: Path):

@@ -7,16 +7,13 @@ from typing import Tuple
 SERVER_URL = "https://agsmaps.mcgm.gov.in/server/rest/services/Development_Plan_2034/MapServer"
 APPLICATION_VERSION = "3.14.0"
 RESULT_SCHEMA_VERSION = 1
-# Regenerate older reports with the updated DXF legend and origin labels.
 CACHE_SCHEMA_VERSION = 9
 
-# Web Mercator projection sphere radius
 WEB_MERCATOR_R = 20037508.342789244
 
-DEFAULT_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
+DEFAULT_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
 CACHE_FILENAME = ".cache_store.json"
 
-# Layer IDs for MCGM Development Plan 2034 GIS Server
 LAYER_ZONE = 0
 LAYER_RESERVATION = 46
 LAYER_DESIGNATION = 47
@@ -25,26 +22,21 @@ LAYER_METRO = 1550
 LAYER_PROPOSED_ROAD = 45
 CRZ_LAYER_IDS: Tuple[int, ...] = (14, 1264, 1548)
 
-PLANNING_LAYER_IDS = [0, 46, 47, 192, 1550]  # zone, reservation, designation, DP mod, metro
+PLANNING_LAYER_IDS = [0, 46, 47, 192, 1550]
 ROAD_LAYERS = "visible:193,194,44,45,2224"
 NEIGHBOUR_LAYERS = "visible:13"
 
-# Minimum threshold to filter out digitisation noise / slivers on cadastral borders
 SLIVER_AREA_THRESHOLD_SQM = 5.0
-SLIVER_PERCENT_THRESHOLD = 0.001  # 0.1% of parcel area
+SLIVER_PERCENT_THRESHOLD = 0.001
 
-# Probe offsets outward from each boundary edge, in Web Mercator units.
 ROAD_EDGE_NUDGES = (6.0, 15.0, 25.0)
 ROAD_EDGE_PROBE_LIMIT = 12
 
-# MCGM records unnamed carriageway under several placeholder names
 GENERIC_ROAD_NAMES = ("", "existing", "exisiting road", "null", "none", "road", "unknown")
 
-# Input validation regexes
 _VILLAGE_RE = re.compile(r"^[A-Za-z0-9 ()./-]{1,64}$")
 _CTS_RE = re.compile(r"^[A-Za-z0-9 ()./-]{1,32}$")
 
-# The 128 valid MCGM revenue village names, read from layer 13 on 2026-07-28.
 MCGM_VILLAGES: Tuple[str, ...] = (
     "AAKSE", "AAREY", "AKURLI", "AMBIVALI", "ANDHERI", "ANIK", "ASALPE", "BANDIVALI",
     "BANDRA-A", "BANDRA-B", "BANDRA-C", "BANDRA-D", "BANDRA-E", "BANDRA-EAST",

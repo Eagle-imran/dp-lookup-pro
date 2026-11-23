@@ -17,6 +17,7 @@ CI enforces the same gates locally and remotely:
 uv lock --check
 uv run ruff check .
 uv run python tools/check_format.py
+uv run python tools/check_comments.py
 uv run mypy
 uv run pytest -q --cov --cov-report=term-missing
 uv export --frozen --no-dev --no-emit-project --no-hashes \
@@ -32,7 +33,7 @@ The target list lives in that helper so local checks and CI cannot drift.
 
 | Job | What it does |
 | :--- | :--- |
-| `ruff` | Lint and format checks with the rules in `pyproject.toml` |
+| `ruff` | Lint and format checks with the rules in `pyproject.toml`, plus the code-comment ratchet |
 | `typing, coverage, dependency audit` | Strict package-wide typing, branch-aware 83% coverage ratchet, and runtime vulnerability audit |
 | `build` | Builds distributions and installs the wheel in a clean environment |
 | `pytest` | Full offline suite across the supported CI Python versions |
@@ -52,7 +53,8 @@ known advisories and are no longer supported.
 ## Lint rules
 
 `select = ["E", "F", "I", "B", "RUF"]`. Chosen for defects rather than style.
-Deliberately excluded, with reasons recorded in `pyproject.toml`:
+Deliberately excluded, with reasons recorded in the
+[tooling policy ADR](docs/decisions/2026-11-24-tooling-policy.md):
 
 - **UP / FA** — `Dict`→`dict` modernisation and `__future__` annotations. Churn
   across 17 sites with no behaviour change.
@@ -62,6 +64,16 @@ Deliberately excluded, with reasons recorded in `pyproject.toml`:
 - **E501** — retained because generated markup, ArcGIS schemas and drawing
   declarations contain a small number of intentionally indivisible lines.
   New application and client code still follows the 120-column convention.
+
+## Code comments
+
+Code comments are not allowed; see the
+[no code comments ADR](docs/decisions/2026-11-24-no-code-comments.md).
+Explain *what* with names, types and tests, and record *why* in
+`docs/decisions/`. Docstrings and tool directives (`noqa`, `type: ignore`,
+`pragma: no cover`) are fine. `tools/check_comments.py` enforces a per-file
+ratchet from `tools/comment_baseline.json`; after removing comments, run it with
+`--update`. The `/delete-comment` Claude Code skill repeats the full cleanup.
 
 ## Testing against the live server
 

@@ -121,7 +121,7 @@ def _dossier(record: Mapping[str, Any], build: Mapping[str, Any]) -> Dict[str, A
 class PlotIntelligenceServices:
     def _require_current_build(self, database: Path, build_id: Optional[int]) -> None:
         if build_id is not None:
-            return  # Explicit historical IDs remain available for audit.
+            return
         check = self.check(database)
         if check["active_intelligence_build_id"] is None:
             raise IntelligenceStateError("no active plot-intelligence build is available")

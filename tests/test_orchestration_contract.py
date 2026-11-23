@@ -130,7 +130,6 @@ class FakeArcGISClient:
 
 def _stub_dependencies(client_factory):
     async def tile_fetcher(_client, _zoom, _y, _x):
-        # Test imagery must never enter the real satellite disk cache.
         return _png_bytes()
 
     def vector_writer(_rings, _props, path, **_kwargs):
@@ -228,7 +227,7 @@ def test_complete_lookup_preserves_arcgis_contract(tmp_path):
     assert queried_layers == {0, 14, 46, 47, 192, 1264, 1548, 1550}
     assert any(url.endswith("/13/query") for method, url, _ in client.calls if method == "GET")
     parcel_query = next(params for method, url, params in client.calls if method == "GET" and url.endswith("/13/query"))
-    assert parcel_query["outFields"] == "WARD,TYPE,VILLAGE,CTS_CS_NO,AREA_APP_SQ_MTRS,SHAPE.AREA"
+    assert parcel_query["outFields"] == "OBJECTID,WARD,TYPE,VILLAGE,CTS_CS_NO,AREA_APP_SQ_MTRS,SHAPE.AREA"
     assert parcel_query["outSR"] == "102100"
     assert all(
         Path(path).exists()

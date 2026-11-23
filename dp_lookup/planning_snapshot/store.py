@@ -194,7 +194,6 @@ class PlanningSnapshotStore:
             if existing is None:
                 conn.execute("INSERT INTO planning_layers(snapshot_id,layer_id,canonical_layer_id,name,geometry_type,object_id_field,metadata_json,expected_count) VALUES(?,?,?,?,?,?,?,?)", (snapshot_id, source_id, canonical_id, str(name), geometry_type, str(object_id_field), _json(metadata or {}, "layer metadata"), expected_count))
             else:
-                # Preserve the first canonical source contract; aliases enrich provenance.
                 previous = json.loads(existing["metadata_json"] or "{}")
                 merged = dict(previous) if isinstance(previous, Mapping) else {}
                 merged.update(dict(metadata or {}))
@@ -221,9 +220,6 @@ class PlanningSnapshotStore:
     def _feature(value: Any, object_id_field: str) -> PlanningFeature:
         if isinstance(value, PlanningFeature):
             return value
-        # The downloader in ``application.planning_snapshot`` uses an
-        # equivalent immutable dataclass.  Accept it without importing the
-        # application module (which would pull in the HTTP client).
         if all(hasattr(value, name) for name in ("object_id", "attributes", "geometry")):
             return PlanningFeature(
                 int(value.object_id),
@@ -326,10 +322,6 @@ class PlanningSnapshotStore:
             for item in report["layers"]:
                 conn.execute("UPDATE planning_layers SET content_hash=?,complete=1,received_count=? WHERE snapshot_id=? AND canonical_layer_id=?", (item["content_hash"], item["count"], snapshot_id, item["layer_id"]))
             conn.execute("UPDATE planning_snapshots SET state='ready',content_hash=?,complete=1,validation_json=?,finalized_at=? WHERE snapshot_id=?", (digest, _json(report, "validation"), utc_now(), snapshot_id))
-        # Bulk planning ingestion materially changes index cardinalities.
-        # Persist derived planner statistics without changing archived source
-        # attributes or geometry so local spatial queries select their narrow
-        # indexes immediately after every refresh.
         self.connection.execute("ANALYZE")
         self.connection.commit()
         return self.snapshot(snapshot_id)

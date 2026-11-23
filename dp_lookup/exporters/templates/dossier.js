@@ -1,6 +1,14 @@
     const DATA = @@A0@@;
 
-    // Initialize Leaflet Map
+    const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    function esc(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
+    }
+    function num(value) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n.toLocaleString() : 'N/A';
+    }
+
     const center = DATA.plot_identity.center;
     const map = L.map('map', {
       center: center,
@@ -10,7 +18,6 @@
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    // High-Resolution Base Tile Layers
     const baseLayers = {
       sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'Esri World Imagery',
@@ -31,7 +38,6 @@
       baseLayers[key].addTo(map);
       currentBase = key;
 
-      // Bring vector overlays to front
       Object.values(overlayLayers).forEach(layer => {
         if (map.hasLayer(layer) && layer.bringToFront) layer.bringToFront();
       });
@@ -46,10 +52,8 @@
       setBase(currentBase === 'sat' ? 'cad' : 'sat');
     }
 
-    // Layer Storage
     const overlayLayers = {};
 
-    // 1. Abutting Roads Layer (HIGH-CONTRAST ELECTRIC CYAN)
     overlayLayers.roads = L.geoJSON(DATA.roads, {
       style: {
         color: '#0284c7',
@@ -61,14 +65,13 @@
         layer.bindPopup(`
           <div class="custom-popup">
             <h4 style="color:#0284c7">🛣️ Abutting Road Alignment</h4>
-            <div><b>Road:</b> ${feature.properties.road_name}</div>
-            <div><b>Width:</b> ${feature.properties.road_width}</div>
+            <div><b>Road:</b> ${esc(feature.properties.road_name)}</div>
+            <div><b>Width:</b> ${esc(feature.properties.road_width)}</div>
           </div>
         `);
       }
     }).addTo(map);
 
-    // 2. Base Plot Boundary (VIVID CRIMSON RED with Corner Vertex Markers)
     overlayLayers.plot = L.geoJSON(DATA.base_plot, {
       style: {
         color: '#e11d48',
@@ -81,19 +84,18 @@
         layer.bindPopup(`
           <div class="custom-popup">
             <h4 style="color:#e11d48">🔴 Plot Boundary</h4>
-            <div><b>CTS / CS No:</b> ${DATA.plot_identity.cts_no}</div>
-            <div><b>Village:</b> ${DATA.plot_identity.village}</div>
-            <div><b>Ward:</b> ${DATA.plot_identity.ward}</div>
-            <div><b>Working plot area:</b> ${DATA.plot_identity.area_sqm.toLocaleString()} m² (${DATA.plot_identity.area_sqft.toLocaleString()} sq.ft)</div>
-            <div><b>Area reliability:</b> ${DATA.plot_identity.area_assessment.reliability_label}</div>
-            <div><b>Boundary source:</b> ${DATA.plot_identity.geometry_source}</div>
-            <div><b>Zone:</b> Zone ${DATA.plot_identity.zone}</div>
+            <div><b>CTS / CS No:</b> ${esc(DATA.plot_identity.cts_no)}</div>
+            <div><b>Village:</b> ${esc(DATA.plot_identity.village)}</div>
+            <div><b>Ward:</b> ${esc(DATA.plot_identity.ward)}</div>
+            <div><b>Working plot area:</b> ${num(DATA.plot_identity.area_sqm)} m² (${num(DATA.plot_identity.area_sqft)} sq.ft)</div>
+            <div><b>Area reliability:</b> ${esc(DATA.plot_identity.area_assessment.reliability_label)}</div>
+            <div><b>Boundary source:</b> ${esc(DATA.plot_identity.geometry_source)}</div>
+            <div><b>Zone:</b> Zone ${esc(DATA.plot_identity.zone)}</div>
           </div>
         `);
       }
     }).addTo(map);
 
-    // Corner Vertex Markers
     const { type: plotType, coordinates: plotCoordinates } = DATA.base_plot.geometry;
     const plotParts = plotType === 'MultiPolygon' ? plotCoordinates : [plotCoordinates];
     let corner = 0;
@@ -109,7 +111,6 @@
       });
     }
 
-    // 3. Net Developable Layer (EMERALD GREEN)
     overlayLayers.net = L.geoJSON(DATA.net_plot, {
       style: {
         color: '#059669',
@@ -122,15 +123,14 @@
         layer.bindPopup(`
           <div class="custom-popup">
             <h4 style="color:#059669">🟢 Net Developable Envelope</h4>
-            <div><b>Net Usable Area:</b> ${DATA.plot_identity.net_sqm.toLocaleString()} m²</div>
-            <div><b>Percentage:</b> ${DATA.plot_identity.net_percent}% of working plot area</div>
-            <div><b>Status:</b> Unencumbered Zone ${DATA.plot_identity.zone} land</div>
+            <div><b>Net Usable Area:</b> ${num(DATA.plot_identity.net_sqm)} m²</div>
+            <div><b>Percentage:</b> ${esc(DATA.plot_identity.net_percent)}% of working plot area</div>
+            <div><b>Status:</b> Unencumbered Zone ${esc(DATA.plot_identity.zone)} land</div>
           </div>
         `);
       }
     }).addTo(map);
 
-    // 4. Reservations Layer (VIVID AMBER)
     if (DATA.reservations.features.length > 0) {
       overlayLayers.res = L.geoJSON(DATA.reservations, {
         style: {
@@ -145,16 +145,15 @@
           layer.bindPopup(`
             <div class="custom-popup">
               <h4 style="color:#d97706">🟡 Statutory Reservation</h4>
-              <div><b>Code:</b> ${p.code}</div>
-              <div><b>Type:</b> ${p.type}</div>
-              <div><b>Overlap:</b> ${p.overlap_sqm.toLocaleString()} m² (${p.overlap_percent}%)</div>
+              <div><b>Code:</b> ${esc(p.code)}</div>
+              <div><b>Type:</b> ${esc(p.type)}</div>
+              <div><b>Overlap:</b> ${num(p.overlap_sqm)} m² (${esc(p.overlap_percent)}%)</div>
             </div>
           `);
         }
       }).addTo(map);
     }
 
-    // 5. Designations Layer (DEEP PURPLE)
     if (DATA.designations.features.length > 0) {
       overlayLayers.des = L.geoJSON(DATA.designations, {
         style: {
@@ -169,16 +168,15 @@
           layer.bindPopup(`
             <div class="custom-popup">
               <h4 style="color:#7c3aed">🟣 Existing Designation</h4>
-              <div><b>Code:</b> ${p.code}</div>
-              <div><b>Description:</b> ${p.description}</div>
-              <div><b>Overlap:</b> ${p.overlap_sqm.toLocaleString()} m² (${p.overlap_percent}%)</div>
+              <div><b>Code:</b> ${esc(p.code)}</div>
+              <div><b>Description:</b> ${esc(p.description)}</div>
+              <div><b>Overlap:</b> ${num(p.overlap_sqm)} m² (${esc(p.overlap_percent)}%)</div>
             </div>
           `);
         }
       }).addTo(map);
     }
 
-    // 6. Neighbours Layer (SLATE GREY)
     overlayLayers.neigh = L.geoJSON(DATA.neighbors, {
       style: {
         color: '#64748b',
@@ -191,13 +189,12 @@
         layer.bindPopup(`
           <div class="custom-popup">
             <h4>📍 Adjoining Parcel</h4>
-            <div><b>CTS Number:</b> ${feature.properties.cts_no}</div>
+            <div><b>CTS Number:</b> ${esc(feature.properties.cts_no)}</div>
           </div>
         `);
       }
     }).addTo(map);
 
-    // Initial Zoom Fit
     function fitPlotBounds() {
       if (overlayLayers.plot && overlayLayers.plot.getBounds().isValid()) {
         map.fitBounds(overlayLayers.plot.getBounds(), {
@@ -210,7 +207,6 @@
 
     fitPlotBounds();
 
-    // Toggle Overlay Layers
     function toggleOverlay(layerKey) {
       const layer = overlayLayers[layerKey];
       const pill = document.getElementById('layer' + layerKey.charAt(0).toUpperCase() + layerKey.slice(1));
@@ -224,7 +220,6 @@
       }
     }
 
-    // Toggle HUD
     function toggleHud() {
       const hud = document.getElementById('dossierHud');
       const toggleBtn = document.getElementById('hudToggleBtn');
@@ -232,7 +227,6 @@
       toggleBtn.style.display = hud.classList.contains('collapsed') ? 'block' : 'none';
     }
 
-    // Measure Tool Mode
     let measureMode = false;
     let measurePoints = [];
     let measureLine = null;

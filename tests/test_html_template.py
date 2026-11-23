@@ -46,7 +46,7 @@ def test_html_shell_is_loaded_from_packaged_template():
     assert template.startswith("<!DOCTYPE html>")
     assert "@@D27@@" in template
     assert "{{" not in template
-    assert "Leaflet" in template
+    assert "leaflet@1.9.4/dist/leaflet.js" in template
     assert ".dossier-hud" in css
     assert "@@A0@@" in css
     assert "function toggleMeasureMode" in javascript
@@ -188,3 +188,39 @@ def test_active_authority_is_visible_and_original_baseline_is_explicit(tmp_path)
     assert "Authority selection - area: Property Card; geometry: Licensed total-station survey" in html
     assert "record IDs: 12, 13" in html
     assert "MCGM baseline retained" in html
+
+
+def test_every_popup_interpolation_is_escaped():
+    """Leaflet popups assign innerHTML, so MCGM text must never reach them raw."""
+    import re
+
+    script = resources.files("dp_lookup.exporters.templates").joinpath("dossier.js").read_text(encoding="utf-8")
+    popups = re.findall(r"bindPopup\(`(.*?)`\)", script, flags=re.S)
+    assert len(popups) >= 6
+    expressions = [expr for popup in popups for expr in re.findall(r"\$\{(.*?)\}", popup)]
+    assert expressions
+    unescaped = [expr for expr in expressions if not expr.startswith(("esc(", "num("))]
+    assert unescaped == []
+
+
+def test_hostile_source_text_stays_inert_in_the_dossier(tmp_path):
+    ring = [[72.8, 19.0], [72.801, 19.0], [72.801, 19.001], [72.8, 19.001], [72.8, 19.0]]
+    payload = "<img src=x onerror=alert(1)>"
+    output = tmp_path / "dossier.html"
+    export_html_map(
+        [ring],
+        _plot_properties(abutting_road=payload),
+        str(output),
+        designations=[
+            {
+                "code": payload,
+                "description": payload,
+                "overlap_sqm": 1.0,
+                "overlap_percent": 1.0,
+                "wgs_rings": [ring],
+            }
+        ],
+    )
+    html = output.read_text(encoding="utf-8")
+    assert payload not in html
+    assert "function esc(value)" in html

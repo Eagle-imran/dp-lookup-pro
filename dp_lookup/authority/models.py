@@ -198,10 +198,6 @@ class AuthorityRecord:
     def has_geometry(self) -> bool:
         return bool(self.normalized_epsg3857_rings) and self.calculated_area_sqm is not None
 
-    # Compatibility views used by the application-level authority resolver.
-    # The persisted contract remains explicit about original versus normalized
-    # geometry; these read-only aliases avoid forcing that resolver to know the
-    # storage representation.
     @property
     def geometry(self) -> Optional[Dict[str, Any]]:
         if not self.normalized_epsg3857_rings:

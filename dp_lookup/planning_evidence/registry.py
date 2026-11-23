@@ -19,9 +19,6 @@ from dp_lookup.planning_evidence.models import (
 
 SERVER_URL = "https://agsmaps.mcgm.gov.in/server/rest/services/Development_Plan_2034/MapServer"
 
-# Source aliases observed in the map service.  Query only the canonical source
-# once; retaining this mapping makes the audit trail explicit when a caller
-# starts with a duplicate/legacy layer ID.
 CANONICAL_LAYER_IDS: Dict[int, int] = {
     57: 61,
     2251: 2250,
@@ -56,9 +53,6 @@ def _spec(
     )
 
 
-# The first group documents the current lookup contract. The optional evidence
-# service selects only the curated STANDARD/FULL IDs below; it never re-queries
-# Layer 13 or replaces the established planning pipeline.
 LAYER_SPECS: Tuple[LayerSpec, ...] = (
     _spec(13, "Global_Property_merge_v7", EvidenceClass.CONTEXTUAL, "CTS cadastral parcel", out_fields=("OBJECTID", "VILLAGE", "CTS_CS_NO", "WARD")),
     _spec(0, "REVISED PLU ZONES", EvidenceClass.REGULATORY, "DP zoning", out_fields=("OBJECTID", "ZONE_CODE2")),
@@ -213,8 +207,6 @@ def applicable_layer_specs(
     return tuple(spec for spec in deduplicate_layer_specs(specs) if spec.is_applicable(active_context))
 
 
-# Descriptive aliases make the small pure API easy to discover without adding
-# another abstraction layer.
 get_applicable_specs = applicable_layer_specs
 deduplicated_specs = deduplicate_layer_specs
 

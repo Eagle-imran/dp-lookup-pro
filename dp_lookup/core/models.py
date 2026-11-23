@@ -253,7 +253,6 @@ class PlanningRemarks:
             "status_summary": self.status_summary,
             "zone": self.zone,
             "zones": deepcopy(list(self.zones)),
-            # Singular fields are retained for backwards compatibility.
             "reservation": {
                 "code": first_res.get("code", "None"),
                 "type": first_res.get("type", "None"),

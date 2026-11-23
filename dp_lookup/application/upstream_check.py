@@ -160,8 +160,6 @@ async def _remote_layer_probe(client: Any, source_url: str) -> Dict[str, Any]:
                             max_edited = value
                             break
         except UpstreamCheckError:
-            # Inventory and schema still provide a useful check. The result
-            # explicitly records that edit-time evidence was unavailable.
             max_edited = _edit_timestamp(metadata)
     return {
         "source_url": source_url,
