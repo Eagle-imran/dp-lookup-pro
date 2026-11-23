@@ -1,2 +1,5 @@
 # Apply ruff format and Python 3.11 lint fixes repo-wide
 c473b2e0dd6c6611f5ee2dc7e38ce4c09544ad61
+
+# Format except clauses for the Python 3.15 target
+1f0d71a2f34753344c90c5e2f2343b76f56574de
