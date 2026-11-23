@@ -1,8 +1,7 @@
-"""Typed artifact plug-in boundary and adapters for legacy writer functions.
+"""Typed artifact plug-in boundary.
 
-Every generated file crosses this module through a small request object.  The
-older public writer functions remain supported here, at the implementation
-edge, instead of leaking their long positional signatures into orchestration.
+Every generated file crosses this module through a small request object, and
+the PDF and Excel writers receive frozen ``PlotReportData``/``ExcelRegisterData``.
 """
 
 from __future__ import annotations
@@ -83,10 +82,6 @@ class ExcelRegisterWriter(Protocol):
     """Modern output port for the master-register implementation."""
 
     def write(self, request: ExcelRegisterRequest) -> None: ...
-
-
-class LegacyArtifactProcedure(Protocol):
-    def __call__(self, *args: Any, **kwargs: Any) -> None: ...
 
 
 class PdfDataWriter(Protocol):
@@ -198,96 +193,6 @@ class RichVectorExporter:
 
 
 @dataclass(frozen=True)
-class LegacyPdfReportWriter:
-    """Adapter which keeps ``build_pdf_doc`` publicly compatible."""
-
-    writer: LegacyArtifactProcedure
-
-    def write(self, request: PdfReportRequest) -> None:
-        artifact = request.context.artifact
-        parcel = artifact.parcel
-        planning = artifact.planning
-        road = artifact.road
-        self.writer(
-            request.output_path,
-            planning.status_badge,
-            planning.status_summary,
-            parcel.village,
-            parcel.attrs,
-            parcel.cts_no,
-            planning.zone,
-            planning.designation_description,
-            planning.designation_code,
-            planning.modification_approval,
-            planning.modification_label,
-            planning.crz_status,
-            planning.metro_buffer,
-            road.name,
-            road.width,
-            request.context.maps.dp_map_path,
-            request.context.maps.qr_png,
-            artifact.map_link,
-            request.context.maps.satellite_path,
-            artifact.neighbours.plots,
-            (
-                "MCGM cadastral parcel record"
-                if parcel.area_source == "Recorded plot area"
-                else "Calculated from the MCGM cadastral parcel boundary for screening"
-            ),
-            res_code=planning.reservation_code,
-            res_type=planning.reservation_type,
-            reservations=planning.reservations,
-            designations=planning.designations,
-            encumbered_percent=planning.encumbered_percent,
-            encumbered_area_sqm=planning.encumbered_area_sqm,
-            net_unencumbered_sqm=planning.net_unencumbered_sqm,
-        )
-
-
-@dataclass(frozen=True)
-class LegacyExcelRegisterWriter:
-    """Adapter which keeps ``update_excel_register`` publicly compatible."""
-
-    writer: LegacyArtifactProcedure
-
-    def write(self, request: ExcelRegisterRequest) -> None:
-        artifact = request.context.artifact
-        parcel = artifact.parcel
-        planning = artifact.planning
-        road = artifact.road
-        filenames = artifact.paths.filenames
-        self.writer(
-            register_path=request.output_path,
-            attrs=parcel.attrs,
-            village=parcel.village,
-            cts_number=parcel.cts_no,
-            zone=planning.zone,
-            status_badge=planning.status_badge,
-            res_code=planning.reservation_code,
-            res_type=planning.reservation_type,
-            des_code=planning.designation_code,
-            des_desc=planning.designation_description,
-            mod_approval=planning.modification_approval,
-            mod_label=planning.modification_label,
-            mod_doc=planning.modification_document,
-            crz_buffer_flag=planning.crz_status,
-            metro_buffer_flag=planning.metro_buffer,
-            road_name=road.name,
-            road_width=road.width,
-            neighbors=artifact.neighbours.plots,
-            dp_snapshot_fname=filenames["dp_map"],
-            sat_snapshot_fname=filenames["satellite"],
-            pdf_fname=filenames["pdf"],
-            dxf_fname=filenames["dxf"],
-            geojson_fname=filenames["geojson"],
-            kml_fname=filenames["kml"],
-            map_link=artifact.map_link,
-            reservations=planning.reservations,
-            designations=planning.designations,
-        )
-
-
-@dataclass(frozen=True)
 class PdfArtifactExporter:
     writer: PdfReportWriter
     name: str = "PDF report"
@@ -326,15 +231,11 @@ def registered_report_artifact_exporters(dependencies: LookupDependencies) -> tu
     """Resolve typed PDF/register adapters plus optional report-stage plug-ins."""
     if dependencies.pdf_report_writer is not None:
         pdf_writer: PdfReportWriter = dependencies.pdf_report_writer
-    elif dependencies.pdf_writer is not None:
-        pdf_writer = LegacyPdfReportWriter(dependencies.pdf_writer)
     else:
         pdf_writer = TypedPdfReportWriter(dependencies.pdf_data_writer)
 
     if dependencies.excel_register_writer is not None:
         excel_writer: ExcelRegisterWriter = dependencies.excel_register_writer
-    elif dependencies.excel_writer is not None:
-        excel_writer = LegacyExcelRegisterWriter(dependencies.excel_writer)
     else:
         excel_writer = TypedExcelRegisterWriter(dependencies.excel_data_writer)
     built_ins: tuple[ReportArtifactExporter, ...] = (

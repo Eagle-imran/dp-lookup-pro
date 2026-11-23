@@ -137,11 +137,11 @@ from dp_lookup.exporters.dxf import (
     title_block_height,
     to_local_metres,
 )
-from dp_lookup.exporters.excel import update_excel_register
+from dp_lookup.exporters.excel import write_excel_register
 from dp_lookup.exporters.geojson import export_geojson
 from dp_lookup.exporters.html_map import export_html_map
 from dp_lookup.exporters.kml import _esc, export_kml
-from dp_lookup.exporters.pdf import build_pdf_doc
+from dp_lookup.exporters.pdf import write_pdf_report
 from dp_lookup.renderers.map_overlay import render_dp_map
 from dp_lookup.renderers.satellite import stitch_satellite
 
@@ -205,7 +205,6 @@ __all__ = [
     "arcgis_rings_to_geometry",
     "assess_plot_area",
     "boxes_overlap",
-    "build_pdf_doc",
     "bundle_folder_name",
     "bundle_is_intact",
     "cache_path_for",
@@ -264,11 +263,12 @@ __all__ = [
     "tile_to_latlon",
     "title_block_height",
     "to_local_metres",
-    "update_excel_register",
     "usable_json",
     "web_mercator_ground_area_scale",
     "wgs84_to_utm43n",
     "write_cache_entry",
+    "write_excel_register",
+    "write_pdf_report",
 ]
 
 if __name__ == "__main__":

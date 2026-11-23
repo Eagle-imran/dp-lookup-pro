@@ -5,50 +5,40 @@ from pathlib import Path
 
 import openpyxl
 import pytest
+from report_data import plot_report
 
 from dp_lookup.exporters import excel
+from dp_lookup.exporters.contracts import ExcelRegisterData
 
 
-def _register_args(path, index):
-    return {
-        "register_path": str(path),
+def _register_args(path, index, **overrides):
+    fields = {
+        "output_path": str(path),
         "attrs": {"WARD": "G/S", "TYPE": "CTS", "AREA_APP_SQ_MTRS": 100.0 + index},
-        "village": "WORLI",
         "cts_number": str(700 + index),
-        "zone": "R",
-        "status_badge": "CLEAR",
-        "res_code": "None",
-        "res_type": "None",
-        "des_code": "None",
-        "des_desc": "None",
-        "mod_approval": "None",
-        "mod_label": "None",
-        "mod_doc": "None",
-        "crz_buffer_flag": "NO",
-        "metro_buffer_flag": "NO",
-        "road_name": "Road",
-        "road_width": "12 M",
-        "neighbors": [],
-        "dp_snapshot_fname": "dp.png",
-        "sat_snapshot_fname": "sat.png",
-        "pdf_fname": "report.pdf",
-        "dxf_fname": "plot.dxf",
-        "geojson_fname": "plot.geojson",
-        "kml_fname": "plot.kml",
-        "map_link": "https://example.invalid/plot",
     }
+    fields.update(overrides)
+    filenames = {
+        "dp_map": "dp.png",
+        "satellite": "sat.png",
+        "pdf": "report.pdf",
+        "dxf": "plot.dxf",
+        "geojson": "plot.geojson",
+        "kml": "plot.kml",
+    }
+    return ExcelRegisterData(report=plot_report(**fields), artifact_filenames=filenames)
 
 
 def _child_append(args):
     path, index = args
-    from dp_lookup.exporters.excel import update_excel_register
+    from dp_lookup.exporters.excel import write_excel_register
 
-    update_excel_register(**_register_args(path, index))
+    write_excel_register(_register_args(path, index))
 
 
 def test_register_preserves_existing_xlsx_shape(tmp_path):
     path = tmp_path / "dp-lookups.xlsx"
-    excel.update_excel_register(**_register_args(path, 0))
+    excel.write_excel_register(_register_args(path, 0))
 
     workbook = openpyxl.load_workbook(path, read_only=True, data_only=False)
     sheet = workbook.active
@@ -63,7 +53,7 @@ def test_register_preserves_existing_xlsx_shape(tmp_path):
 
 def test_failed_atomic_save_preserves_previous_register(tmp_path, monkeypatch):
     path = tmp_path / "dp-lookups.xlsx"
-    excel.update_excel_register(**_register_args(path, 0))
+    excel.write_excel_register(_register_args(path, 0))
     before = path.read_bytes()
 
     def fail_replace(_source, _target):
@@ -71,7 +61,7 @@ def test_failed_atomic_save_preserves_previous_register(tmp_path, monkeypatch):
 
     monkeypatch.setattr(excel.os, "replace", fail_replace)
     with pytest.raises(OSError, match="simulated replace failure"):
-        excel.update_excel_register(**_register_args(path, 1))
+        excel.write_excel_register(_register_args(path, 1))
 
     assert path.read_bytes() == before
     assert not list(tmp_path.glob("*.tmp"))
@@ -79,8 +69,8 @@ def test_failed_atomic_save_preserves_previous_register(tmp_path, monkeypatch):
 
 def test_register_appends_structured_area_authority_columns(tmp_path):
     path = tmp_path / "dp-lookups.xlsx"
-    args = _register_args(path, 0)
-    args["attrs"]["_DP_AREA_ASSESSMENT"] = {
+    attrs = {"WARD": "G/S", "TYPE": "CTS", "AREA_APP_SQ_MTRS": 100.0}
+    attrs["_DP_AREA_ASSESSMENT"] = {
         "recorded_plot_area_sqm": 100.0,
         "calculated_boundary_area_sqm": 106.0,
         "selected_area_sqm": 100.0,
@@ -93,7 +83,7 @@ def test_register_appends_structured_area_authority_columns(tmp_path):
         "source_snapshot_date": "2026-08-22T00:00:00+00:00",
     }
 
-    excel.update_excel_register(**args)
+    excel.write_excel_register(_register_args(path, 0, attrs=attrs))
 
     workbook = openpyxl.load_workbook(path, read_only=True, data_only=False)
     sheet = workbook.active
@@ -129,11 +119,14 @@ def _row_by_header(sheet, row):
 
 def test_source_text_cannot_become_a_spreadsheet_formula(tmp_path):
     path = tmp_path / "dp-lookups.xlsx"
-    args = _register_args(path, 0)
-    args["road_name"] = '=HYPERLINK("http://evil.invalid","x")'
-    args["des_desc"] = "+cmd|' /C calc'!A0"
-    args["res_type"] = "@SUM(1+1)"
-    excel.update_excel_register(**args)
+    args = _register_args(
+        path,
+        0,
+        road_name='=HYPERLINK("http://evil.invalid","x")',
+        designation_description="+cmd|' /C calc'!A0",
+        reservation_type="@SUM(1+1)",
+    )
+    excel.write_excel_register(args)
 
     sheet = openpyxl.load_workbook(path).active
     row = _row_by_header(sheet, 2)
@@ -157,7 +150,7 @@ def test_legacy_register_with_reordered_columns_keeps_values_aligned(tmp_path):
     sheet.append(["1", "BYCULLA", "2026-01-01 00:00:00", "kept"])
     legacy.save(path)
 
-    excel.update_excel_register(**_register_args(path, 5))
+    excel.write_excel_register(_register_args(path, 5))
 
     sheet = openpyxl.load_workbook(path).active
     headers = [cell.value for cell in sheet[1]]
