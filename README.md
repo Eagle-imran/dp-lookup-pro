@@ -138,6 +138,7 @@ supplied:
 
 ```bash
 dp-lookup-pro db parcels build
+dp-lookup-pro db parcels update    # only parcels MCGM added or edited since the active snapshot
 dp-lookup-pro db parcels status
 dp-lookup-pro db parcels verify
 dp-lookup-pro db parcels activate
@@ -252,6 +253,9 @@ dp-lookup-pro plots build --limit 25 --json
 dp-lookup-pro plots build
 dp-lookup-pro plots verify
 dp-lookup-pro plots activate
+
+# After new snapshots: copy the active build, recalculating only affected plots
+dp-lookup-pro plots update
 
 # Real workflow commands
 dp-lookup-pro plots analyze WORLI 733 --json

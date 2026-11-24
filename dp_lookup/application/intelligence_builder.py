@@ -6,7 +6,7 @@ import sqlite3
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Lock
@@ -16,6 +16,7 @@ from shapely.geometry.base import BaseGeometry
 
 from dp_lookup.application.authority_resolver import AuthorityResolver
 from dp_lookup.application.ingestion import build_parcel_context
+from dp_lookup.application.intelligence_update import affected_plots
 from dp_lookup.application.local_roads import LocalRoadProvider
 from dp_lookup.application.local_spatial import LocalNeighbourProvider
 from dp_lookup.application.planning_snapshot import canonical_planning_specs
@@ -173,6 +174,42 @@ def _evidence_refs(report: Any, area_scale: float) -> list[dict[str, Any]]:
     return result
 
 
+def _with_facts_hash(plot: PlotIntelligence) -> PlotIntelligence:
+    facts = plot.to_dict()
+    facts["quality"].pop("facts_hash", None)
+    facts["quality"].pop("calculated_at", None)
+    return replace(plot, facts_hash=sha256_json(facts))
+
+
+def _relabel_parcel_snapshot(
+    snapshot_id: int, snapshot_date: str | None
+) -> Callable[[PlotIntelligence], PlotIntelligence]:
+    """Point a copied record's area assessment at the new snapshot, whose parcel rows are identical."""
+
+    def relabel(plot: PlotIntelligence) -> PlotIntelligence:
+        assessment = plot.evidence_summary.get("area_assessment")
+        if not isinstance(assessment, Mapping):
+            return plot
+        summary = {
+            **plot.evidence_summary,
+            "area_assessment": {
+                **assessment,
+                "source_snapshot_id": snapshot_id,
+                "source_snapshot_date": snapshot_date,
+            },
+        }
+        return _with_facts_hash(replace(plot, evidence_summary=summary))
+
+    return relabel
+
+
+@dataclass(frozen=True)
+class _Reuse:
+    build_id: int
+    parcel_snapshot_id: int
+    recalculate: frozenset[tuple[str, str]]
+
+
 def _compact(items: Sequence[Mapping[str, Any]]) -> tuple[Mapping[str, Any], ...]:
     """Keep computed facts; canonical raw attributes/geometry stay in source tables."""
     return tuple(
@@ -197,6 +234,7 @@ class PlotIntelligenceBuilder:
         parcel_snapshot_id: int | None = None,
         planning_snapshot_id: int | None = None,
         workers: int = 1,
+        reuse: _Reuse | None = None,
     ) -> Mapping[str, Any]:
         if limit is not None and limit < 1:
             raise ValueError("limit must be positive or None")
@@ -204,6 +242,8 @@ class PlotIntelligenceBuilder:
             raise ValueError("offset must be non-negative")
         if workers < 1 or workers > 16:
             raise ValueError("workers must be between 1 and 16")
+        if reuse is not None and (limit is not None or offset):
+            raise ValueError("an update must cover every plot; limit and offset are not allowed")
         selected_mode = EvidenceMode.parse(evidence_mode)
         with (
             SnapshotStore.open(self.database) as parcels,
@@ -263,8 +303,18 @@ class PlotIntelligenceBuilder:
                     "offset": offset,
                     "evidence_mode": selected_mode.value,
                     "include_neighbours": include_neighbours,
+                    **({"reused_build_id": reuse.build_id} if reuse else {}),
                 },
             )
+            copied: tuple[tuple[str, str], ...] = ()
+            if reuse:
+                copied = intelligence.copy_records(
+                    reuse.build_id, build_id, [item for item in identities if item not in reuse.recalculate]
+                )
+                if reuse.parcel_snapshot_id != parcel_snapshot_id:
+                    intelligence.rewrite_facts(
+                        build_id, copied, _relabel_parcel_snapshot(parcel_snapshot_id, parcel_snapshot_date)
+                    )
             completed = set(intelligence.completed_keys(build_id))
             pending = [identity for identity in identities if identity not in completed]
             worker_count = min(workers, len(pending)) if pending else 1
@@ -351,7 +401,12 @@ class PlotIntelligenceBuilder:
                 "selected_count": len(identities),
                 "citywide_identity_count": all_count,
                 "new_failures": failures,
-                "resumed_records": len(completed),
+                "resumed_records": len(completed) - len(copied),
+                **(
+                    {"reused_build_id": reuse.build_id, "copied_records": len(copied), "recalculated": len(pending)}
+                    if reuse
+                    else {}
+                ),
                 "workers": worker_count,
                 "source_fingerprint": fingerprint,
                 "authority_registry_revision": authority_revision,
@@ -362,6 +417,66 @@ class PlotIntelligenceBuilder:
                     else "Sample builds are for validation and cannot be activated."
                 ),
             }
+
+    def update(
+        self,
+        *,
+        base_build_id: int | None = None,
+        progress: ProgressCallback | None = None,
+        workers: int = 1,
+    ) -> Mapping[str, Any]:
+        """Build for the active snapshots by copying an earlier full build and recalculating affected plots."""
+        with (
+            SnapshotStore.open(self.database) as parcels,
+            PlanningSnapshotStore.open(self.database) as planning,
+            IntelligenceStore.open(self.database) as intelligence,
+        ):
+            base_id = base_build_id if base_build_id is not None else intelligence.active_build_id()
+            if base_id is None:
+                raise RuntimeError("no active plot-intelligence build to update; run a full build first")
+            base = intelligence.build(base_id)
+            if base.scope != "full" or base.state not in {"ready", "active", "retired"}:
+                raise RuntimeError(f"build {base_id} is not a finished full build and cannot be reused")
+            if base.algorithm_version != ALGORITHM_VERSION:
+                raise RuntimeError(f"build {base_id} used {base.algorithm_version}; run a full build")
+            unchanged_fingerprint = _source_fingerprint(
+                base.parcel_snapshot_id,
+                parcels.snapshot_metadata(base.parcel_snapshot_id),
+                base.planning_snapshot_id,
+                planning.snapshot(base.planning_snapshot_id).content_hash,
+                _authority_registry_revision(self.database),
+            )
+            if base.source_fingerprint != unchanged_fingerprint:
+                raise RuntimeError(f"verified documents changed since build {base_id}; run a full build")
+            parcel_snapshot_id = parcels.active_snapshot_id()
+            planning_snapshot_id = planning.active_snapshot_id()
+            if parcel_snapshot_id is None or planning_snapshot_id is None:
+                raise RuntimeError("database needs active parcel and planning snapshots")
+            if (parcel_snapshot_id, planning_snapshot_id) == (base.parcel_snapshot_id, base.planning_snapshot_id):
+                raise RuntimeError(f"build {base_id} already matches the active snapshots")
+            affected = affected_plots(
+                parcels,
+                planning,
+                old_parcel_snapshot_id=base.parcel_snapshot_id,
+                new_parcel_snapshot_id=parcel_snapshot_id,
+                old_planning_snapshot_id=base.planning_snapshot_id,
+                new_planning_snapshot_id=planning_snapshot_id,
+            )
+        parameters = base.validation.get("parameters", {})
+        result = self.build(
+            include_neighbours=bool(parameters.get("include_neighbours", True)),
+            evidence_mode=EvidenceMode.parse(parameters.get("evidence_mode", EvidenceMode.FULL.value)),
+            progress=progress,
+            parcel_snapshot_id=parcel_snapshot_id,
+            planning_snapshot_id=planning_snapshot_id,
+            workers=workers,
+            reuse=_Reuse(base_id, base.parcel_snapshot_id, affected.identities),
+        )
+        return {
+            **result,
+            "changed_parcel_objectids": list(affected.changed_parcel_objectids),
+            "changed_planning_features": affected.changed_planning_features,
+        }
 
     def _analyze(
         self,
@@ -518,10 +633,7 @@ class PlotIntelligenceBuilder:
             source_refs=tuple(source_refs),
             calculated_at=calculated_at,
         )
-        facts = plot.to_dict()
-        facts["quality"].pop("facts_hash", None)
-        facts["quality"].pop("calculated_at", None)
-        return replace(plot, facts_hash=sha256_json(facts))
+        return _with_facts_hash(plot)
 
 
 __all__ = ["CORE_LAYER_IDS", "PlotIntelligenceBuilder"]

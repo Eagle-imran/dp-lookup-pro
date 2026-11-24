@@ -15,6 +15,7 @@ from dp_lookup.core.geometry import mercator_to_wgs84
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
 ROAD_LAYER_IDS: tuple[int, ...] = (193, 194, 44, 45, 2224)
+ROAD_SEARCH_DISTANCE_M = 30.0
 
 
 def _text(attributes: Mapping[str, Any], names: Sequence[str]) -> str | None:
@@ -113,7 +114,7 @@ class LocalRoadProvider:
         self,
         store: Any | None,
         *,
-        search_distance_m: float = 30.0,
+        search_distance_m: float = ROAD_SEARCH_DISTANCE_M,
         snapshot_id: int | None = None,
         include_geometry: bool = True,
     ) -> None:
@@ -207,4 +208,4 @@ class LocalRoadProvider:
         )
 
 
-__all__ = ["ROAD_LAYER_IDS", "LocalRoadProvider"]
+__all__ = ["ROAD_LAYER_IDS", "ROAD_SEARCH_DISTANCE_M", "LocalRoadProvider"]

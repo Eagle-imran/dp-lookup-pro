@@ -139,6 +139,9 @@ class PlotIntelligenceServices:
             workers=workers,
         )
 
+    def update(self, database: Path, *, build_id: int | None = None, workers: int = 1) -> Mapping[str, Any]:
+        return PlotIntelligenceBuilder(database).update(base_build_id=build_id, workers=workers)
+
     def status(self, database: Path) -> Mapping[str, Any]:
         with IntelligenceStore.open(database) as store:
             return store.status()
@@ -262,7 +265,9 @@ class PlotIntelligenceServices:
             if refresh_due:
                 actions.append("build and verify new parcel and planning source snapshots")
             if not aligned:
-                actions.append("build, verify and activate plot intelligence for the active source snapshots")
+                actions.append(
+                    "update (or build), verify and activate plot intelligence for the active source snapshots"
+                )
             return {
                 "database": str(database),
                 "refresh_interval_days": refresh_days,

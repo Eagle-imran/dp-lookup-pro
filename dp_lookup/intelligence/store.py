@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import fields
+from itertools import batched
 from pathlib import Path
 from typing import Any, cast
 
@@ -309,6 +311,75 @@ class IntelligenceStore(SQLiteStore):
                 "DELETE FROM intelligence_issues WHERE build_id=? AND village=? AND cts_no=?",
                 (build_id, plot.village, plot.cts_no),
             )
+
+    def copy_records(
+        self, source_build_id: int, target_build_id: int, identities: Iterable[tuple[str, str]]
+    ) -> tuple[tuple[str, str], ...]:
+        """Copy plot records and their source references unchanged.
+
+        Returns every requested identity the target now holds, including ones an earlier,
+        interrupted copy already wrote, so a caller can finish relabelling them.
+        """
+        self._building(target_build_id)
+        self._build_row(source_build_id)
+        with self.transaction() as connection:
+            connection.execute(
+                "CREATE TEMP TABLE IF NOT EXISTS copy_plots(village TEXT NOT NULL, cts_no TEXT NOT NULL, "
+                "PRIMARY KEY(village,cts_no))"
+            )
+            connection.execute("DELETE FROM copy_plots")
+            connection.executemany("INSERT OR IGNORE INTO copy_plots VALUES(?,?)", identities)
+            for table in ("plot_intelligence", "plot_evidence_refs"):
+                columns = [str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})")]
+                selected = ",".join("?" if column == "build_id" else f"t.{column}" for column in columns)
+                connection.execute(
+                    f"INSERT OR IGNORE INTO {table}({','.join(columns)}) SELECT {selected} FROM {table} t "
+                    "JOIN copy_plots k ON k.village=t.village AND k.cts_no=t.cts_no WHERE t.build_id=?",
+                    (target_build_id, source_build_id),
+                )
+            copied = tuple(
+                (str(row[0]), str(row[1]))
+                for row in connection.execute(
+                    "SELECT k.village,k.cts_no FROM copy_plots k JOIN plot_intelligence p ON p.build_id=? "
+                    "AND p.village=k.village AND p.cts_no=k.cts_no ORDER BY k.village,k.cts_no",
+                    (target_build_id,),
+                )
+            )
+            connection.execute("DELETE FROM copy_plots")
+            connection.execute(
+                "UPDATE intelligence_builds SET record_count=(SELECT COUNT(*) FROM plot_intelligence "
+                "WHERE build_id=?) WHERE build_id=?",
+                (target_build_id, target_build_id),
+            )
+        return copied
+
+    def rewrite_facts(
+        self,
+        build_id: int,
+        identities: Iterable[tuple[str, str]],
+        change: Callable[[PlotIntelligence], PlotIntelligence],
+        *,
+        batch_size: int = 2000,
+    ) -> int:
+        """Replace the evidence summary and facts hash of existing records with ``change``'s result."""
+        self._building(build_id)
+        rewritten = 0
+        for batch in batched(identities, batch_size, strict=False):
+            updates = []
+            for village, cts_no in batch:
+                record = self.get(village, cts_no, build_id=build_id)
+                if record is None:
+                    raise IntelligenceStateError(f"plot {village} CTS {cts_no} is missing from build {build_id}")
+                plot = change(PlotIntelligence(**{item.name: record[item.name] for item in fields(PlotIntelligence)}))
+                updates.append((_json(plot.evidence_summary), plot.facts_hash, build_id, village, cts_no))
+            with self.transaction() as connection:
+                connection.executemany(
+                    "UPDATE plot_intelligence SET evidence_summary_json=?,facts_hash=? "
+                    "WHERE build_id=? AND village=? AND cts_no=?",
+                    updates,
+                )
+            rewritten += len(updates)
+        return rewritten
 
     def record_issue(self, build_id: int, village: str, cts_no: str, error: str) -> None:
         self._building(build_id)

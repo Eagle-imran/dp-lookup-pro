@@ -17,7 +17,7 @@ EXIT_SUCCESS = 0
 EXIT_ERROR = 1
 EXIT_USAGE = 2
 
-COMMANDS = ("build", "status", "health", "check-upstream", "verify", "diff", "activate", "rollback")
+COMMANDS = ("build", "update", "status", "health", "check-upstream", "verify", "diff", "activate", "rollback")
 
 
 class DatabaseServices(Protocol):
@@ -28,6 +28,7 @@ class DatabaseServices(Protocol):
     """
 
     def build(self, database: Path) -> Any: ...
+    def update(self, database: Path) -> Any: ...
     def status(self, database: Path) -> Any: ...
     def health(self, database: Path) -> Any: ...
     def check_upstream(self, database: Path) -> Any: ...

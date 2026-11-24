@@ -6,6 +6,19 @@ All notable changes to this project. Newest first.
 
 ## [Unreleased] — 2026-11-05
 
+### Partial updates — 2026-11-24
+
+* **`db parcels update`:** stages a new parcel snapshot that downloads only
+  the parcels MCGM added or edited since the active snapshot and copies the
+  rest unchanged. Live run: 55 seconds, 4 parcels downloaded, 135,362 copied;
+  the result has the same content hash as a full download.
+* **`plots update`:** builds plot intelligence for the active snapshots by
+  copying the active build and recalculating only affected plots (changed
+  parcels, their neighbours, and plots near changed planning features). Live
+  run: 20 plots recalculated, 119,530 copied, 63 seconds instead of about an
+  hour; the acceptance audit and 169 nearby plots match fresh lookups.
+* Full `build` commands are unchanged and remain the backstop.
+
 ### Code cleanup — 2026-11-24
 
 * **Python 3.15 only:** the project now requires Python 3.15, the version
