@@ -278,6 +278,7 @@ Build and check it explicitly:
 
 ```bash
 uv run dp-lookup-pro db parcels build
+uv run dp-lookup-pro db parcels update    # later refreshes: only what MCGM changed
 uv run dp-lookup-pro db parcels status
 uv run dp-lookup-pro db parcels verify
 uv run dp-lookup-pro db parcels activate

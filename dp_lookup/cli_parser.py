@@ -52,11 +52,12 @@ HELP = (
 DATABASE_HELP = """Database administration:
   dp-lookup-pro db health [--database PATH] [--json]
   dp-lookup-pro db check-upstream [--database PATH] [--json]
-  dp-lookup-pro db parcels <build|status|verify|diff|activate|rollback> [--database PATH] [--json]
+  dp-lookup-pro db parcels <build|update|status|verify|diff|activate|rollback> [--database PATH] [--json]
   dp-lookup-pro db planning <build|status|verify|activate|rollback> [--database PATH] [--json]
 
 Convenient action-first forms:
   dp-lookup-pro db refresh parcels
+  dp-lookup-pro db parcels update      (downloads only parcels MCGM added or edited)
   dp-lookup-pro db refresh planning
   dp-lookup-pro db planning build --layers 81,85,92,192,194,2400
   dp-lookup-pro db status parcels
@@ -69,6 +70,7 @@ database; otherwise data/mcgm-layer13.sqlite is used by the new aliases."""
 _PARCEL_DATABASE_ACTIONS = {
     "build": "build",
     "refresh": "build",
+    "update": "update",
     "status": "status",
     "verify": "verify",
     "diff": "diff",

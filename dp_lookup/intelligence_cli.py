@@ -10,12 +10,13 @@ from typing import Any
 
 from dp_lookup.application.intelligence_services import PlotIntelligenceServices
 
-COMMANDS = ("build", "status", "verify", "activate", "analyze", "search", "compare", "check")
+COMMANDS = ("build", "update", "status", "verify", "activate", "analyze", "search", "compare", "check")
 
 USAGE = """Usage: dp-lookup-pro intelligence <COMMAND> --database PATH [options]
 
 Commands:
   build                 derive a resumable intelligence build from active snapshots
+  update                copy the active build, recalculating only plots the new snapshots affect
   status                list intelligence builds and active version
   verify                verify completeness and provenance indexes
   activate              atomically publish a verified full build
@@ -193,6 +194,8 @@ def main(
                 if key in parsed
             }
             result = service.build(database, **allowed)
+        elif command == "update":
+            result = service.update(database, build_id=parsed.get("build_id"), workers=parsed.get("workers", 1))
         elif command == "status":
             result = service.status(database)
         elif command == "verify":

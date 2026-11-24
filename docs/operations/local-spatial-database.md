@@ -122,6 +122,7 @@ The streamlined commands use `DP_LOOKUP_DATABASE`, then
 dp-lookup-pro db health
 dp-lookup-pro db check-upstream
 dp-lookup-pro db parcels build
+dp-lookup-pro db parcels update
 dp-lookup-pro db parcels status
 dp-lookup-pro db parcels verify
 dp-lookup-pro db parcels diff
@@ -134,6 +135,25 @@ dp-lookup-pro db planning verify
 dp-lookup-pro db planning activate
 dp-lookup-pro db planning rollback
 ```
+
+`db parcels update` stages the same kind of snapshot as `build`, but copies
+every parcel from the active snapshot except the ones MCGM added, removed or
+edited. It asks MCGM for parcels whose `LAST_EDITED_DATE` is no more than two
+days older than the newest edit in the active snapshot, downloads those and any
+new ObjectIDs, and refuses the result if MCGM edits more parcels while it runs.
+A parcel MCGM changes without updating `LAST_EDITED_DATE` would be missed, so
+run a full `build` now and then as a backstop. On 2026-11-24 an update against
+live MCGM took 55 seconds, downloaded 4 parcels and copied 135,362; a full
+download of the same moment produced the same content hash.
+
+`plots update` does the same for plot intelligence. It copies the active build
+and recalculates only plots whose own parcels changed, plots within the
+adjacency tolerance of a changed parcel (their neighbour lists change), and
+plots within the 30 m road search distance of a changed planning feature.
+Copied records are relabelled with the new parcel snapshot. It refuses to run
+when verified documents or the algorithm changed since the active build; use
+`plots build` then. On the same date it recalculated 20 plots and copied
+119,530 in 63 seconds, against about an hour for a full build.
 
 The legacy flat `database build`, `database build-planning`, and corresponding
 lifecycle commands remain exact compatibility aliases.

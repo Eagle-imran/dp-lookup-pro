@@ -299,6 +299,57 @@ class SnapshotStore(SQLiteStore):
     add_parcels = insert_batch
     insert_records = insert_batch
 
+    def copy_parcels(self, source_snapshot_id: int, target_snapshot_id: int, objectids: Iterable[int]) -> int:
+        """Copy archived parcel rows unchanged into a building snapshot; rows it already holds are kept."""
+        self._building(target_snapshot_id)
+        self._snapshot_row(source_snapshot_id)
+        selected = sorted({int(value) for value in objectids})
+        with self.transaction() as conn:
+            conn.execute("CREATE TEMP TABLE IF NOT EXISTS copy_objectids(objectid INTEGER PRIMARY KEY)")
+            conn.execute("DELETE FROM copy_objectids")
+            conn.executemany("INSERT INTO copy_objectids VALUES(?)", ((value,) for value in selected))
+            copied = conn.execute(
+                """INSERT OR IGNORE INTO parcels(snapshot_id,objectid,village,cts_no,ward,type,area_app_sqm,
+                   raw_attrs_json,raw_feature_json,geometry_json,geom_format,min_x,max_x,min_y,max_y)
+                   SELECT ?,p.objectid,p.village,p.cts_no,p.ward,p.type,p.area_app_sqm,p.raw_attrs_json,
+                   p.raw_feature_json,p.geometry_json,p.geom_format,p.min_x,p.max_x,p.min_y,p.max_y
+                   FROM parcels p JOIN copy_objectids c ON c.objectid=p.objectid WHERE p.snapshot_id=?""",
+                (target_snapshot_id, source_snapshot_id),
+            ).rowcount
+            if self.rtree_available:
+                conn.execute(
+                    """INSERT OR IGNORE INTO parcel_bbox_map(snapshot_id,objectid)
+                       SELECT p.snapshot_id,p.objectid FROM parcels p JOIN copy_objectids c ON c.objectid=p.objectid
+                       WHERE p.snapshot_id=? AND p.min_x IS NOT NULL""",
+                    (target_snapshot_id,),
+                )
+                conn.execute(
+                    """DELETE FROM parcel_bbox WHERE bbox_id IN (SELECT m.bbox_id FROM parcel_bbox_map m
+                       JOIN copy_objectids c ON c.objectid=m.objectid WHERE m.snapshot_id=?)""",
+                    (target_snapshot_id,),
+                )
+                conn.execute(
+                    """INSERT INTO parcel_bbox SELECT m.bbox_id,p.min_x,p.max_x,p.min_y,p.max_y
+                       FROM parcel_bbox_map m JOIN copy_objectids c ON c.objectid=m.objectid
+                       JOIN parcels p ON p.snapshot_id=m.snapshot_id AND p.objectid=m.objectid
+                       WHERE m.snapshot_id=?""",
+                    (target_snapshot_id,),
+                )
+            conn.execute("DELETE FROM copy_objectids")
+            conn.execute(
+                "UPDATE snapshots SET received_count=(SELECT COUNT(*) FROM parcels WHERE snapshot_id=?) WHERE snapshot_id=?",
+                (target_snapshot_id, target_snapshot_id),
+            )
+        return int(copied)
+
+    def max_attribute(self, snapshot_id: int, field: str) -> Any:
+        """Largest raw source value of one attribute, e.g. the latest edit date in a snapshot."""
+        self._snapshot_row(snapshot_id)
+        return self.connection.execute(
+            "SELECT MAX(json_extract(raw_attrs_json,?)) FROM parcels WHERE snapshot_id=?",
+            (f'$."{field}"', snapshot_id),
+        ).fetchone()[0]
+
     def add_issue(
         self,
         snapshot_id: int,

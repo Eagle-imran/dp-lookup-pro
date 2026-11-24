@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from dp_lookup.application.database_health import database_health
+from dp_lookup.application.parcel_update import ChangedOnlyPlan, edited_ids, plan_changed_only
 from dp_lookup.application.snapshot_ingestion import (
     SnapshotIngestionConfig,
     ingest_layer13_snapshot,
@@ -90,13 +91,20 @@ class LocalDatabaseServices:
     def build(self, database: Path) -> Mapping[str, Any]:
         return asyncio.run(self._build(database))
 
-    async def _build(self, database: Path) -> Mapping[str, Any]:
+    def update(self, database: Path) -> Mapping[str, Any]:
+        """Stage a snapshot that re-downloads only parcels MCGM added or edited since the active one."""
+        return asyncio.run(self._build(database, changed_only=True))
+
+    async def _build(self, database: Path, *, changed_only: bool = False) -> Mapping[str, Any]:
         store: SnapshotStore | None = None
         snapshot_id: int | None = None
         resumed_records = 0
+        copied_records = 0
+        downloaded_records = 0
+        plan: ChangedOnlyPlan | None = None
 
         async def accept_inventory(expected_ids: tuple[int, ...], source_context: Mapping[str, Any]) -> Iterable[int]:
-            nonlocal store, snapshot_id, resumed_records
+            nonlocal store, snapshot_id, resumed_records, copied_records
             if store is None:
                 store = SnapshotStore.open(database)
             inventory_contract = {
@@ -106,6 +114,7 @@ class LocalDatabaseServices:
                 "object_id_field": source_context.get("object_id_field"),
                 "schema_version": store.status()["schema_version"],
                 "expected_ids": expected_ids,
+                **(plan.contract() if plan else {}),
             }
             inventory_hash = sha256_json(inventory_contract)
             snapshot_id = store.find_resumable_snapshot(
@@ -122,22 +131,27 @@ class LocalDatabaseServices:
                         "inventory_hash": inventory_hash,
                         "inventory_count": len(expected_ids),
                         "source_context": dict(source_context),
+                        **(plan.metadata() if plan else {}),
                     },
                 )
-                store.set_inventory(snapshot_id, expected_ids)
-            else:
-                store.set_inventory(snapshot_id, expected_ids)
+            store.set_inventory(snapshot_id, expected_ids)
+            resumed_records = store.count(snapshot_id)
+            if plan:
+                copied_records = store.copy_parcels(plan.base_snapshot_id, snapshot_id, plan.copy_ids(expected_ids))
             persisted: tuple[int, ...] = store.object_ids(snapshot_id)
-            resumed_records = len(persisted)
             return persisted
 
         async def accept_batch(features: tuple[SnapshotFeature, ...]) -> None:
+            nonlocal downloaded_records
             if store is None or snapshot_id is None:
                 raise RuntimeError("snapshot inventory was not initialized")
             store.insert_batch(snapshot_id, (_store_record(feature) for feature in features))
+            downloaded_records += len(features)
 
         try:
             async with self.client_factory() as client:
+                if changed_only:
+                    plan = await plan_changed_only(client, database, self.ingestion_config)
                 result = await self.importer(
                     client,
                     config=self.ingestion_config,
@@ -145,6 +159,14 @@ class LocalDatabaseServices:
                     on_batch=accept_batch,
                     retain_features=False,
                 )
+                edited_during_update = (
+                    plan is not None
+                    and result.complete
+                    and await edited_ids(client, plan.edited_since, self.ingestion_config) != plan.edited_ids
+                )
+                if edited_during_update and store is not None and snapshot_id is not None:
+                    store.fail_snapshot(snapshot_id, "MCGM edited parcels while the update ran")
+                    raise SnapshotIngestionError("MCGM edited parcels while the update ran; run the update again")
             if not result.complete:
                 manifest = result.manifest
                 if store is not None and snapshot_id is not None:
@@ -155,6 +177,7 @@ class LocalDatabaseServices:
                             "inventory_hash": initial_metadata.get("inventory_hash"),
                             "resumed_records": resumed_records,
                             "resumable": True,
+                            **(plan.metadata() if plan else {}),
                         }
                     )
                     store.update_snapshot_metadata(snapshot_id, partial_metadata)
@@ -173,6 +196,8 @@ class LocalDatabaseServices:
             metadata = _manifest_metadata(result)
             metadata["inventory_hash"] = store.snapshot_metadata(snapshot_id).get("inventory_hash")
             metadata["resumed_records"] = resumed_records
+            if plan:
+                metadata.update(plan.metadata())
             store.update_snapshot_metadata(snapshot_id, metadata)
             if result.manifest.duplicate_ids:
                 store.add_issue(
@@ -184,7 +209,7 @@ class LocalDatabaseServices:
                 )
             snapshot = store.finalize_snapshot(snapshot_id)
             duplicate_groups = store.duplicate_identity_groups(snapshot_id=snapshot_id)
-            return {
+            summary: dict[str, Any] = {
                 "snapshot_id": snapshot.snapshot_id,
                 "state": snapshot.state,
                 "records": snapshot.received_count,
@@ -194,6 +219,21 @@ class LocalDatabaseServices:
                 "duplicate_identity_groups": len(duplicate_groups),
                 "note": "snapshot is ready but not active; run database activate after review",
             }
+            if plan:
+                changes = store.diff_snapshots(plan.base_snapshot_id, snapshot.snapshot_id)
+                summary.update(
+                    {
+                        "refresh_mode": "changed_only",
+                        "base_snapshot_id": plan.base_snapshot_id,
+                        "edited_since": plan.edited_since,
+                        "copied_records": copied_records,
+                        "downloaded_records": downloaded_records,
+                        "added_objectids": changes["added"],
+                        "removed_objectids": changes["removed"],
+                        "changed_objectids": changes["changed"],
+                    }
+                )
+            return summary
         finally:
             if store is not None:
                 store.close()
