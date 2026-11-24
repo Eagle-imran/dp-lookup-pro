@@ -14,7 +14,7 @@ All notable changes to this project. Newest first.
   Programming errors now surface instead of being silently swallowed.
 * Removed five handlers that could never fire (DXF linetype setup, content
   bounds and three text measurement fallbacks).
-* Removed 17 unused alias methods from the parcel and planning snapshot
+* Removed 16 unused alias methods from the parcel and planning snapshot
   stores, and the `build_planning_snapshot` alias.
 
 ### Partial updates — 2026-11-24
