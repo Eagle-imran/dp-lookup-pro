@@ -6,6 +6,8 @@ import math
 from collections.abc import Sequence
 from typing import Any
 
+from ezdxf.tools.text_size import text_size
+
 from dp_lookup.exporters.dxf_policy import DEFAULT_DXF_LAYOUT_POLICY, DxfLayoutPolicy
 
 Box = tuple[float, float, float, float]
@@ -30,34 +32,18 @@ def fit_label_to_width(
     return template.format(value[:keep].rstrip(" ,.") + "...")
 
 
-def text_extents(entity: Any) -> Box | None:
+def text_extents(entity: Any) -> Box:
     """Return the rendered bounding box of a TEXT entity."""
-    try:
-        from ezdxf.tools.text_size import text_size
-
-        size = text_size(entity)
-        width, height = size.width, size.cap_height
-    except Exception:
-        try:
-            height = float(entity.dxf.height)
-            width = len(entity.dxf.text) * height * 0.72
-        except Exception:
-            return None
-
-    halign = int(getattr(entity.dxf, "halign", 0) or 0)
-    valign = int(getattr(entity.dxf, "valign", 0) or 0)
-    try:
-        if (halign or valign) and entity.dxf.hasattr("align_point"):
-            anchor = entity.dxf.align_point
-        else:
-            anchor = entity.dxf.insert
-        x, y = float(anchor[0]), float(anchor[1])
-    except Exception:
-        return None
+    size = text_size(entity)
+    width, height = size.width, size.cap_height
+    halign = int(entity.dxf.get("halign", 0))
+    valign = int(entity.dxf.get("valign", 0))
+    anchor = entity.dxf.align_point if (halign or valign) and entity.dxf.hasattr("align_point") else entity.dxf.insert
+    x, y = float(anchor[0]), float(anchor[1])
 
     offset_x = -width * {1: 0.5, 2: 1.0, 4: 0.5}.get(halign, 0.0)
     offset_y = -height * (0.5 if halign == 4 else {2: 0.5, 3: 1.0}.get(valign, 0.0))
-    rotation = math.radians(float(getattr(entity.dxf, "rotation", 0.0) or 0.0))
+    rotation = math.radians(float(entity.dxf.get("rotation", 0.0)))
     if not rotation:
         return (x + offset_x, y + offset_y, x + offset_x + width, y + offset_y + height)
     cos_rotation, sin_rotation = math.cos(rotation), math.sin(rotation)

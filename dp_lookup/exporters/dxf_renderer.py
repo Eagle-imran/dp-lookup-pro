@@ -49,11 +49,8 @@ def new_dxf_document(has_reservations: bool = False) -> ezdxf.document.Drawing:
     doc = ezdxf.new("R2010")
     doc.header["$INSUNITS"] = 6
     doc.header["$MEASUREMENT"] = 1
-    try:
-        doc.linetypes.add("DASHED", pattern="A, 1.0, -0.5")
-        doc.linetypes.add("PHANTOM", pattern="A, 2.0, -0.5, 0.5, -0.5, 0.5, -0.5")
-    except Exception:
-        pass
+    doc.linetypes.add("DASHED", pattern="A, 1.0, -0.5")
+    doc.linetypes.add("PHANTOM", pattern="A, 2.0, -0.5, 0.5, -0.5, 0.5, -0.5")
     for layer in (*DXF_LAYERS, DXF_RESERVATION_LAYER) if has_reservations else DXF_LAYERS:
         attrs = {"name": layer.name, "color": layer.aci_colour, "lineweight": layer.lineweight_hundredths_mm}
         if layer.linetype:
@@ -374,26 +371,23 @@ def _content_bounds(sheet: _Sheet) -> Box:
     xs: list[float] = []
     ys: list[float] = []
     for entity in sheet.msp:
-        try:
-            kind = entity.dxftype()
-            if kind == "LWPOLYLINE":
-                for vx, vy in entity.get_points("xy"):
-                    xs.append(vx)
-                    ys.append(vy)
-            elif kind == "LINE":
-                xs += [entity.dxf.start.x, entity.dxf.end.x]
-                ys += [entity.dxf.start.y, entity.dxf.end.y]
-            elif kind == "CIRCLE":
-                centre, radius = entity.dxf.center, entity.dxf.radius
-                xs += [centre.x - radius, centre.x + radius]
-                ys += [centre.y - radius, centre.y + radius]
-            elif kind == "TEXT":
-                box = text_extents(entity)
-                if box:
-                    xs += [box[0], box[2]]
-                    ys += [box[1], box[3]]
-        except Exception:
-            continue
+        kind = entity.dxftype()
+        if kind == "LWPOLYLINE":
+            for vx, vy in entity.get_points("xy"):
+                xs.append(vx)
+                ys.append(vy)
+        elif kind == "LINE":
+            xs += [entity.dxf.start.x, entity.dxf.end.x]
+            ys += [entity.dxf.start.y, entity.dxf.end.y]
+        elif kind == "CIRCLE":
+            centre, radius = entity.dxf.center, entity.dxf.radius
+            xs += [centre.x - radius, centre.x + radius]
+            ys += [centre.y - radius, centre.y + radius]
+        elif kind == "TEXT":
+            box = text_extents(entity)
+            if box:
+                xs += [box[0], box[2]]
+                ys += [box[1], box[3]]
     if not xs:
         return sheet.min_x, sheet.min_y, sheet.max_x, sheet.max_y
     return min(xs), min(ys), max(xs), max(ys)

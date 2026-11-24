@@ -116,5 +116,5 @@ async def fetch_tile_cached(
         with contextlib.suppress(OSError):
             _write_atomic(cache_path, content)
         return content
-    except Exception:
+    except httpx.HTTPError:
         return stale

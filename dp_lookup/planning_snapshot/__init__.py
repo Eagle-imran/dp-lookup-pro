@@ -1,6 +1,6 @@
 """Versioned, auditable storage for captured planning-layer features."""
 
-from .ingestion import PlanningLayerInput, build_planning_snapshot, ingest_planning_snapshot
+from .ingestion import PlanningLayerInput, ingest_planning_snapshot
 from .models import (
     PlanningFeature,
     PlanningLayerSnapshot,
@@ -23,7 +23,6 @@ __all__ = [
     "PlanningSnapshotStateError",
     "PlanningSnapshotStore",
     "PlanningSnapshotValidationError",
-    "build_planning_snapshot",
     "canonical_json",
     "ingest_planning_snapshot",
     "sha256_json",
