@@ -8,12 +8,12 @@ All notable changes to this project. Newest first.
 
 ### Narrower error handling — 2026-11-24
 
-* Nine catch-all `except Exception` handlers now catch only the failure they
+* Five catch-all `except Exception` handlers now catch only the failure they
   exist for (bad object ids, network errors on satellite tiles, geometry
   Shapely rejects, SQLite errors while marking a planning snapshot failed).
   Programming errors now surface instead of being silently swallowed.
-* Removed four handlers that could never fire (DXF linetype setup, content
-  bounds and text measurement fallbacks).
+* Removed five handlers that could never fire (DXF linetype setup, content
+  bounds and three text measurement fallbacks).
 * Removed 17 unused alias methods from the parcel and planning snapshot
   stores, and the `build_planning_snapshot` alias.
 
