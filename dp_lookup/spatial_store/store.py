@@ -295,10 +295,6 @@ class SnapshotStore(SQLiteStore):
             )
         return len(normalized)
 
-    insert_parcels = insert_batch
-    add_parcels = insert_batch
-    insert_records = insert_batch
-
     def copy_parcels(self, source_snapshot_id: int, target_snapshot_id: int, objectids: Iterable[int]) -> int:
         """Copy archived parcel rows unchanged into a building snapshot; rows it already holds are kept."""
         self._building(target_snapshot_id)
@@ -512,8 +508,6 @@ class SnapshotStore(SQLiteStore):
         digest.update(b"]")
         return digest.hexdigest()
 
-    finalize = finalize_snapshot
-
     def activate(self, snapshot_id: int) -> Snapshot:
         row = self._snapshot_row(snapshot_id)
         if row["state"] not in {"ready", "active", "retired"}:
@@ -529,9 +523,6 @@ class SnapshotStore(SQLiteStore):
                 (str(snapshot_id),),
             )
         return self.snapshot(snapshot_id)
-
-    activate_snapshot = activate
-    set_active_snapshot = activate
 
     def rollback(self, snapshot_id: int | None = None) -> Snapshot:
         if snapshot_id is None:
@@ -582,8 +573,6 @@ class SnapshotStore(SQLiteStore):
         result["metadata"] = metadata.get("manifest_summary", metadata)
         result["validation"] = validation
         return result
-
-    get_status = status
 
     def count(self, snapshot_id: int | None = None) -> int:
         snapshot_id = snapshot_id if snapshot_id is not None else self.active_snapshot_id()
@@ -662,8 +651,6 @@ class SnapshotStore(SQLiteStore):
             params.append(offset)
         return [self._json_safe_parcel(self._parcel_dict(row)) for row in self.connection.execute(sql, params)]
 
-    search = search_parcels
-
     def lookup(self, village: str, cts_no: str, *, snapshot_id: int | None = None) -> list[dict[str, Any]]:
         snapshot_id = snapshot_id if snapshot_id is not None else self.active_snapshot_id()
         if snapshot_id is None:
@@ -673,8 +660,6 @@ class SnapshotStore(SQLiteStore):
             (snapshot_id, _identity_text(village, uppercase=True), _identity_text(cts_no, uppercase=True)),
         )
         return [self._parcel_dict(row) for row in rows]
-
-    lookup_exact = lookup
 
     def duplicate_identity_groups(self, snapshot_id: int | None = None) -> list[dict[str, Any]]:
         """List village/CTS groups containing more than one source feature."""
@@ -781,8 +766,6 @@ class SnapshotStore(SQLiteStore):
             "new_duplicate_identity_group_count": new_duplicate_count,
             "duplicate_identity_group_counts": {"old": old_duplicate_count, "new": new_duplicate_count},
         }
-
-    diff = diff_snapshots
 
     def parcels_in_bbox(
         self, min_x: float, max_x: float, min_y: float, max_y: float, *, snapshot_id: int | None = None

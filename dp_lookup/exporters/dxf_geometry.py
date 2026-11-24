@@ -6,6 +6,7 @@ import math
 from collections.abc import Sequence
 from typing import Any
 
+from shapely.errors import ShapelyError
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
 
@@ -45,7 +46,7 @@ def offset_polygon_inward(ring: Ring, distance: float) -> list[list[Point]]:
         if not poly.is_valid:
             poly = poly.buffer(0)
         parts = inset_polygon_parts(poly, distance)
-    except Exception:
+    except ShapelyError, ValueError, TypeError:
         return []
     return [list(part.exterior.coords)[:-1] for part in parts]
 

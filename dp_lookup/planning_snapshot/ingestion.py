@@ -9,6 +9,7 @@ planning snapshot store.
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -83,11 +84,9 @@ def ingest_planning_snapshot(
                 (utc_now(), json.dumps({"ok": False, "errors": [str(exc)]}), snapshot_id),
             )
             store.connection.commit()
-        except Exception:
+        except sqlite3.Error:
             store.connection.rollback()
         raise
 
 
-build_planning_snapshot = ingest_planning_snapshot
-
-__all__ = ["PlanningLayerInput", "build_planning_snapshot", "ingest_planning_snapshot"]
+__all__ = ["PlanningLayerInput", "ingest_planning_snapshot"]

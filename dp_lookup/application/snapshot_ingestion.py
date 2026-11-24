@@ -129,7 +129,7 @@ def _int_id(value: Any) -> int | None:
         return None
     try:
         integer = int(value)
-    except Exception:
+    except TypeError, ValueError, OverflowError:
         return None
     return integer if integer >= 0 and str(value).strip() not in {"", "None", "null"} else None
 

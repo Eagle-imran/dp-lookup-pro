@@ -375,8 +375,6 @@ class PlanningSnapshotStore(SQLiteStore):
                     )
         return len(prepared)
 
-    insert_features = insert_batch
-
     def _layer_hash(self, snapshot_id: int, canonical_id: int) -> str:
         rows = self.connection.execute(
             "SELECT object_id,attributes_json,geometry_json,raw_feature_json FROM planning_features WHERE snapshot_id=? AND canonical_layer_id=? ORDER BY object_id",
@@ -416,8 +414,6 @@ class PlanningSnapshotStore(SQLiteStore):
         self._snapshot_row(snapshot_id)
         return _validate_snapshot(self.connection, snapshot_id, self._layer_hash)
 
-    validate_snapshot = validate
-
     def finalize(self, snapshot_id: int) -> PlanningSnapshot:
         self._building(snapshot_id)
         report = self.validate(snapshot_id)
@@ -444,8 +440,6 @@ class PlanningSnapshotStore(SQLiteStore):
         self.connection.execute("ANALYZE")
         self.connection.commit()
         return self.snapshot(snapshot_id)
-
-    finalize_snapshot = finalize
 
     def snapshot(self, snapshot_id: int) -> PlanningSnapshot:
         row = self._snapshot_row(snapshot_id)
@@ -540,16 +534,12 @@ class PlanningSnapshotStore(SQLiteStore):
             include_archive_payload=False,
         )
 
-    parcels_in_bbox = features_in_bbox
-
     def query_layer(self, snapshot_id: int, layer_id: int, parcel_geometry: Any) -> list[dict[str, Any]]:
         return self._queries().query_layer(snapshot_id, layer_id, parcel_geometry)
 
     def pin_active_snapshot(self) -> PlanningSnapshot | None:
         active = self.active_snapshot_id()
         return self.snapshot(active) if active is not None else None
-
-    active_snapshot = pin_active_snapshot
 
     def object_ids(self, snapshot_id: int, layer_id: int) -> tuple[int, ...]:
         canonical_id = canonical_layer_id(layer_id)
@@ -588,8 +578,6 @@ class PlanningSnapshotStore(SQLiteStore):
             conn.execute("UPDATE planning_snapshots SET state='active' WHERE snapshot_id=?", (snapshot_id,))
             conn.execute("INSERT INTO planning_activations(snapshot_id,activated_at) VALUES(?,?)", (snapshot_id, now))
         return self.snapshot(snapshot_id)
-
-    activate_snapshot = activate
 
     def rollback(self, snapshot_id: int | None = None) -> PlanningSnapshot:
         if snapshot_id is None:

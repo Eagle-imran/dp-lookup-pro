@@ -7,6 +7,8 @@ import math
 from collections.abc import Mapping
 from typing import Any, cast
 
+from shapely.errors import ShapelyError
+
 from dp_lookup.core.topology import arcgis_rings_to_geometry
 
 
@@ -76,7 +78,7 @@ def polygon_validation_error(geometry: Any) -> str | None:
             return "polygon ring has fewer than three distinct coordinates"
     try:
         normalized = arcgis_rings_to_geometry(rings)
-    except Exception as exc:
+    except (ShapelyError, ValueError, TypeError) as exc:
         return f"polygon topology could not be interpreted ({exc})"
     if normalized.is_empty or normalized.area <= 0:
         return "polygon is empty or has no area"
